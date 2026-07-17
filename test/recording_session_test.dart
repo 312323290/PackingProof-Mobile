@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_lens/models/barcode_marker.dart';
 import 'package:parcel_lens/models/recording_session.dart';
+import 'package:parcel_lens/models/work_mode.dart';
 import 'package:parcel_lens/services/session_repository.dart';
 
 void main() {
@@ -33,6 +34,8 @@ void main() {
           offset: const Duration(seconds: 12),
         ),
       ],
+      mediaStart: const Duration(seconds: 10),
+      mediaEnd: const Duration(seconds: 130),
     );
 
     await repository.addSession(session);
@@ -41,6 +44,36 @@ void main() {
     expect(loaded, hasLength(1));
     expect(loaded.single.displayCode, 'JT1234567890');
     expect(loaded.single.markers.single.offset, const Duration(seconds: 12));
+    expect(loaded.single.mediaStart, const Duration(seconds: 10));
+    expect(loaded.single.playbackEnd, const Duration(seconds: 130));
     expect(File(videoPath).existsSync(), isTrue);
+  });
+
+  test('旧录像记录缺少片段区间时仍按完整视频播放', () {
+    final DateTime startedAt = DateTime(2026, 7, 16, 10);
+    final RecordingSession session = RecordingSession.fromJson(
+      <String, Object?>{
+        'id': 'legacy',
+        'filePath': 'legacy.mp4',
+        'startedAt': startedAt.toIso8601String(),
+        'endedAt': startedAt.add(const Duration(seconds: 30)).toIso8601String(),
+        'markers': <Object?>[],
+      },
+    );
+
+    expect(session.mediaStart, Duration.zero);
+    expect(session.playbackEnd, const Duration(seconds: 30));
+  });
+
+  test('工作模式可持久化并默认使用连续扫码', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'parcel_lens_mode_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+
+    expect(await repository.loadWorkMode(), WorkMode.continuousScan);
+    await repository.saveWorkMode(WorkMode.sameCodeStop);
+    expect(await repository.loadWorkMode(), WorkMode.sameCodeStop);
   });
 }

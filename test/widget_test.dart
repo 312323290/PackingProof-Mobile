@@ -28,7 +28,7 @@ void main() {
     );
 
     expect(find.text('开始工作'), findsOneWidget);
-    expect(find.text('查看录像'), findsOneWidget);
+    expect(find.text('录像与设置'), findsOneWidget);
     expect(find.text('对准面单条码'), findsOneWidget);
     expect(find.text('摄像头已就绪'), findsNothing);
     expect(find.text('连续录像 · 面单自动标记 · 仅存本机'), findsNothing);
@@ -40,7 +40,7 @@ void main() {
     expect(find.byType(TextField), findsNothing);
   });
 
-  testWidgets('启动录像时隐藏摄像头重绑定画面', (WidgetTester tester) async {
+  testWidgets('启动录像时保持摄像头预览可见', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: PackingHomeView(
@@ -54,8 +54,9 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const Key('camera-transition-cover')), findsOneWidget);
-    expect(find.text('正在启动录像'), findsNWidgets(2));
+    expect(find.byKey(const Key('camera-transition-cover')), findsNothing);
+    expect(find.byKey(const Key('scan-guide')), findsOneWidget);
+    expect(find.text('正在启动录像'), findsOneWidget);
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
       isNull,
@@ -66,7 +67,7 @@ void main() {
     );
   });
 
-  testWidgets('保存录像时也隐藏摄像头重绑定画面', (WidgetTester tester) async {
+  testWidgets('保存录像时保持摄像头预览可见', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: PackingHomeView(
@@ -80,7 +81,8 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const Key('camera-transition-cover')), findsOneWidget);
-    expect(find.text('正在保存录像'), findsNWidgets(2));
+    expect(find.byKey(const Key('camera-transition-cover')), findsNothing);
+    expect(find.byKey(const Key('scan-guide')), findsOneWidget);
+    expect(find.text('正在保存录像'), findsOneWidget);
   });
 }

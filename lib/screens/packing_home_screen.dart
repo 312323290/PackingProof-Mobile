@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../app/parcel_lens_app.dart';
 import '../controllers/packing_session_controller.dart';
 import '../models/barcode_marker.dart';
+import '../models/work_mode.dart';
 import 'recordings_screen.dart';
 
 class PackingHomeScreen extends StatefulWidget {
@@ -63,8 +64,11 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     }
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) =>
-            RecordingsScreen(sessions: _controller.sessions),
+        builder: (BuildContext context) => RecordingsScreen(
+          sessions: _controller.sessions,
+          workMode: _controller.workMode,
+          onWorkModeChanged: _controller.setWorkMode,
+        ),
       ),
     );
   }
@@ -80,6 +84,8 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
           elapsed: _controller.elapsed,
           lastMarker: _controller.lastMarker,
           candidateCode: _controller.candidateCode,
+          currentCode: _controller.currentCode,
+          workMode: _controller.workMode,
           errorMessage: _controller.errorMessage,
           onPrimaryPressed: _toggleWork,
           onRetryPressed: _controller.retryInitialize,
@@ -100,6 +106,8 @@ class PackingHomeView extends StatelessWidget {
     this.cameraController,
     this.lastMarker,
     this.candidateCode = '',
+    this.currentCode = '',
+    this.workMode = WorkMode.continuousScan,
     this.errorMessage,
     this.previewOverride,
     super.key,
@@ -110,6 +118,8 @@ class PackingHomeView extends StatelessWidget {
   final Duration elapsed;
   final BarcodeMarker? lastMarker;
   final String candidateCode;
+  final String currentCode;
+  final WorkMode workMode;
   final String? errorMessage;
   final VoidCallback onPrimaryPressed;
   final VoidCallback onRetryPressed;
@@ -117,9 +127,6 @@ class PackingHomeView extends StatelessWidget {
   final Widget? previewOverride;
 
   bool get _isRecording => phase == PackingSessionPhase.recording;
-  bool get _isTransitioning =>
-      phase == PackingSessionPhase.starting ||
-      phase == PackingSessionPhase.saving;
   bool get _isBusy =>
       phase == PackingSessionPhase.initializing ||
       phase == PackingSessionPhase.starting ||
@@ -184,18 +191,16 @@ class _CameraArea extends StatelessWidget {
         fit: StackFit.expand,
         children: <Widget>[
           Positioned.fill(child: preview),
-          if (!view._isTransitioning)
-            Center(
-              child: Transform.translate(
-                offset: const Offset(0, 16),
-                child: const SizedBox(
-                  key: Key('scan-guide'),
-                  width: 260,
-                  height: 190,
-                  child: CustomPaint(painter: _ScanGuidePainter()),
-                ),
-              ),
+          const Positioned(
+            left: 24,
+            right: 24,
+            top: 64,
+            bottom: 72,
+            child: SizedBox(
+              key: Key('scan-guide'),
+              child: CustomPaint(painter: _ScanGuidePainter()),
             ),
+          ),
           if (view.lastMarker != null)
             Positioned(
               left: 20,
@@ -218,12 +223,6 @@ class _CameraArea extends StatelessWidget {
                     Shadow(color: Color(0x88000000), blurRadius: 8),
                   ],
                 ),
-              ),
-            ),
-          if (view._isTransitioning)
-            Positioned.fill(
-              child: _CameraTransitionCover(
-                saving: view.phase == PackingSessionPhase.saving,
               ),
             ),
         ],
@@ -262,43 +261,6 @@ class _ScanGuidePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ScanGuidePainter oldDelegate) => false;
-}
-
-class _CameraTransitionCover extends StatelessWidget {
-  const _CameraTransitionCover({required this.saving});
-
-  final bool saving;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      key: const Key('camera-transition-cover'),
-      color: const Color(0xFF202825),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const SizedBox.square(
-              dimension: 28,
-              child: CircularProgressIndicator(
-                color: Colors.white,
-                strokeWidth: 2.6,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              saving ? '正在保存录像' : '正在启动录像',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class CameraPreviewCover extends StatelessWidget {
@@ -389,7 +351,7 @@ class _RecognitionToast extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 const Text(
-                  '识别成功，已添加录像标记',
+                  '已识别面单，当前录像已绑定',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
@@ -444,7 +406,7 @@ class _ControlPanel extends StatelessWidget {
             isError
                 ? (view.errorMessage ?? '请重新检查摄像头权限')
                 : view._isRecording
-                ? '录像中  ${_duration(view.elapsed)}'
+                ? _recordingStatus(view)
                 : '对准面单条码',
             maxLines: 1,
             textAlign: TextAlign.center,
@@ -455,7 +417,7 @@ class _ControlPanel extends StatelessWidget {
               height: 1.45,
             ),
           ),
-          const Spacer(),
+          const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: view._isBusy
                 ? null
@@ -506,16 +468,27 @@ class _ControlPanel extends StatelessWidget {
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Text('查看录像'),
+                Text('录像与设置'),
                 SizedBox(width: 5),
                 Icon(Icons.chevron_right_rounded, size: 20),
               ],
             ),
           ),
+          const Spacer(),
         ],
       ),
     );
   }
+}
+
+String _recordingStatus(PackingHomeView view) {
+  if (view.currentCode.isEmpty) {
+    return '录像中  ${_duration(view.elapsed)} · 等待识别面单';
+  }
+  return switch (view.workMode) {
+    WorkMode.continuousScan => '${view.currentCode} · 扫下一单自动分段',
+    WorkMode.sameCodeStop => '再次识别 ${view.currentCode} 后停录',
+  };
 }
 
 String _duration(Duration value) {

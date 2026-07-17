@@ -1,10 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
-import '../app/parcel_lens_app.dart';
-import '../models/barcode_marker.dart';
 import '../models/recording_session.dart';
 
 class VideoPlaybackScreen extends StatefulWidget {
@@ -19,12 +18,26 @@ class VideoPlaybackScreen extends StatefulWidget {
 class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   late final VideoPlayerController _video;
   late final Future<void> _initialized;
+  late Duration _playbackStart;
+  late Duration _playbackEnd;
+  bool _handlingBoundary = false;
 
   @override
   void initState() {
     super.initState();
+    _playbackStart = widget.session.mediaStart;
+    _playbackEnd = widget.session.playbackEnd;
     _video = VideoPlayerController.file(File(widget.session.filePath));
-    _initialized = _video.initialize().then((_) {
+    _initialized = _video.initialize().then((_) async {
+      final Duration sourceDuration = _video.value.duration;
+      if (_playbackStart > sourceDuration) {
+        _playbackStart = Duration.zero;
+      }
+      if (_playbackEnd > sourceDuration || _playbackEnd <= _playbackStart) {
+        _playbackEnd = sourceDuration;
+      }
+      await _video.seekTo(_playbackStart);
+      _video.addListener(_handlePlaybackBoundary);
       if (mounted) {
         setState(() {});
       }
@@ -33,13 +46,40 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
 
   @override
   void dispose() {
+    _video.removeListener(_handlePlaybackBoundary);
     _video.dispose();
     super.dispose();
   }
 
-  Future<void> _seek(BarcodeMarker marker) async {
-    await _video.seekTo(marker.offset);
-    await _video.play();
+  Future<void> _togglePlayback() async {
+    if (_video.value.isPlaying) {
+      await _video.pause();
+    } else {
+      final Duration position = _video.value.position;
+      if (position < _playbackStart || position >= _playbackEnd) {
+        await _video.seekTo(_playbackStart);
+      }
+      await _video.play();
+    }
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _handlePlaybackBoundary() {
+    if (_handlingBoundary ||
+        !_video.value.isInitialized ||
+        _video.value.position < _playbackEnd) {
+      return;
+    }
+    _handlingBoundary = true;
+    unawaited(_rewindAtBoundary());
+  }
+
+  Future<void> _rewindAtBoundary() async {
+    await _video.pause();
+    await _video.seekTo(_playbackStart);
+    _handlingBoundary = false;
     if (mounted) {
       setState(() {});
     }
@@ -71,13 +111,7 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
                       VideoPlayer(_video),
                       Center(
                         child: IconButton.filled(
-                          onPressed: () {
-                            setState(() {
-                              _video.value.isPlaying
-                                  ? _video.pause()
-                                  : _video.play();
-                            });
-                          },
+                          onPressed: _togglePlayback,
                           iconSize: 34,
                           icon: Icon(
                             _video.value.isPlaying
@@ -90,81 +124,10 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
-              const Text(
-                '面单时间标记',
-                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                '点任一标记可直接跳到面单经过画面的时刻',
-                style: TextStyle(color: Color(0xFF69716E)),
-              ),
-              const SizedBox(height: 14),
-              if (widget.session.markers.isEmpty)
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF4F5F2),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Text('这段录像中没有识别到面单条码'),
-                )
-              else
-                ...widget.session.markers.map(
-                  (BarcodeMarker marker) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Material(
-                      color: const Color(0xFFE5F2ED),
-                      borderRadius: BorderRadius.circular(14),
-                      child: InkWell(
-                        onTap: () => _seek(marker),
-                        borderRadius: BorderRadius.circular(14),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 13,
-                          ),
-                          child: Row(
-                            children: <Widget>[
-                              const Icon(
-                                Icons.sell_outlined,
-                                color: ParcelLensApp.forest,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  marker.code,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                _duration(marker.offset),
-                                style: const TextStyle(
-                                  color: ParcelLensApp.forest,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
             ],
           );
         },
       ),
     );
   }
-}
-
-String _duration(Duration value) {
-  String two(int number) => number.toString().padLeft(2, '0');
-  return '${two(value.inMinutes)}:${two(value.inSeconds.remainder(60))}';
 }

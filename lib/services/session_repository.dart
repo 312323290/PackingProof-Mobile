@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/recording_session.dart';
+import '../models/work_mode.dart';
 
 class SessionRepository {
   SessionRepository({Directory? rootDirectory}) : this._(rootDirectory);
@@ -14,6 +15,7 @@ class SessionRepository {
   Directory? _rootDirectory;
   late Directory _recordingsDirectory;
   late File _indexFile;
+  late File _settingsFile;
   bool _initialized = false;
 
   Future<void> initialize() async {
@@ -26,6 +28,7 @@ class SessionRepository {
     );
     await _recordingsDirectory.create(recursive: true);
     _indexFile = File(p.join(_rootDirectory!.path, 'sessions.json'));
+    _settingsFile = File(p.join(_rootDirectory!.path, 'settings.json'));
     _initialized = true;
   }
 
@@ -68,8 +71,13 @@ class SessionRepository {
       '$sessionId.mp4',
     );
     final File source = File(sourcePath);
-    await source.copy(destinationPath);
-    if (p.normalize(source.path) != p.normalize(destinationPath)) {
+    if (p.normalize(source.path) == p.normalize(destinationPath)) {
+      return destinationPath;
+    }
+    try {
+      await source.rename(destinationPath);
+    } on FileSystemException {
+      await source.copy(destinationPath);
       try {
         await source.delete();
       } on FileSystemException {
@@ -80,10 +88,44 @@ class SessionRepository {
   }
 
   Future<List<RecordingSession>> addSession(RecordingSession session) async {
+    return addSessions(<RecordingSession>[session]);
+  }
+
+  Future<List<RecordingSession>> addSessions(
+    List<RecordingSession> newSessions,
+  ) async {
     final List<RecordingSession> sessions = await loadSessions();
-    sessions.insert(0, session);
+    sessions.addAll(newSessions);
+    sessions.sort(
+      (RecordingSession a, RecordingSession b) =>
+          b.startedAt.compareTo(a.startedAt),
+    );
     await _writeSessions(sessions);
     return sessions;
+  }
+
+  Future<WorkMode> loadWorkMode() async {
+    await initialize();
+    if (!await _settingsFile.exists()) {
+      return WorkMode.continuousScan;
+    }
+    try {
+      final Object? decoded = jsonDecode(await _settingsFile.readAsString());
+      final Map<String, Object?> values = Map<String, Object?>.from(
+        decoded! as Map<Object?, Object?>,
+      );
+      return workModeFromStorage(values['workMode']);
+    } on Object {
+      return WorkMode.continuousScan;
+    }
+  }
+
+  Future<void> saveWorkMode(WorkMode mode) async {
+    await initialize();
+    final String contents = const JsonEncoder.withIndent(
+      '  ',
+    ).convert(<String, Object>{'workMode': mode.storageValue});
+    await _settingsFile.writeAsString(contents, flush: true);
   }
 
   Future<void> _writeSessions(List<RecordingSession> sessions) async {

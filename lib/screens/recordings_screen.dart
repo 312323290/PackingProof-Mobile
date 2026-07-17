@@ -2,26 +2,67 @@ import 'package:flutter/material.dart';
 
 import '../app/parcel_lens_app.dart';
 import '../models/recording_session.dart';
+import '../models/work_mode.dart';
 import 'video_playback_screen.dart';
 
-class RecordingsScreen extends StatelessWidget {
-  const RecordingsScreen({required this.sessions, super.key});
+class RecordingsScreen extends StatefulWidget {
+  const RecordingsScreen({
+    required this.sessions,
+    required this.workMode,
+    required this.onWorkModeChanged,
+    super.key,
+  });
 
   final List<RecordingSession> sessions;
+  final WorkMode workMode;
+  final Future<void> Function(WorkMode mode) onWorkModeChanged;
+
+  @override
+  State<RecordingsScreen> createState() => _RecordingsScreenState();
+}
+
+class _RecordingsScreenState extends State<RecordingsScreen> {
+  late WorkMode _workMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _workMode = widget.workMode;
+  }
+
+  Future<void> _setWorkMode(WorkMode mode) async {
+    if (_workMode == mode) {
+      return;
+    }
+    setState(() => _workMode = mode);
+    await widget.onWorkModeChanged(mode);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('录像记录')),
-      body: sessions.isEmpty
-          ? const _EmptyRecordings()
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
-              itemCount: sessions.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 10),
-              itemBuilder: (BuildContext context, int index) {
-                final RecordingSession session = sessions[index];
-                return _RecordingTile(
+      appBar: AppBar(title: const Text('录像与设置')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+        children: <Widget>[
+          _WorkModeSettings(workMode: _workMode, onChanged: _setWorkMode),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(2, 24, 2, 12),
+            child: Text(
+              '录像记录',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+          ),
+          if (widget.sessions.isEmpty)
+            const SizedBox(height: 280, child: _EmptyRecordings())
+          else
+            ...List<Widget>.generate(widget.sessions.length, (int index) {
+              final RecordingSession session = widget.sessions[index];
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: index == widget.sessions.length - 1 ? 0 : 10,
+                ),
+                child: _RecordingTile(
                   session: session,
                   onTap: () {
                     Navigator.of(context).push<void>(
@@ -31,9 +72,67 @@ class RecordingsScreen extends StatelessWidget {
                       ),
                     );
                   },
-                );
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkModeSettings extends StatelessWidget {
+  const _WorkModeSettings({required this.workMode, required this.onChanged});
+
+  final WorkMode workMode;
+  final ValueChanged<WorkMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('work-mode-settings'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F6F4),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            '工作模式',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<WorkMode>(
+              showSelectedIcon: false,
+              segments: WorkMode.values
+                  .map(
+                    (WorkMode mode) => ButtonSegment<WorkMode>(
+                      value: mode,
+                      label: Text(mode.label),
+                    ),
+                  )
+                  .toList(growable: false),
+              selected: <WorkMode>{workMode},
+              onSelectionChanged: (Set<WorkMode> values) {
+                onChanged(values.single);
               },
             ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            workMode.description,
+            style: const TextStyle(
+              color: Color(0xFF69716E),
+              fontSize: 13,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -126,7 +225,7 @@ class _RecordingTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}  ·  ${session.markers.length} 个标记',
+                      '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
                       style: const TextStyle(
                         color: Color(0xFF69716E),
                         fontSize: 12,

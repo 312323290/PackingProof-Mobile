@@ -11,6 +11,13 @@ import '../models/work_mode.dart';
 import '../services/preview_cover_transform.dart';
 import 'recordings_screen.dart';
 
+@visibleForTesting
+bool shouldSuspendPackingSession(AppLifecycleState state) {
+  return state == AppLifecycleState.hidden ||
+      state == AppLifecycleState.paused ||
+      state == AppLifecycleState.detached;
+}
+
 class PackingHomeScreen extends StatefulWidget {
   const PackingHomeScreen({super.key});
 
@@ -34,8 +41,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_controller.handleResumed());
-    } else if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
+    } else if (shouldSuspendPackingSession(state)) {
       unawaited(_controller.handleInactive());
     }
   }

@@ -5,6 +5,14 @@ import 'package:packing_proof_mobile/controllers/packing_session_controller.dart
 import 'package:packing_proof_mobile/screens/packing_home_screen.dart';
 
 void main() {
+  test('下拉通知栏不会暂停打包录像', () {
+    expect(shouldSuspendPackingSession(AppLifecycleState.inactive), isFalse);
+    expect(shouldSuspendPackingSession(AppLifecycleState.resumed), isFalse);
+    expect(shouldSuspendPackingSession(AppLifecycleState.hidden), isTrue);
+    expect(shouldSuspendPackingSession(AppLifecycleState.paused), isTrue);
+    expect(shouldSuspendPackingSession(AppLifecycleState.detached), isTrue);
+  });
+
   testWidgets('首页只保留一个主要开始动作', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(

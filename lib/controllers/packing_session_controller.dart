@@ -16,6 +16,7 @@ import '../services/barcode_candidate_policy.dart';
 import '../services/barcode_stability_tracker.dart';
 import '../services/barcode_work_mode_policy.dart';
 import '../services/continuous_camera_service.dart';
+import '../services/initial_recording_prompt_policy.dart';
 import '../services/nv21_center_crop.dart';
 import '../services/recording_timeline.dart';
 import '../services/session_repository.dart';
@@ -42,6 +43,7 @@ class PackingSessionController extends ChangeNotifier {
 
   static const Duration analysisInterval = Duration(milliseconds: 200);
   static const Duration transitionSettleDelay = Duration(milliseconds: 120);
+  static const Duration initialReadyPromptDelay = Duration(milliseconds: 700);
   static const int recordingFps = 30;
 
   final SessionRepository _repository;
@@ -49,6 +51,8 @@ class PackingSessionController extends ChangeNotifier {
   final BarcodeScanner _barcodeScanner;
   final BarcodeStabilityTracker _stabilityTracker = BarcodeStabilityTracker();
   final RecordingTimeline _timeline = RecordingTimeline();
+  final InitialRecordingPromptPolicy _initialPromptPolicy =
+      InitialRecordingPromptPolicy();
 
   CameraController? _cameraController;
   ContinuousCameraService? _nativeCamera;
@@ -58,6 +62,7 @@ class PackingSessionController extends ChangeNotifier {
   DateTime _lastAnalysisAt = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _elapsedTimer;
   Timer? _feedbackTimer;
+  Timer? _initialPromptTimer;
   Duration _elapsed = Duration.zero;
   BarcodeMarker? _lastMarker;
   String _candidateCode = '';
@@ -182,15 +187,19 @@ class PackingSessionController extends ChangeNotifier {
     _timeline.reset();
     _stabilityTracker.reset();
     _speechService.resetIncidents();
+    _beginInitialPromptFlow();
 
     try {
       await WakelockPlus.enable();
       await _startRecording();
+      _scheduleInitialReadyPrompt();
     } on CameraException catch (error) {
+      _cancelInitialPromptFlow();
       _timeline.reset();
       await WakelockPlus.disable();
       _setCameraError(error);
     } on Object catch (error) {
+      _cancelInitialPromptFlow();
       _timeline.reset();
       await WakelockPlus.disable();
       _errorMessage = '无法开始录像，请重新检查摄像头\n$error';
@@ -208,6 +217,7 @@ class PackingSessionController extends ChangeNotifier {
     if (recordingUnavailable || startedAt == null) {
       return null;
     }
+    _cancelInitialPromptFlow();
 
     _setPhase(PackingSessionPhase.saving);
     await WidgetsBinding.instance.endOfFrame;
@@ -285,7 +295,6 @@ class PackingSessionController extends ChangeNotifier {
     await Future<void>.delayed(transitionSettleDelay);
     _setPhase(PackingSessionPhase.recording);
     _startElapsedTimer();
-    _speechService.enqueue(SpeechPrompt.recordingStarted);
   }
 
   Future<void> _startNativeRecording() async {
@@ -305,7 +314,6 @@ class PackingSessionController extends ChangeNotifier {
     _elapsed = Duration.zero;
     _setPhase(PackingSessionPhase.recording);
     _startElapsedTimer();
-    _speechService.enqueue(SpeechPrompt.recordingStarted);
   }
 
   Future<List<RecordingSession>> _finishRecording() async {
@@ -683,7 +691,43 @@ class PackingSessionController extends ChangeNotifier {
     if (marker == null) {
       return;
     }
+    _announceInitialRecordingStarted();
     _showMarkerFeedback(marker);
+  }
+
+  void _beginInitialPromptFlow() {
+    _initialPromptTimer?.cancel();
+    _initialPromptTimer = null;
+    _initialPromptPolicy.beginWork();
+  }
+
+  void _scheduleInitialReadyPrompt() {
+    _initialPromptTimer?.cancel();
+    _initialPromptTimer = Timer(initialReadyPromptDelay, () {
+      _initialPromptTimer = null;
+      if (_disposed || !isRecording) {
+        return;
+      }
+      final SpeechPrompt? prompt = _initialPromptPolicy.onReadyDelayElapsed();
+      if (prompt != null) {
+        _speechService.enqueue(prompt);
+      }
+    });
+  }
+
+  void _announceInitialRecordingStarted() {
+    _initialPromptTimer?.cancel();
+    _initialPromptTimer = null;
+    final SpeechPrompt? prompt = _initialPromptPolicy.onFirstLabelRecognized();
+    if (prompt != null) {
+      _speechService.enqueue(prompt);
+    }
+  }
+
+  void _cancelInitialPromptFlow() {
+    _initialPromptTimer?.cancel();
+    _initialPromptTimer = null;
+    _initialPromptPolicy.cancel();
   }
 
   void _showMarkerFeedback(BarcodeMarker marker) {
@@ -758,6 +802,7 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> _disposeCamera() async {
+    _cancelInitialPromptFlow();
     if (Platform.isAndroid) {
       final ContinuousCameraService? nativeCamera = _nativeCamera;
       _nativeCamera = null;

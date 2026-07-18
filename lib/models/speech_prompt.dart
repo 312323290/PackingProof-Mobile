@@ -1,6 +1,11 @@
 enum SpeechPromptPriority { normal, warning }
 
 enum SpeechPrompt {
+  ready(
+    text: '准备就绪',
+    assetName: 'ready.mp3',
+    priority: SpeechPromptPriority.normal,
+  ),
   recordingStarted(
     text: '开始录制',
     assetName: 'recording_started.mp3',

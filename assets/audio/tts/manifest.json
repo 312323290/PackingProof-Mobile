@@ -1,7 +1,15 @@
 {
-  "version": 1,
+  "version": 2,
   "format": "audio-24khz-48kbitrate-mono-mp3",
   "prompts": [
+    {
+      "id": "ready",
+      "text": "准备就绪",
+      "priority": "normal",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "file": "ready.mp3",
+      "bytes": 10656
+    },
     {
       "id": "recordingStarted",
       "text": "开始录制",

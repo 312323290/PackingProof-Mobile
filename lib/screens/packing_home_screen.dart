@@ -4,7 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../app/parcel_lens_app.dart';
+import '../app/packing_proof_mobile_app.dart';
 import '../controllers/packing_session_controller.dart';
 import '../models/barcode_marker.dart';
 import '../models/work_mode.dart';
@@ -507,7 +507,7 @@ class _ControlPanel extends StatelessWidget {
               textAlign: TextAlign.center,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                color: ParcelLensApp.ink,
+                color: PackingProofMobileApp.ink,
                 fontSize: 19,
                 fontWeight: FontWeight.w800,
                 height: 1.25,
@@ -588,7 +588,7 @@ class _ControlPanel extends StatelessWidget {
                 ? null
                 : view.onRecordingsPressed,
             style: TextButton.styleFrom(
-              foregroundColor: ParcelLensApp.ink,
+              foregroundColor: PackingProofMobileApp.ink,
               textStyle: const TextStyle(
                 fontFamily: 'NotoSansSC',
                 fontWeight: FontWeight.w700,

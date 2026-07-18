@@ -159,10 +159,6 @@ class PackingSessionController extends ChangeNotifier {
     } on Object catch (error) {
       _errorMessage = '摄像头初始化失败，请重试\n$error';
       _setPhase(PackingSessionPhase.error);
-      _speechService.enqueue(
-        SpeechPrompt.cameraNotReady,
-        incidentKey: SpeechPrompt.cameraNotReady.name,
-      );
     }
   }
 
@@ -177,12 +173,6 @@ class PackingSessionController extends ChangeNotifier {
         ? _nativeInitialization == null
         : camera == null || !camera.value.isInitialized;
     if (cameraUnavailable || isBusy || isRecording) {
-      if (cameraUnavailable) {
-        _speechService.enqueue(
-          SpeechPrompt.cameraNotReady,
-          incidentKey: SpeechPrompt.cameraNotReady.name,
-        );
-      }
       return;
     }
 
@@ -608,6 +598,7 @@ class PackingSessionController extends ChangeNotifier {
               : _startNextTimelineSegment(code, now);
           if (marker != null) {
             _speechService.resolveIncident(SpeechPrompt.segmentSaveFailed.name);
+            _speechService.enqueue(SpeechPrompt.recordingStarted);
             _showMarkerFeedback(marker);
           }
         } on Object catch (error) {
@@ -726,6 +717,12 @@ class PackingSessionController extends ChangeNotifier {
 
   void _speakErrorMessage(String message) {
     final String normalized = message.toLowerCase();
+    if (normalized.contains('未准备') ||
+        normalized.contains('摄像头初始化') ||
+        normalized.contains('摄像头打开') ||
+        normalized.contains('camera_not_ready')) {
+      return;
+    }
     final SpeechPrompt prompt;
     if (normalized.contains('permission') ||
         normalized.contains('权限') ||
@@ -747,11 +744,6 @@ class PackingSessionController extends ChangeNotifier {
       prompt = SpeechPrompt.recordingSaveFailed;
     } else if (normalized.contains('视频编码器')) {
       prompt = SpeechPrompt.recordingFailed;
-    } else if (normalized.contains('未准备') ||
-        normalized.contains('摄像头初始化') ||
-        normalized.contains('摄像头打开') ||
-        normalized.contains('camera_not_ready')) {
-      prompt = SpeechPrompt.cameraNotReady;
     } else {
       prompt = SpeechPrompt.recordingFailed;
     }

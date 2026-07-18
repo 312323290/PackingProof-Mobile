@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/models/work_mode.dart';
-import 'package:parcel_lens/services/barcode_work_mode_policy.dart';
+import 'package:packing_proof_mobile/models/work_mode.dart';
+import 'package:packing_proof_mobile/services/barcode_work_mode_policy.dart';
 
 void main() {
   test('连续扫码会将下一次识别切成新视频', () {

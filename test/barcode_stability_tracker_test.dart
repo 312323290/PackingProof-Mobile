@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/services/barcode_stability_tracker.dart';
+import 'package:packing_proof_mobile/services/barcode_stability_tracker.dart';
 
 void main() {
   test('有效条码首次解码后立即确认', () {

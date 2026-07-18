@@ -1,16 +1,16 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/controllers/packing_session_controller.dart';
-import 'package:parcel_lens/models/speech_prompt.dart';
-import 'package:parcel_lens/services/session_repository.dart';
-import 'package:parcel_lens/services/speech_prompt_service.dart';
+import 'package:packing_proof_mobile/controllers/packing_session_controller.dart';
+import 'package:packing_proof_mobile/models/speech_prompt.dart';
+import 'package:packing_proof_mobile/services/session_repository.dart';
+import 'package:packing_proof_mobile/services/speech_prompt_service.dart';
 
 void main() {
   late Directory root;
 
   setUp(() async {
-    root = await Directory.systemTemp.createTemp('parcel-lens-controller-');
+    root = await Directory.systemTemp.createTemp('packing-proof-controller-');
   });
 
   tearDown(() async {
@@ -19,7 +19,7 @@ void main() {
     }
   });
 
-  test('摄像头未就绪时只播异常，不播开始录制', () async {
+  test('摄像头未就绪时保持静音', () async {
     final _FakeSpeechSink speech = _FakeSpeechSink();
     final PackingSessionController controller = PackingSessionController(
       repository: SessionRepository(rootDirectory: root),
@@ -28,8 +28,7 @@ void main() {
 
     await controller.startWork();
 
-    expect(speech.prompts, <SpeechPrompt>[SpeechPrompt.cameraNotReady]);
-    expect(speech.prompts, isNot(contains(SpeechPrompt.recordingStarted)));
+    expect(speech.prompts, isEmpty);
   });
 
   test('语音开关同步服务并持久化', () async {

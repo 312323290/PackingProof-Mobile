@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/models/barcode_marker.dart';
-import 'package:parcel_lens/models/recording_session.dart';
-import 'package:parcel_lens/models/work_mode.dart';
-import 'package:parcel_lens/screens/recordings_screen.dart';
+import 'package:packing_proof_mobile/models/barcode_marker.dart';
+import 'package:packing_proof_mobile/models/recording_session.dart';
+import 'package:packing_proof_mobile/models/work_mode.dart';
+import 'package:packing_proof_mobile/screens/recordings_screen.dart';
 
 void main() {
   testWidgets('录像页面可切换工作模式', (WidgetTester tester) async {

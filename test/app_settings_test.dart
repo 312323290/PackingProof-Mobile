@@ -2,14 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/models/work_mode.dart';
-import 'package:parcel_lens/services/session_repository.dart';
+import 'package:packing_proof_mobile/models/work_mode.dart';
+import 'package:packing_proof_mobile/services/session_repository.dart';
 
 void main() {
   late Directory root;
 
   setUp(() async {
-    root = await Directory.systemTemp.createTemp('parcel-lens-settings-');
+    root = await Directory.systemTemp.createTemp('packing-proof-settings-');
   });
 
   tearDown(() async {

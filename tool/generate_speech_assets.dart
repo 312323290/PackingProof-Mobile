@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_edge_tts/flutter_edge_tts.dart';
-import 'package:parcel_lens/models/speech_prompt.dart';
+import 'package:packing_proof_mobile/models/speech_prompt.dart';
 
 Future<void> main() async {
   final Directory output = Directory('assets/audio/tts');

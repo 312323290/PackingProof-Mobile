@@ -1,15 +1,15 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/models/barcode_marker.dart';
-import 'package:parcel_lens/models/recording_session.dart';
-import 'package:parcel_lens/models/work_mode.dart';
-import 'package:parcel_lens/services/session_repository.dart';
+import 'package:packing_proof_mobile/models/barcode_marker.dart';
+import 'package:packing_proof_mobile/models/recording_session.dart';
+import 'package:packing_proof_mobile/models/work_mode.dart';
+import 'package:packing_proof_mobile/services/session_repository.dart';
 
 void main() {
   test('录像记录可持久化并读取', () async {
     final Directory root = await Directory.systemTemp.createTemp(
-      'parcel_lens_test',
+      'packing_proof_mobile_test',
     );
     addTearDown(() => root.delete(recursive: true));
     final File source = File(
@@ -97,7 +97,7 @@ void main() {
 
   test('删除共享母视频的最后一个片段时才清理文件', () async {
     final Directory root = await Directory.systemTemp.createTemp(
-      'parcel_lens_delete_test',
+      'packing_proof_mobile_delete_test',
     );
     addTearDown(() => root.delete(recursive: true));
     final File source = File(
@@ -139,7 +139,7 @@ void main() {
 
   test('工作模式可持久化并默认使用连续扫码', () async {
     final Directory root = await Directory.systemTemp.createTemp(
-      'parcel_lens_mode_test',
+      'packing_proof_mobile_mode_test',
     );
     addTearDown(() => root.delete(recursive: true));
     final SessionRepository repository = SessionRepository(rootDirectory: root);

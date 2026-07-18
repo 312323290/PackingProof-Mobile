@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/services/barcode_candidate_policy.dart';
+import 'package:packing_proof_mobile/services/barcode_candidate_policy.dart';
 
 void main() {
   group('BarcodeCandidatePolicy', () {

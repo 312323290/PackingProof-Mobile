@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/services/nv21_center_crop.dart';
+import 'package:packing_proof_mobile/services/nv21_center_crop.dart';
 
 void main() {
   test('NV21 中央裁切同时保留亮度与交错色度数据', () {

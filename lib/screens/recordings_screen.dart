@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../app/parcel_lens_app.dart';
+import '../app/packing_proof_mobile_app.dart';
 import '../models/recording_session.dart';
 import '../models/work_mode.dart';
 import 'video_playback_screen.dart';
@@ -434,7 +434,7 @@ class _EmptyRecordings extends StatelessWidget {
               child: const Icon(
                 Icons.video_library_outlined,
                 size: 34,
-                color: ParcelLensApp.forest,
+                color: PackingProofMobileApp.forest,
               ),
             ),
             const SizedBox(height: 18),
@@ -513,7 +513,7 @@ class _RecordingTile extends StatelessWidget {
                   ),
                   child: const Icon(
                     Icons.play_arrow_rounded,
-                    color: ParcelLensApp.forest,
+                    color: PackingProofMobileApp.forest,
                   ),
                 ),
               const SizedBox(width: 14),

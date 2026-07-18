@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../screens/packing_home_screen.dart';
 
-class ParcelLensApp extends StatelessWidget {
-  const ParcelLensApp({super.key});
+class PackingProofMobileApp extends StatelessWidget {
+  const PackingProofMobileApp({super.key});
 
   static const Color forest = Color(0xFF087454);
   static const Color ink = Color(0xFF151918);
@@ -18,7 +18,7 @@ class ParcelLensApp extends StatelessWidget {
     );
 
     return MaterialApp(
-      title: '包裹留证',
+      title: 'PackingProof-Mobile',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

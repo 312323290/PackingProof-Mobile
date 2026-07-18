@@ -2,14 +2,14 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/models/speech_prompt.dart';
-import 'package:parcel_lens/services/speech_prompt_service.dart';
+import 'package:packing_proof_mobile/models/speech_prompt.dart';
+import 'package:packing_proof_mobile/services/speech_prompt_service.dart';
 
 void main() {
   late Directory root;
 
   setUp(() async {
-    root = await Directory.systemTemp.createTemp('parcel-lens-speech-');
+    root = await Directory.systemTemp.createTemp('packing-proof-speech-');
   });
 
   tearDown(() async {

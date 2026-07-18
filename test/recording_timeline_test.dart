@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/models/recording_session.dart';
-import 'package:parcel_lens/services/recording_timeline.dart';
+import 'package:packing_proof_mobile/models/recording_session.dart';
+import 'package:packing_proof_mobile/services/recording_timeline.dart';
 
 void main() {
   test('兼容录像路径可按识别时间形成多个逻辑片段', () {

@@ -2,7 +2,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/screens/packing_home_screen.dart';
+import 'package:packing_proof_mobile/screens/packing_home_screen.dart';
 
 void main() {
   testWidgets('录像前后都按竖屏宽高比等比裁切', (WidgetTester tester) async {

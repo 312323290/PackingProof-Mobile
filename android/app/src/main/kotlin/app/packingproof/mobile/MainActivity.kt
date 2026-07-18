@@ -1,4 +1,4 @@
-package app.parcellens.parcel_lens
+package app.packingproof.mobile
 
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity

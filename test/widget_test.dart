@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:parcel_lens/app/parcel_lens_app.dart';
-import 'package:parcel_lens/controllers/packing_session_controller.dart';
-import 'package:parcel_lens/screens/packing_home_screen.dart';
+import 'package:packing_proof_mobile/app/packing_proof_mobile_app.dart';
+import 'package:packing_proof_mobile/controllers/packing_session_controller.dart';
+import 'package:packing_proof_mobile/screens/packing_home_screen.dart';
 
 void main() {
   testWidgets('首页只保留一个主要开始动作', (WidgetTester tester) async {
@@ -12,7 +12,7 @@ void main() {
           useMaterial3: true,
           filledButtonTheme: FilledButtonThemeData(
             style: FilledButton.styleFrom(
-              backgroundColor: ParcelLensApp.forest,
+              backgroundColor: PackingProofMobileApp.forest,
             ),
           ),
         ),

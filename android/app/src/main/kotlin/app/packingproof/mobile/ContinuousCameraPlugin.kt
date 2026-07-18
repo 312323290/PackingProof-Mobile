@@ -1,4 +1,4 @@
-package app.parcellens.parcel_lens
+package app.packingproof.mobile
 
 import android.Manifest
 import android.app.Activity
@@ -16,7 +16,7 @@ class ContinuousCameraPlugin(
     private val textures: TextureRegistry,
 ) : MethodChannel.MethodCallHandler {
     companion object {
-        private const val CHANNEL_NAME = "app.parcellens.parcel_lens/continuous_camera"
+        private const val CHANNEL_NAME = "app.packingproof.mobile/continuous_camera"
         private const val PERMISSION_REQUEST = 4102
     }
 

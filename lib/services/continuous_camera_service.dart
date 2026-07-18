@@ -119,7 +119,7 @@ class NativeBarcodeCandidate {
 
 class ContinuousCameraService {
   static const MethodChannel _channel = MethodChannel(
-    'app.parcellens.parcel_lens/continuous_camera',
+    'app.packingproof.mobile/continuous_camera',
   );
 
   ContinuousCameraService() {

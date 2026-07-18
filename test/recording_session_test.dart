@@ -65,6 +65,78 @@ void main() {
     expect(session.playbackEnd, const Duration(seconds: 30));
   });
 
+  test('剪辑录像只调整逻辑播放区间并保留面单号', () {
+    final DateTime startedAt = DateTime(2026, 7, 18, 10);
+    final RecordingSession session = RecordingSession(
+      id: 'clip-1',
+      filePath: 'master.mp4',
+      startedAt: startedAt,
+      endedAt: startedAt.add(const Duration(seconds: 20)),
+      markers: <BarcodeMarker>[
+        BarcodeMarker(
+          code: 'JT1234567890',
+          occurredAt: startedAt.add(const Duration(seconds: 3)),
+          offset: const Duration(seconds: 3),
+        ),
+      ],
+      mediaStart: const Duration(seconds: 10),
+      mediaEnd: const Duration(seconds: 30),
+    );
+
+    final RecordingSession trimmed = session.trimmed(
+      startOffset: const Duration(seconds: 2),
+      endOffset: const Duration(seconds: 12),
+    );
+
+    expect(trimmed.displayCode, 'JT1234567890');
+    expect(trimmed.duration, const Duration(seconds: 10));
+    expect(trimmed.mediaStart, const Duration(seconds: 12));
+    expect(trimmed.playbackEnd, const Duration(seconds: 22));
+    expect(trimmed.markers.single.offset, const Duration(seconds: 1));
+  });
+
+  test('删除共享母视频的最后一个片段时才清理文件', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'parcel_lens_delete_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final File source = File(
+      '${root.path}${Platform.pathSeparator}capture.mp4',
+    );
+    await source.writeAsBytes(<int>[0, 1, 2, 3]);
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final String videoPath = await repository.persistVideo(
+      source.path,
+      'shared-recording',
+    );
+    final DateTime startedAt = DateTime(2026, 7, 18, 10);
+    final RecordingSession first = RecordingSession(
+      id: 'clip-1',
+      filePath: videoPath,
+      startedAt: startedAt,
+      endedAt: startedAt.add(const Duration(seconds: 10)),
+      markers: const <BarcodeMarker>[],
+    );
+    final RecordingSession second = RecordingSession(
+      id: 'clip-2',
+      filePath: videoPath,
+      startedAt: startedAt.add(const Duration(seconds: 10)),
+      endedAt: startedAt.add(const Duration(seconds: 20)),
+      markers: const <BarcodeMarker>[],
+      mediaStart: const Duration(seconds: 10),
+      mediaEnd: const Duration(seconds: 20),
+    );
+    await repository.addSessions(<RecordingSession>[first, second]);
+
+    await repository.deleteSessions(<String>{first.id});
+    expect(File(videoPath).existsSync(), isTrue);
+    expect(await repository.loadSessions(), hasLength(1));
+
+    await repository.deleteSessions(<String>{second.id});
+    expect(File(videoPath).existsSync(), isFalse);
+    expect(await repository.loadSessions(), isEmpty);
+  });
+
   test('工作模式可持久化并默认使用连续扫码', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'parcel_lens_mode_test',

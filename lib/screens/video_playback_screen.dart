@@ -5,11 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/recording_session.dart';
+import 'video_trim_screen.dart';
 
 class VideoPlaybackScreen extends StatefulWidget {
-  const VideoPlaybackScreen({required this.session, super.key});
+  const VideoPlaybackScreen({
+    required this.session,
+    required this.onSessionUpdated,
+    super.key,
+  });
 
   final RecordingSession session;
+  final Future<void> Function(RecordingSession session) onSessionUpdated;
 
   @override
   State<VideoPlaybackScreen> createState() => _VideoPlaybackScreenState();
@@ -18,6 +24,7 @@ class VideoPlaybackScreen extends StatefulWidget {
 class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   late final VideoPlayerController _video;
   late final Future<void> _initialized;
+  late RecordingSession _session;
   late Duration _playbackStart;
   late Duration _playbackEnd;
   bool _handlingBoundary = false;
@@ -25,9 +32,10 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   @override
   void initState() {
     super.initState();
-    _playbackStart = widget.session.mediaStart;
-    _playbackEnd = widget.session.playbackEnd;
-    _video = VideoPlayerController.file(File(widget.session.filePath));
+    _session = widget.session;
+    _playbackStart = _session.mediaStart;
+    _playbackEnd = _session.playbackEnd;
+    _video = VideoPlayerController.file(File(_session.filePath));
     _initialized = _video.initialize().then((_) async {
       final Duration sourceDuration = _video.value.duration;
       if (_playbackStart > sourceDuration) {
@@ -38,6 +46,7 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
       }
       await _video.seekTo(_playbackStart);
       _video.addListener(_handlePlaybackBoundary);
+      await _video.play();
       if (mounted) {
         setState(() {});
       }
@@ -85,10 +94,58 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
     }
   }
 
+  Future<void> _openTrim() async {
+    await _video.pause();
+    if (!mounted) {
+      return;
+    }
+    final RecordingSession? updated = await Navigator.of(context)
+        .push<RecordingSession>(
+          MaterialPageRoute<RecordingSession>(
+            builder: (BuildContext context) =>
+                VideoTrimScreen(session: _session),
+          ),
+        );
+    if (updated == null || !mounted) {
+      await _video.play();
+      return;
+    }
+    try {
+      await widget.onSessionUpdated(updated);
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('剪辑保存失败，请稍后重试')));
+        await _video.play();
+      }
+      return;
+    }
+    _handlingBoundary = true;
+    _session = updated;
+    _playbackStart = updated.mediaStart;
+    _playbackEnd = updated.playbackEnd;
+    await _video.seekTo(_playbackStart);
+    _handlingBoundary = false;
+    await _video.play();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.session.displayCode)),
+      appBar: AppBar(
+        title: Text(_session.displayCode),
+        actions: <Widget>[
+          IconButton(
+            tooltip: '剪辑',
+            onPressed: _video.value.isInitialized ? _openTrim : null,
+            icon: const Icon(Icons.content_cut_rounded),
+          ),
+        ],
+      ),
       body: FutureBuilder<void>(
         future: _initialized,
         builder: (BuildContext context, AsyncSnapshot<void> snapshot) {

@@ -68,6 +68,8 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
           sessions: _controller.sessions,
           workMode: _controller.workMode,
           onWorkModeChanged: _controller.setWorkMode,
+          onSessionUpdated: _controller.updateSession,
+          onDeleteSessions: _controller.deleteSessions,
         ),
       ),
     );

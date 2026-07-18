@@ -104,6 +104,61 @@ class SessionRepository {
     return sessions;
   }
 
+  Future<List<RecordingSession>> updateSession(
+    RecordingSession updatedSession,
+  ) async {
+    final List<RecordingSession> sessions = await loadSessions();
+    final int index = sessions.indexWhere(
+      (RecordingSession item) => item.id == updatedSession.id,
+    );
+    if (index < 0) {
+      throw StateError('找不到要更新的录像片段');
+    }
+    sessions[index] = updatedSession;
+    sessions.sort(
+      (RecordingSession a, RecordingSession b) =>
+          b.startedAt.compareTo(a.startedAt),
+    );
+    await _writeSessions(sessions);
+    return sessions;
+  }
+
+  Future<List<RecordingSession>> deleteSessions(Set<String> sessionIds) async {
+    if (sessionIds.isEmpty) {
+      return loadSessions();
+    }
+    final List<RecordingSession> sessions = await loadSessions();
+    final List<RecordingSession> removed = sessions
+        .where((RecordingSession item) => sessionIds.contains(item.id))
+        .toList(growable: false);
+    final List<RecordingSession> remaining = sessions
+        .where((RecordingSession item) => !sessionIds.contains(item.id))
+        .toList(growable: false);
+    await _writeSessions(remaining);
+
+    final Set<String> retainedPaths = remaining
+        .map((RecordingSession item) => p.normalize(item.filePath))
+        .toSet();
+    for (final String filePath
+        in removed
+            .map((RecordingSession item) => p.normalize(item.filePath))
+            .toSet()) {
+      if (retainedPaths.contains(filePath) ||
+          !p.isWithin(_recordingsDirectory.path, filePath)) {
+        continue;
+      }
+      final File file = File(filePath);
+      if (await file.exists()) {
+        try {
+          await file.delete();
+        } on FileSystemException {
+          // The record is already removed; an orphan file is safer than data loss.
+        }
+      }
+    }
+    return remaining;
+  }
+
   Future<WorkMode> loadWorkMode() async {
     await initialize();
     if (!await _settingsFile.exists()) {

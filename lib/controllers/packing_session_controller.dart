@@ -277,6 +277,16 @@ class PackingSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateSession(RecordingSession session) async {
+    _sessions = await _repository.updateSession(session);
+    notifyListeners();
+  }
+
+  Future<void> deleteSessions(Set<String> sessionIds) async {
+    _sessions = await _repository.deleteSessions(sessionIds);
+    notifyListeners();
+  }
+
   Future<void> _processFrame(CameraImage image) async {
     if (_processingFrame || !isRecording || !_timeline.isActive) {
       return;

@@ -23,7 +23,43 @@ class RecordingSession {
 
   Duration get playbackEnd => mediaEnd ?? mediaStart + duration;
 
+  Duration get playbackDuration => playbackEnd - mediaStart;
+
   String get displayCode => markers.isEmpty ? '未识别面单' : markers.first.code;
+
+  RecordingSession trimmed({
+    required Duration startOffset,
+    required Duration endOffset,
+  }) {
+    if (startOffset.isNegative ||
+        endOffset > playbackDuration ||
+        endOffset <= startOffset) {
+      throw ArgumentError('剪辑区间必须位于当前录像片段内');
+    }
+    final Duration newDuration = endOffset - startOffset;
+    final List<BarcodeMarker> adjustedMarkers = markers
+        .map((BarcodeMarker marker) {
+          Duration offset = marker.offset - startOffset;
+          if (offset.isNegative || offset > newDuration) {
+            offset = Duration.zero;
+          }
+          return BarcodeMarker(
+            code: marker.code,
+            occurredAt: marker.occurredAt,
+            offset: offset,
+          );
+        })
+        .toList(growable: false);
+    return RecordingSession(
+      id: id,
+      filePath: filePath,
+      startedAt: startedAt.add(startOffset),
+      endedAt: startedAt.add(endOffset),
+      markers: adjustedMarkers,
+      mediaStart: mediaStart + startOffset,
+      mediaEnd: mediaStart + endOffset,
+    );
+  }
 
   Map<String, Object> toJson() => <String, Object>{
     'id': id,

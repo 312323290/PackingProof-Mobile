@@ -152,8 +152,8 @@ class PackingHomeView extends StatelessWidget {
         bottom: false,
         child: LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
-            final double minimumPanelHeight = (constraints.maxHeight * 0.24)
-                .clamp(204.0, 224.0);
+            final double minimumPanelHeight = (constraints.maxHeight * 0.22)
+                .clamp(184.0, 204.0);
             final double previewAspectRatio = _portraitPreviewAspectRatio;
             final double cameraHeight =
                 (constraints.maxWidth / previewAspectRatio).clamp(
@@ -534,10 +534,10 @@ class _ControlPanel extends StatelessWidget {
     final bool isError = view.phase == PackingSessionPhase.error;
     return Container(
       height: height,
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
       decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        borderRadius: BorderRadius.vertical(top: Radius.elliptical(30, 40)),
         boxShadow: <BoxShadow>[
           BoxShadow(
             color: Color(0x24000000),

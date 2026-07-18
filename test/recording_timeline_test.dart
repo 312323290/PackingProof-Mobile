@@ -3,7 +3,7 @@ import 'package:parcel_lens/models/recording_session.dart';
 import 'package:parcel_lens/services/recording_timeline.dart';
 
 void main() {
-  test('连续扫码只生成一个母视频并按识别时间形成独立片段', () {
+  test('兼容录像路径可按识别时间形成多个逻辑片段', () {
     final RecordingTimeline timeline = RecordingTimeline();
     final DateTime startedAt = DateTime(2026, 7, 18, 9);
     timeline.start(startedAt);
@@ -28,6 +28,27 @@ void main() {
     expect(sessions.last.mediaStart, const Duration(seconds: 10));
     expect(sessions.last.playbackEnd, const Duration(seconds: 20));
     expect(sessions.last.markers.single.offset, Duration.zero);
+  });
+
+  test('连续扫码会返回可立即保存的已完成实体片段', () {
+    final RecordingTimeline timeline = RecordingTimeline();
+    final DateTime startedAt = DateTime(2026, 7, 18, 9);
+    timeline.start(startedAt);
+    timeline.bindCode('CODE-001', startedAt.add(const Duration(seconds: 2)));
+
+    final RecordingSegmentTransition transition = timeline.startNext(
+      'CODE-002',
+      startedAt.add(const Duration(seconds: 10)),
+    )!;
+
+    expect(transition.completed.startedAt, startedAt);
+    expect(
+      transition.completed.endedAt,
+      startedAt.add(const Duration(seconds: 10)),
+    );
+    expect(transition.completed.markers.single.code, 'CODE-001');
+    expect(transition.marker.code, 'CODE-002');
+    expect(transition.marker.offset, Duration.zero);
   });
 
   test('没有识别到面单时保留完整工作录像', () {

@@ -2,7 +2,8 @@ import '../models/barcode_marker.dart';
 import '../models/recording_session.dart';
 
 class RecordingTimeline {
-  final List<_SegmentDraft> _completedSegments = <_SegmentDraft>[];
+  final List<RecordingSegmentDraft> _completedSegments =
+      <RecordingSegmentDraft>[];
   final List<BarcodeMarker> _activeMarkers = <BarcodeMarker>[];
 
   DateTime? _recordingStartedAt;
@@ -34,15 +35,20 @@ class RecordingTimeline {
     return marker;
   }
 
-  BarcodeMarker? startNext(String code, DateTime occurredAt) {
+  RecordingSegmentTransition? startNext(String code, DateTime occurredAt) {
     if (_segmentStartedAt == null) {
       return null;
     }
-    _completeActiveSegment(occurredAt);
+    final RecordingSegmentDraft completed = _completeActiveSegment(occurredAt)!;
     _segmentStartedAt = occurredAt;
     _currentCode = '';
     _activeMarkers.clear();
-    return bindCode(code, occurredAt);
+    final BarcodeMarker marker = bindCode(code, occurredAt)!;
+    return RecordingSegmentTransition(completed: completed, marker: marker);
+  }
+
+  RecordingSegmentDraft? finish(DateTime endedAt) {
+    return _completeActiveSegment(endedAt);
   }
 
   List<RecordingSession> buildSessions({
@@ -59,7 +65,7 @@ class RecordingTimeline {
     return List<RecordingSession>.generate(_completedSegments.length, (
       int index,
     ) {
-      final _SegmentDraft draft = _completedSegments[index];
+      final RecordingSegmentDraft draft = _completedSegments[index];
       final String id = _completedSegments.length == 1
           ? recordingId
           : '${recordingId}_${(index + 1).toString().padLeft(3, '0')}';
@@ -83,24 +89,24 @@ class RecordingTimeline {
     _currentCode = '';
   }
 
-  void _completeActiveSegment(DateTime endedAt) {
+  RecordingSegmentDraft? _completeActiveSegment(DateTime endedAt) {
     final DateTime? startedAt = _segmentStartedAt;
     if (startedAt == null) {
-      return;
+      return null;
     }
-    _completedSegments.add(
-      _SegmentDraft(
-        startedAt: startedAt,
-        endedAt: endedAt.isBefore(startedAt) ? startedAt : endedAt,
-        markers: List<BarcodeMarker>.of(_activeMarkers),
-      ),
+    final RecordingSegmentDraft completed = RecordingSegmentDraft(
+      startedAt: startedAt,
+      endedAt: endedAt.isBefore(startedAt) ? startedAt : endedAt,
+      markers: List<BarcodeMarker>.of(_activeMarkers),
     );
+    _completedSegments.add(completed);
     _segmentStartedAt = null;
+    return completed;
   }
 }
 
-class _SegmentDraft {
-  const _SegmentDraft({
+class RecordingSegmentDraft {
+  const RecordingSegmentDraft({
     required this.startedAt,
     required this.endedAt,
     required this.markers,
@@ -109,6 +115,16 @@ class _SegmentDraft {
   final DateTime startedAt;
   final DateTime endedAt;
   final List<BarcodeMarker> markers;
+}
+
+class RecordingSegmentTransition {
+  const RecordingSegmentTransition({
+    required this.completed,
+    required this.marker,
+  });
+
+  final RecordingSegmentDraft completed;
+  final BarcodeMarker marker;
 }
 
 Duration _difference(DateTime later, DateTime earlier) {

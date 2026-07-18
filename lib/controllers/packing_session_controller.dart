@@ -13,6 +13,7 @@ import '../models/work_mode.dart';
 import '../services/barcode_candidate_policy.dart';
 import '../services/barcode_stability_tracker.dart';
 import '../services/barcode_work_mode_policy.dart';
+import '../services/continuous_camera_service.dart';
 import '../services/nv21_center_crop.dart';
 import '../services/recording_timeline.dart';
 import '../services/session_repository.dart';
@@ -43,6 +44,8 @@ class PackingSessionController extends ChangeNotifier {
   final RecordingTimeline _timeline = RecordingTimeline();
 
   CameraController? _cameraController;
+  ContinuousCameraService? _nativeCamera;
+  ContinuousCameraInitialization? _nativeInitialization;
   PackingSessionPhase _phase = PackingSessionPhase.initializing;
   List<RecordingSession> _sessions = <RecordingSession>[];
   DateTime _lastAnalysisAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -56,8 +59,14 @@ class PackingSessionController extends ChangeNotifier {
   bool _processingFrame = false;
   bool _handlingBarcode = false;
   bool _disposed = false;
+  String? _recordingId;
+  String? _activeSegmentId;
+  int _segmentIndex = 1;
 
   CameraController? get cameraController => _cameraController;
+  int? get nativeTextureId => _nativeInitialization?.textureId;
+  double? get nativePreviewAspectRatio =>
+      _nativeInitialization?.portraitAspectRatio;
   PackingSessionPhase get phase => _phase;
   List<RecordingSession> get sessions =>
       List<RecordingSession>.unmodifiable(_sessions);
@@ -73,11 +82,13 @@ class PackingSessionController extends ChangeNotifier {
       _phase == PackingSessionPhase.starting ||
       _phase == PackingSessionPhase.saving;
   bool get isCameraReady =>
-      _cameraController?.value.isInitialized == true &&
+      (Platform.isAndroid
+          ? _nativeInitialization != null
+          : _cameraController?.value.isInitialized == true) &&
       _phase != PackingSessionPhase.error;
 
   Future<void> initialize() async {
-    if (_disposed || _cameraController?.value.isInitialized == true) {
+    if (_disposed || isCameraReady) {
       return;
     }
     _setPhase(PackingSessionPhase.initializing);
@@ -87,6 +98,20 @@ class PackingSessionController extends ChangeNotifier {
       await _repository.initialize();
       _sessions = await _repository.loadSessions();
       _workMode = await _repository.loadWorkMode();
+      if (Platform.isAndroid) {
+        final ContinuousCameraService nativeCamera = ContinuousCameraService();
+        nativeCamera.onBarcodeFrame = _processNativeBarcodeFrame;
+        nativeCamera.onError = (String message) {
+          _errorMessage = message;
+          if (!_disposed) {
+            notifyListeners();
+          }
+        };
+        _nativeCamera = nativeCamera;
+        _nativeInitialization = await nativeCamera.initialize();
+        _setPhase(PackingSessionPhase.ready);
+        return;
+      }
       final List<CameraDescription> cameras = await availableCameras();
       if (cameras.isEmpty) {
         throw CameraException('NoCamera', '没有检测到可用摄像头');
@@ -129,10 +154,10 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<void> startWork() async {
     final CameraController? camera = _cameraController;
-    if (camera == null ||
-        !camera.value.isInitialized ||
-        isBusy ||
-        isRecording) {
+    final bool cameraUnavailable = Platform.isAndroid
+        ? _nativeInitialization == null
+        : camera == null || !camera.value.isInitialized;
+    if (cameraUnavailable || isBusy || isRecording) {
       return;
     }
 
@@ -160,7 +185,10 @@ class PackingSessionController extends ChangeNotifier {
   Future<RecordingSession?> stopWork() async {
     final CameraController? camera = _cameraController;
     final DateTime? startedAt = _timeline.recordingStartedAt;
-    if (camera == null || startedAt == null || !camera.value.isRecordingVideo) {
+    final bool recordingUnavailable = Platform.isAndroid
+        ? _nativeCamera == null
+        : camera == null || !camera.value.isRecordingVideo;
+    if (recordingUnavailable || startedAt == null) {
       return null;
     }
 
@@ -168,7 +196,9 @@ class PackingSessionController extends ChangeNotifier {
     await WidgetsBinding.instance.endOfFrame;
 
     try {
-      final List<RecordingSession> savedSessions = await _finishRecording();
+      final List<RecordingSession> savedSessions = Platform.isAndroid
+          ? await _finishNativeRecording()
+          : await _finishRecording();
       _candidateCode = '';
       _stabilityTracker.reset();
       await WakelockPlus.disable();
@@ -194,6 +224,10 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> _startRecording() async {
+    if (Platform.isAndroid) {
+      await _startNativeRecording();
+      return;
+    }
     final CameraController? camera = _cameraController;
     if (camera == null || !camera.value.isInitialized) {
       throw CameraException('CameraNotReady', '摄像头尚未准备完成');
@@ -221,6 +255,25 @@ class PackingSessionController extends ChangeNotifier {
     _startElapsedTimer();
   }
 
+  Future<void> _startNativeRecording() async {
+    final ContinuousCameraService? camera = _nativeCamera;
+    if (camera == null || _nativeInitialization == null) {
+      throw StateError('摄像头尚未准备完成');
+    }
+    _setPhase(PackingSessionPhase.starting);
+    await WidgetsBinding.instance.endOfFrame;
+    final String recordingId = _sessionId(DateTime.now());
+    final String path = await _repository.recordingPath(recordingId);
+    final NativeRecordingStart started = await camera.startWork(path);
+    _recordingId = recordingId;
+    _activeSegmentId = recordingId;
+    _segmentIndex = 1;
+    _timeline.start(started.startedAt);
+    _elapsed = Duration.zero;
+    _setPhase(PackingSessionPhase.recording);
+    _startElapsedTimer();
+  }
+
   Future<List<RecordingSession>> _finishRecording() async {
     final CameraController camera = _cameraController!;
     final DateTime startedAt = _timeline.recordingStartedAt!;
@@ -242,6 +295,29 @@ class PackingSessionController extends ChangeNotifier {
     _elapsed = endedAt.difference(startedAt);
     _timeline.reset();
     return sessions;
+  }
+
+  Future<List<RecordingSession>> _finishNativeRecording() async {
+    final ContinuousCameraService camera = _nativeCamera!;
+    final String segmentId = _activeSegmentId!;
+    _elapsedTimer?.cancel();
+    _elapsedTimer = null;
+    final NativeRecordingStop stopped = await camera.stopWork();
+    final RecordingSegmentDraft? draft = _timeline.finish(stopped.endedAt);
+    if (draft == null) {
+      throw StateError('找不到当前录像片段');
+    }
+    final RecordingSession session = _standaloneSession(
+      id: segmentId,
+      path: stopped.path,
+      draft: draft,
+    );
+    _sessions = await _repository.addSession(session);
+    _elapsed = stopped.endedAt.difference(_timeline.recordingStartedAt!);
+    _timeline.reset();
+    _recordingId = null;
+    _activeSegmentId = null;
+    return <RecordingSession>[session];
   }
 
   void _startElapsedTimer() {
@@ -266,8 +342,10 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> handleResumed() async {
-    if (_cameraController?.value.isInitialized != true &&
-        _phase != PackingSessionPhase.saving) {
+    final bool needsInitialization = Platform.isAndroid
+        ? _nativeInitialization == null
+        : _cameraController?.value.isInitialized != true;
+    if (needsInitialization && _phase != PackingSessionPhase.saving) {
       await initialize();
     }
   }
@@ -285,6 +363,33 @@ class PackingSessionController extends ChangeNotifier {
   Future<void> deleteSessions(Set<String> sessionIds) async {
     _sessions = await _repository.deleteSessions(sessionIds);
     notifyListeners();
+  }
+
+  void _processNativeBarcodeFrame(List<NativeBarcodeCandidate> candidates) {
+    if (!isRecording || !_timeline.isActive) {
+      return;
+    }
+    String? validCode;
+    int largestArea = -1;
+    for (final NativeBarcodeCandidate candidate in candidates) {
+      if (BarcodeCandidatePolicy.isValid(candidate.value) &&
+          candidate.area > largestArea) {
+        largestArea = candidate.area;
+        validCode = BarcodeCandidatePolicy.normalize(candidate.value);
+      }
+    }
+    final DateTime now = DateTime.now();
+    final BarcodeObservation observation = _stabilityTracker.observe(
+      validCode,
+      now,
+    );
+    if (observation.confirmedCode.isNotEmpty) {
+      _candidateCode = '';
+      unawaited(_handleConfirmedBarcode(observation.confirmedCode, now));
+    } else if (observation.candidateCode != _candidateCode) {
+      _candidateCode = observation.candidateCode;
+      notifyListeners();
+    }
   }
 
   Future<void> _processFrame(CameraImage image) async {
@@ -454,7 +559,9 @@ class PackingSessionController extends ChangeNotifier {
       case BarcodeWorkAction.startNextVideo:
         _handlingBarcode = true;
         try {
-          final BarcodeMarker? marker = _timeline.startNext(code, now);
+          final BarcodeMarker? marker = Platform.isAndroid
+              ? await _splitNativeRecording(code)
+              : _timeline.startNext(code, now)?.marker;
           if (marker != null) {
             _showMarkerFeedback(marker);
           }
@@ -463,6 +570,50 @@ class PackingSessionController extends ChangeNotifier {
         }
         return;
     }
+  }
+
+  Future<BarcodeMarker?> _splitNativeRecording(String code) async {
+    final ContinuousCameraService? camera = _nativeCamera;
+    final String? recordingId = _recordingId;
+    final String? completedId = _activeSegmentId;
+    if (camera == null || recordingId == null || completedId == null) {
+      return null;
+    }
+    final int nextIndex = _segmentIndex + 1;
+    final String nextId =
+        '${recordingId}_${nextIndex.toString().padLeft(3, '0')}';
+    final String nextPath = await _repository.recordingPath(nextId);
+    final NativeRecordingSplit split = await camera.split(nextPath);
+    final RecordingSegmentTransition? transition = _timeline.startNext(
+      code,
+      split.boundaryAt,
+    );
+    if (transition == null) {
+      throw StateError('录像时间线无法开始下一段');
+    }
+    final RecordingSession completed = _standaloneSession(
+      id: completedId,
+      path: split.completedPath,
+      draft: transition.completed,
+    );
+    _sessions = await _repository.addSession(completed);
+    _activeSegmentId = nextId;
+    _segmentIndex = nextIndex;
+    return transition.marker;
+  }
+
+  RecordingSession _standaloneSession({
+    required String id,
+    required String path,
+    required RecordingSegmentDraft draft,
+  }) {
+    return RecordingSession(
+      id: id,
+      filePath: path,
+      startedAt: draft.startedAt,
+      endedAt: draft.endedAt,
+      markers: List<BarcodeMarker>.unmodifiable(draft.markers),
+    );
   }
 
   void _bindCurrentCode(String code, DateTime now) {
@@ -509,6 +660,19 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> _disposeCamera() async {
+    if (Platform.isAndroid) {
+      final ContinuousCameraService? nativeCamera = _nativeCamera;
+      _nativeCamera = null;
+      _nativeInitialization = null;
+      if (nativeCamera != null) {
+        await nativeCamera.dispose();
+      }
+      if (!_disposed && _phase != PackingSessionPhase.error) {
+        _phase = PackingSessionPhase.initializing;
+        notifyListeners();
+      }
+      return;
+    }
     final CameraController? camera = _cameraController;
     _cameraController = null;
     if (camera != null) {
@@ -537,6 +701,10 @@ class PackingSessionController extends ChangeNotifier {
     final CameraController? camera = _cameraController;
     if (camera != null) {
       unawaited(camera.dispose());
+    }
+    final ContinuousCameraService? nativeCamera = _nativeCamera;
+    if (nativeCamera != null) {
+      unawaited(nativeCamera.dispose());
     }
     unawaited(_barcodeScanner.close());
     super.dispose();

@@ -82,6 +82,8 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       builder: (BuildContext context, Widget? child) {
         return PackingHomeView(
           cameraController: _controller.cameraController,
+          nativeTextureId: _controller.nativeTextureId,
+          nativePreviewAspectRatio: _controller.nativePreviewAspectRatio,
           phase: _controller.phase,
           elapsed: _controller.elapsed,
           lastMarker: _controller.lastMarker,
@@ -106,6 +108,8 @@ class PackingHomeView extends StatelessWidget {
     required this.onRetryPressed,
     required this.onRecordingsPressed,
     this.cameraController,
+    this.nativeTextureId,
+    this.nativePreviewAspectRatio,
     this.lastMarker,
     this.candidateCode = '',
     this.currentCode = '',
@@ -116,6 +120,8 @@ class PackingHomeView extends StatelessWidget {
   });
 
   final CameraController? cameraController;
+  final int? nativeTextureId;
+  final double? nativePreviewAspectRatio;
   final PackingSessionPhase phase;
   final Duration elapsed;
   final BarcodeMarker? lastMarker;
@@ -177,6 +183,12 @@ class _CameraArea extends StatelessWidget {
     final CameraController? camera = view.cameraController;
     if (view.previewOverride != null) {
       preview = view.previewOverride!;
+    } else if (view.nativeTextureId != null &&
+        view.nativePreviewAspectRatio != null) {
+      preview = NativeCameraPreviewCover(
+        textureId: view.nativeTextureId!,
+        portraitAspectRatio: view.nativePreviewAspectRatio!,
+      );
     } else if (camera?.value.isInitialized == true) {
       preview = CameraPreviewCover(controller: camera!);
     } else {
@@ -228,6 +240,40 @@ class _CameraArea extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class NativeCameraPreviewCover extends StatelessWidget {
+  const NativeCameraPreviewCover({
+    required this.textureId,
+    required this.portraitAspectRatio,
+    super.key,
+  });
+
+  final int textureId;
+  final double portraitAspectRatio;
+
+  @override
+  Widget build(BuildContext context) {
+    const double naturalHeight = 1000;
+    return ClipRect(
+      child: SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            key: const Key('native-camera-preview-natural-size'),
+            width: naturalHeight * portraitAspectRatio,
+            height: naturalHeight,
+            child: Texture(
+              textureId: textureId,
+              filterQuality: FilterQuality.none,
+            ),
+          ),
+        ),
       ),
     );
   }

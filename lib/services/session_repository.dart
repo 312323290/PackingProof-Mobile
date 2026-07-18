@@ -87,6 +87,11 @@ class SessionRepository {
     return destinationPath;
   }
 
+  Future<String> recordingPath(String sessionId) async {
+    await initialize();
+    return p.join(_recordingsDirectory.path, '$sessionId.mp4');
+  }
+
   Future<List<RecordingSession>> addSession(RecordingSession session) async {
     return addSessions(<RecordingSession>[session]);
   }

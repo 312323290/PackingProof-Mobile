@@ -217,51 +217,136 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
                         borderRadius: BorderRadius.circular(18),
                         child: AspectRatio(
                           aspectRatio: value.aspectRatio,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: <Widget>[
-                              VideoPlayer(_video),
-                              Center(
-                                child: IconButton.filled(
-                                  onPressed: _togglePlayback,
-                                  iconSize: 34,
-                                  icon: Icon(
-                                    value.isPlaying
-                                        ? Icons.pause_rounded
-                                        : Icons.play_arrow_rounded,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _togglePlayback,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: <Widget>[
+                                VideoPlayer(_video),
+                                if (!value.isPlaying &&
+                                    _scrubMilliseconds == null)
+                                  const Center(
+                                    child: IgnorePointer(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: Color(0x66000000),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Padding(
+                                          padding: EdgeInsets.all(14),
+                                          child: Icon(
+                                            Icons.play_arrow_rounded,
+                                            color: Colors.white,
+                                            size: 38,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  child: IgnorePointer(
+                                    child: Container(
+                                      height: 104,
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: <Color>[
+                                            Colors.transparent,
+                                            Color(0x99000000),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
+                                Positioned(
+                                  left: 10,
+                                  right: 10,
+                                  bottom: 4,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: <Widget>[
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                        ),
+                                        child: Row(
+                                          children: <Widget>[
+                                            Text(
+                                              _formatDuration(
+                                                Duration(
+                                                  milliseconds: position
+                                                      .round(),
+                                                ),
+                                              ),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const Spacer(),
+                                            Text(
+                                              _formatDuration(
+                                                _playbackDuration,
+                                              ),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          activeTrackColor: Colors.white,
+                                          inactiveTrackColor: const Color(
+                                            0x66FFFFFF,
+                                          ),
+                                          thumbColor: Colors.white,
+                                          overlayColor: const Color(0x33FFFFFF),
+                                          trackHeight: 3,
+                                          thumbShape:
+                                              const RoundSliderThumbShape(
+                                                enabledThumbRadius: 6,
+                                              ),
+                                        ),
+                                        child: Slider(
+                                          value: maximum > 0 ? position : 0,
+                                          max: maximum > 0 ? maximum : 1,
+                                          onChangeStart: maximum > 0
+                                              ? _startScrubbing
+                                              : null,
+                                          onChanged: maximum > 0
+                                              ? _scrubTo
+                                              : null,
+                                          onChangeEnd: maximum > 0
+                                              ? _finishScrubbing
+                                              : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Slider(
-                        value: maximum > 0 ? position : 0,
-                        max: maximum > 0 ? maximum : 1,
-                        onChangeStart: maximum > 0 ? _startScrubbing : null,
-                        onChanged: maximum > 0 ? _scrubTo : null,
-                        onChangeEnd: maximum > 0 ? _finishScrubbing : null,
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Row(
-                          children: <Widget>[
-                            Text(
-                              _formatDuration(
-                                Duration(milliseconds: position.round()),
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(_formatDuration(_playbackDuration)),
-                            const SizedBox(width: 14),
-                            OutlinedButton.icon(
-                              onPressed: _openTrim,
-                              icon: const Icon(Icons.content_cut_rounded),
-                              label: const Text('剪辑'),
-                            ),
-                          ],
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: OutlinedButton.icon(
+                          onPressed: _openTrim,
+                          icon: const Icon(Icons.content_cut_rounded),
+                          label: const Text('剪辑'),
                         ),
                       ),
                     ],

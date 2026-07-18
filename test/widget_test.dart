@@ -85,4 +85,39 @@ void main() {
     expect(find.byKey(const Key('scan-guide')), findsOneWidget);
     expect(find.text('正在保存录像'), findsOneWidget);
   });
+
+  testWidgets('录像中显示时长胶囊、加粗单号和红色结束按钮', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(useMaterial3: true),
+        home: PackingHomeView(
+          phase: PackingSessionPhase.recording,
+          elapsed: const Duration(seconds: 8),
+          currentCode: '770017871213193',
+          previewOverride: const ColoredBox(color: Colors.black),
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+          onRecordingsPressed: () {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('recording-duration-pill')), findsOneWidget);
+    expect(find.text('00:08'), findsOneWidget);
+    expect(find.text('770017871213193'), findsOneWidget);
+    expect(find.text('结束工作'), findsOneWidget);
+
+    final Text shippingCode = tester.widget<Text>(
+      find.byKey(const Key('current-shipping-code')),
+    );
+    expect(shippingCode.style?.fontWeight, FontWeight.w800);
+
+    final FilledButton stopButton = tester.widget<FilledButton>(
+      find.byKey(const Key('primary-work-button')),
+    );
+    expect(
+      stopButton.style?.backgroundColor?.resolve(<WidgetState>{}),
+      const Color(0xFFD92D20),
+    );
+  });
 }

@@ -323,7 +323,7 @@ class PackingSessionController extends ChangeNotifier {
   void _startElapsedTimer() {
     _elapsedTimer?.cancel();
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final DateTime? startedAt = _timeline.recordingStartedAt;
+      final DateTime? startedAt = _timeline.segmentStartedAt;
       if (startedAt == null || _disposed) {
         return;
       }
@@ -561,7 +561,7 @@ class PackingSessionController extends ChangeNotifier {
         try {
           final BarcodeMarker? marker = Platform.isAndroid
               ? await _splitNativeRecording(code)
-              : _timeline.startNext(code, now)?.marker;
+              : _startNextTimelineSegment(code, now);
           if (marker != null) {
             _showMarkerFeedback(marker);
           }
@@ -591,6 +591,7 @@ class PackingSessionController extends ChangeNotifier {
     if (transition == null) {
       throw StateError('录像时间线无法开始下一段');
     }
+    _resetSegmentElapsed();
     final RecordingSession completed = _standaloneSession(
       id: completedId,
       path: split.completedPath,
@@ -600,6 +601,22 @@ class PackingSessionController extends ChangeNotifier {
     _activeSegmentId = nextId;
     _segmentIndex = nextIndex;
     return transition.marker;
+  }
+
+  BarcodeMarker? _startNextTimelineSegment(String code, DateTime boundaryAt) {
+    final RecordingSegmentTransition? transition = _timeline.startNext(
+      code,
+      boundaryAt,
+    );
+    if (transition != null) {
+      _resetSegmentElapsed();
+    }
+    return transition?.marker;
+  }
+
+  void _resetSegmentElapsed() {
+    _elapsed = Duration.zero;
+    notifyListeners();
   }
 
   RecordingSession _standaloneSession({

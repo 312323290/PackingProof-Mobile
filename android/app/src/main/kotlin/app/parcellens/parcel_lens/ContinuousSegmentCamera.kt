@@ -56,6 +56,7 @@ class ContinuousSegmentCamera(
         private const val VIDEO_WIDTH = 1920
         private const val VIDEO_HEIGHT = 1080
         private const val VIDEO_FPS = 30
+        private const val MIN_AUTO_VIDEO_FPS = 15
         private const val HEVC_VIDEO_BIT_RATE = 7_000_000
         private const val AVC_VIDEO_BIT_RATE = 10_000_000
         private const val AUDIO_SAMPLE_RATE = 48_000
@@ -464,9 +465,7 @@ class ContinuousSegmentCamera(
                                 addTarget(preview)
                                 addTarget(encoder)
                                 addTarget(analysis)
-                                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                applyAutomaticCameraControls(this, characteristics)
                                 chooseFpsRange(characteristics)?.let {
                                     set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
                                 }
@@ -492,6 +491,72 @@ class ContinuousSegmentCamera(
         }
     }
 
+    private fun applyAutomaticCameraControls(
+        request: CaptureRequest.Builder,
+        characteristics: CameraCharacteristics,
+    ) {
+        request.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+
+        chooseSupportedMode(
+            characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES),
+            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO,
+            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE,
+            CaptureRequest.CONTROL_AF_MODE_AUTO,
+        )?.let { request.set(CaptureRequest.CONTROL_AF_MODE, it) }
+
+        chooseSupportedMode(
+            characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES),
+            CaptureRequest.CONTROL_AE_MODE_ON,
+        )?.let { request.set(CaptureRequest.CONTROL_AE_MODE, it) }
+        if (characteristics.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) == true) {
+            request.set(CaptureRequest.CONTROL_AE_LOCK, false)
+        }
+
+        chooseSupportedMode(
+            characteristics.get(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES),
+            CaptureRequest.CONTROL_AWB_MODE_AUTO,
+        )?.let { request.set(CaptureRequest.CONTROL_AWB_MODE, it) }
+        if (characteristics.get(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE) == true) {
+            request.set(CaptureRequest.CONTROL_AWB_LOCK, false)
+        }
+
+        chooseSupportedMode(
+            characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_ANTIBANDING_MODES),
+            CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_AUTO,
+            CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_50HZ,
+            CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_60HZ,
+        )?.let { request.set(CaptureRequest.CONTROL_AE_ANTIBANDING_MODE, it) }
+
+        val videoStabilizationMode = chooseSupportedMode(
+            characteristics.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES),
+            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON,
+        )
+        if (videoStabilizationMode != null) {
+            request.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, videoStabilizationMode)
+        } else {
+            chooseSupportedMode(
+                characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION),
+                CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON,
+            )?.let { request.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, it) }
+        }
+
+        chooseSupportedMode(
+            characteristics.get(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES),
+            CaptureRequest.NOISE_REDUCTION_MODE_FAST,
+            CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY,
+        )?.let { request.set(CaptureRequest.NOISE_REDUCTION_MODE, it) }
+        chooseSupportedMode(
+            characteristics.get(CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES),
+            CaptureRequest.EDGE_MODE_FAST,
+            CaptureRequest.EDGE_MODE_HIGH_QUALITY,
+        )?.let { request.set(CaptureRequest.EDGE_MODE, it) }
+    }
+
+    private fun chooseSupportedMode(availableModes: IntArray?, vararg preferredModes: Int): Int? {
+        if (availableModes == null) return null
+        return preferredModes.firstOrNull(availableModes::contains)
+    }
+
     private fun chooseVideoSize(configuration: StreamConfigurationMap): Size {
         val sizes = configuration.getOutputSizes(MediaRecorder::class.java)?.toList().orEmpty()
         return sizes.firstOrNull { it.width == VIDEO_WIDTH && it.height == VIDEO_HEIGHT }
@@ -513,7 +578,10 @@ class ContinuousSegmentCamera(
     private fun chooseFpsRange(characteristics: CameraCharacteristics): Range<Int>? {
         val ranges = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
             ?: return null
-        return ranges.firstOrNull { it.lower == VIDEO_FPS && it.upper == VIDEO_FPS }
+        return ranges.filter {
+            it.lower in MIN_AUTO_VIDEO_FPS until VIDEO_FPS && it.upper == VIDEO_FPS
+        }.maxByOrNull { it.lower }
+            ?: ranges.firstOrNull { it.lower == VIDEO_FPS && it.upper == VIDEO_FPS }
             ?: ranges.filter { it.lower <= VIDEO_FPS && it.upper >= VIDEO_FPS }
                 .minByOrNull { it.upper - it.lower }
     }

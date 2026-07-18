@@ -215,6 +215,12 @@ class _CameraArea extends StatelessWidget {
               child: CustomPaint(painter: _ScanGuidePainter()),
             ),
           ),
+          if (view._isRecording)
+            Positioned(
+              left: 20,
+              top: 18,
+              child: _RecordingDurationPill(elapsed: view.elapsed),
+            ),
           if (view.lastMarker != null)
             Positioned(
               left: 20,
@@ -239,6 +245,46 @@ class _CameraArea extends StatelessWidget {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecordingDurationPill extends StatelessWidget {
+  const _RecordingDurationPill({required this.elapsed});
+
+  final Duration elapsed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('recording-duration-pill'),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xB8000000),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFF453A),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _duration(elapsed),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );
@@ -450,28 +496,60 @@ class _ControlPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          Text(
-            isError
-                ? (view.errorMessage ?? '请重新检查摄像头权限')
-                : view._isRecording
-                ? _recordingStatus(view)
-                : '对准面单条码',
-            maxLines: 1,
-            textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF767D7A),
-              fontSize: 15,
-              height: 1.45,
+          if (view._isRecording) ...<Widget>[
+            Text(
+              view.currentCode.isEmpty ? '等待识别面单' : view.currentCode,
+              key: const Key('current-shipping-code'),
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: ParcelLensApp.ink,
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+                height: 1.25,
+              ),
             ),
-          ),
-          const SizedBox(height: 18),
+            const SizedBox(height: 3),
+            Text(
+              _recordingHint(view),
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF767D7A),
+                fontSize: 13,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 11),
+          ] else ...<Widget>[
+            Text(
+              isError ? (view.errorMessage ?? '请重新检查摄像头权限') : '对准面单条码',
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF767D7A),
+                fontSize: 15,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 18),
+          ],
           FilledButton.icon(
+            key: const Key('primary-work-button'),
             onPressed: view._isBusy
                 ? null
                 : isError
                 ? view.onRetryPressed
                 : view.onPrimaryPressed,
+            style: view._isRecording
+                ? FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFD92D20),
+                    foregroundColor: Colors.white,
+                  )
+                : null,
             icon: view._isBusy
                 ? const SizedBox.square(
                     dimension: 20,
@@ -497,7 +575,7 @@ class _ControlPanel extends StatelessWidget {
                   : isError
                   ? '重新检查'
                   : view._isRecording
-                  ? '结束并保存'
+                  ? '结束工作'
                   : '开始工作',
             ),
           ),
@@ -529,13 +607,13 @@ class _ControlPanel extends StatelessWidget {
   }
 }
 
-String _recordingStatus(PackingHomeView view) {
+String _recordingHint(PackingHomeView view) {
   if (view.currentCode.isEmpty) {
-    return '录像中  ${_duration(view.elapsed)} · 等待识别面单';
+    return '识别后自动绑定当前录像';
   }
   return switch (view.workMode) {
-    WorkMode.continuousScan => '${view.currentCode} · 扫下一单自动分段',
-    WorkMode.sameCodeStop => '再次识别 ${view.currentCode} 后停录',
+    WorkMode.continuousScan => '扫描下一张面单自动分段',
+    WorkMode.sameCodeStop => '再次扫描相同面单后结束',
   };
 }
 

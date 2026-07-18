@@ -11,6 +11,7 @@ class RecordingTimeline {
   String _currentCode = '';
 
   DateTime? get recordingStartedAt => _recordingStartedAt;
+  DateTime? get segmentStartedAt => _segmentStartedAt;
   String get currentCode => _currentCode;
   bool get isActive => _recordingStartedAt != null;
 

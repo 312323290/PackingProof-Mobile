@@ -49,6 +49,10 @@ void main() {
     expect(transition.completed.markers.single.code, 'CODE-001');
     expect(transition.marker.code, 'CODE-002');
     expect(transition.marker.offset, Duration.zero);
+    expect(
+      timeline.segmentStartedAt,
+      startedAt.add(const Duration(seconds: 10)),
+    );
   });
 
   test('没有识别到面单时保留完整工作录像', () {

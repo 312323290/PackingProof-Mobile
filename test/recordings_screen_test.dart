@@ -14,10 +14,12 @@ void main() {
           sessions: const [],
           workMode: selected,
           speechEnabled: true,
+          maxVolumeEnabled: true,
           onWorkModeChanged: (WorkMode mode) async {
             selected = mode;
           },
           onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
           onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (_) async {},
@@ -45,10 +47,12 @@ void main() {
           sessions: const [],
           workMode: WorkMode.continuousScan,
           speechEnabled: enabled,
+          maxVolumeEnabled: true,
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (bool value) async {
             enabled = value;
           },
+          onMaxVolumeEnabledChanged: (_) async {},
           onSpeechPreview: () async {
             previewCount++;
           },
@@ -75,6 +79,34 @@ void main() {
     );
   });
 
+  testWidgets('最大音量默认开启且可关闭', (WidgetTester tester) async {
+    bool enabled = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: enabled,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (bool value) async {
+            enabled = value;
+          },
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('最大音量'), findsOneWidget);
+    expect(find.text('工作时自动提高媒体音量'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('max-volume-enabled-switch')));
+    await tester.pump();
+    expect(enabled, isFalse);
+  });
+
   testWidgets('录像卡片不重复显示内部识别标记数量', (WidgetTester tester) async {
     final DateTime startedAt = DateTime(2026, 7, 18, 12);
     await tester.pumpWidget(
@@ -97,8 +129,10 @@ void main() {
           ],
           workMode: WorkMode.continuousScan,
           speechEnabled: true,
+          maxVolumeEnabled: true,
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
           onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (_) async {},
@@ -122,8 +156,10 @@ void main() {
           ],
           workMode: WorkMode.continuousScan,
           speechEnabled: true,
+          maxVolumeEnabled: true,
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
           onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (_) async {},
@@ -155,8 +191,10 @@ void main() {
           ],
           workMode: WorkMode.continuousScan,
           speechEnabled: true,
+          maxVolumeEnabled: true,
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
           onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (Set<String> ids) async {
@@ -167,6 +205,8 @@ void main() {
     );
 
     await tester.tap(find.text('管理'));
+    await tester.pump();
+    await tester.drag(find.byType(ListView), const Offset(0, -420));
     await tester.pump();
     await tester.tap(find.text('JT1234567890'));
     await tester.pump();

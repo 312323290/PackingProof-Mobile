@@ -195,6 +195,11 @@ class SessionRepository {
     await saveSettings(settings.copyWith(speechEnabled: enabled));
   }
 
+  Future<void> saveMaxVolumeEnabled(bool enabled) async {
+    final AppSettings settings = await loadSettings();
+    await saveSettings(settings.copyWith(maxVolumeEnabled: enabled));
+  }
+
   Future<void> saveSettings(AppSettings settings) async {
     await initialize();
     final String contents = const JsonEncoder.withIndent(

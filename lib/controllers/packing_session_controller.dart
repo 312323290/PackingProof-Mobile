@@ -17,6 +17,7 @@ import '../services/barcode_stability_tracker.dart';
 import '../services/barcode_work_mode_policy.dart';
 import '../services/continuous_camera_service.dart';
 import '../services/initial_recording_prompt_policy.dart';
+import '../services/max_volume_service.dart';
 import '../services/nv21_center_crop.dart';
 import '../services/recording_timeline.dart';
 import '../services/session_repository.dart';
@@ -35,8 +36,10 @@ class PackingSessionController extends ChangeNotifier {
   PackingSessionController({
     SessionRepository? repository,
     SpeechPromptSink? speechService,
+    MaxVolumeSink? maxVolumeService,
   }) : _repository = repository ?? SessionRepository(),
        _speechService = speechService ?? SpeechPromptService(),
+       _maxVolumeService = maxVolumeService ?? MaxVolumeService(),
        _barcodeScanner = BarcodeScanner(
          formats: const <BarcodeFormat>[BarcodeFormat.all],
        );
@@ -48,6 +51,7 @@ class PackingSessionController extends ChangeNotifier {
 
   final SessionRepository _repository;
   final SpeechPromptSink _speechService;
+  final MaxVolumeSink _maxVolumeService;
   final BarcodeScanner _barcodeScanner;
   final BarcodeStabilityTracker _stabilityTracker = BarcodeStabilityTracker();
   final RecordingTimeline _timeline = RecordingTimeline();
@@ -68,6 +72,8 @@ class PackingSessionController extends ChangeNotifier {
   String _candidateCode = '';
   WorkMode _workMode = WorkMode.continuousScan;
   bool _speechEnabled = true;
+  bool _maxVolumeEnabled = true;
+  bool _appIsActive = true;
   String? _errorMessage;
   bool _processingFrame = false;
   bool _handlingBarcode = false;
@@ -88,6 +94,7 @@ class PackingSessionController extends ChangeNotifier {
   String get currentCode => _timeline.currentCode;
   WorkMode get workMode => _workMode;
   bool get speechEnabled => _speechEnabled;
+  bool get maxVolumeEnabled => _maxVolumeEnabled;
   String? get errorMessage => _errorMessage;
   bool get isRecording => _phase == PackingSessionPhase.recording;
   bool get isBusy =>
@@ -113,7 +120,9 @@ class PackingSessionController extends ChangeNotifier {
       final AppSettings settings = await _repository.loadSettings();
       _workMode = settings.workMode;
       _speechEnabled = settings.speechEnabled;
+      _maxVolumeEnabled = settings.maxVolumeEnabled;
       await _speechService.setEnabled(_speechEnabled);
+      await _beginMaxVolumeIfNeeded();
       if (Platform.isAndroid) {
         final ContinuousCameraService nativeCamera = ContinuousCameraService();
         nativeCamera.onBarcodeFrame = _processNativeBarcodeFrame;
@@ -179,6 +188,8 @@ class PackingSessionController extends ChangeNotifier {
     if (cameraUnavailable || isBusy || isRecording) {
       return;
     }
+
+    await _boostMaxVolumeIfNeeded();
 
     _errorMessage = null;
     _lastMarker = null;
@@ -260,6 +271,20 @@ class PackingSessionController extends ChangeNotifier {
     notifyListeners();
     await _speechService.setEnabled(enabled);
     await _repository.saveSpeechEnabled(enabled);
+  }
+
+  Future<void> setMaxVolumeEnabled(bool enabled) async {
+    if (_maxVolumeEnabled == enabled) {
+      return;
+    }
+    _maxVolumeEnabled = enabled;
+    notifyListeners();
+    if (enabled) {
+      await _beginMaxVolumeIfNeeded();
+    } else {
+      await _disableMaxVolume();
+    }
+    await _repository.saveMaxVolumeEnabled(enabled);
   }
 
   Future<void> previewSpeech() => _speechService.preview();
@@ -374,20 +399,62 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> handleInactive() async {
+    _appIsActive = false;
     if (isRecording) {
       await stopWork();
     }
     if (_phase != PackingSessionPhase.saving) {
       await _disposeCamera();
     }
+    await _endMaxVolumeSession();
   }
 
   Future<void> handleResumed() async {
+    _appIsActive = true;
+    await _beginMaxVolumeIfNeeded();
     final bool needsInitialization = Platform.isAndroid
         ? _nativeInitialization == null
         : _cameraController?.value.isInitialized != true;
     if (needsInitialization && _phase != PackingSessionPhase.saving) {
       await initialize();
+    }
+  }
+
+  Future<void> _beginMaxVolumeIfNeeded() async {
+    if (!_maxVolumeEnabled || !_appIsActive) {
+      return;
+    }
+    try {
+      await _maxVolumeService.beginSession();
+    } on Object {
+      // Volume convenience must never block the camera workflow.
+    }
+  }
+
+  Future<void> _endMaxVolumeSession() async {
+    try {
+      await _maxVolumeService.endSession();
+    } on Object {
+      // Android may already have released the activity during shutdown.
+    }
+  }
+
+  Future<void> _disableMaxVolume() async {
+    try {
+      await _maxVolumeService.disable();
+    } on Object {
+      // Volume convenience must never block settings persistence.
+    }
+  }
+
+  Future<void> _boostMaxVolumeIfNeeded() async {
+    if (!_maxVolumeEnabled || !_appIsActive) {
+      return;
+    }
+    try {
+      await _maxVolumeService.boost();
+    } on Object {
+      // Volume convenience must never block recording startup.
     }
   }
 
@@ -850,6 +917,7 @@ class PackingSessionController extends ChangeNotifier {
     }
     unawaited(_barcodeScanner.close());
     unawaited(_speechService.dispose());
+    unawaited(_maxVolumeService.dispose());
     super.dispose();
   }
 }

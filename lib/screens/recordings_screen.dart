@@ -10,8 +10,10 @@ class RecordingsScreen extends StatefulWidget {
     required this.sessions,
     required this.workMode,
     required this.speechEnabled,
+    required this.maxVolumeEnabled,
     required this.onWorkModeChanged,
     required this.onSpeechEnabledChanged,
+    required this.onMaxVolumeEnabledChanged,
     required this.onSpeechPreview,
     required this.onSessionUpdated,
     required this.onDeleteSessions,
@@ -21,8 +23,10 @@ class RecordingsScreen extends StatefulWidget {
   final List<RecordingSession> sessions;
   final WorkMode workMode;
   final bool speechEnabled;
+  final bool maxVolumeEnabled;
   final Future<void> Function(WorkMode mode) onWorkModeChanged;
   final Future<void> Function(bool enabled) onSpeechEnabledChanged;
+  final Future<void> Function(bool enabled) onMaxVolumeEnabledChanged;
   final Future<void> Function() onSpeechPreview;
   final Future<void> Function(RecordingSession session) onSessionUpdated;
   final Future<void> Function(Set<String> sessionIds) onDeleteSessions;
@@ -34,6 +38,7 @@ class RecordingsScreen extends StatefulWidget {
 class _RecordingsScreenState extends State<RecordingsScreen> {
   late WorkMode _workMode;
   late bool _speechEnabled;
+  late bool _maxVolumeEnabled;
   late List<RecordingSession> _sessions;
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
@@ -63,6 +68,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     super.initState();
     _workMode = widget.workMode;
     _speechEnabled = widget.speechEnabled;
+    _maxVolumeEnabled = widget.maxVolumeEnabled;
     _sessions = List<RecordingSession>.of(widget.sessions);
   }
 
@@ -86,6 +92,14 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     }
     setState(() => _speechEnabled = enabled);
     await widget.onSpeechEnabledChanged(enabled);
+  }
+
+  Future<void> _setMaxVolumeEnabled(bool enabled) async {
+    if (_maxVolumeEnabled == enabled) {
+      return;
+    }
+    setState(() => _maxVolumeEnabled = enabled);
+    await widget.onMaxVolumeEnabledChanged(enabled);
   }
 
   Future<void> _updateSession(RecordingSession updated) async {
@@ -204,6 +218,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             enabled: _speechEnabled,
             onChanged: _setSpeechEnabled,
             onPreview: widget.onSpeechPreview,
+          ),
+          const SizedBox(height: 12),
+          _MaxVolumeSettings(
+            enabled: _maxVolumeEnabled,
+            onChanged: _setMaxVolumeEnabled,
           ),
           const SizedBox(height: 20),
           SearchBar(
@@ -404,6 +423,54 @@ class _SpeechPromptSettings extends StatelessWidget {
           ),
           Switch(
             key: const Key('speech-enabled-switch'),
+            value: enabled,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MaxVolumeSettings extends StatelessWidget {
+  const _MaxVolumeSettings({required this.enabled, required this.onChanged});
+
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('max-volume-settings'),
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F6F4),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  '最大音量',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+                SizedBox(height: 5),
+                Text(
+                  '工作时自动提高媒体音量',
+                  style: TextStyle(
+                    color: Color(0xFF69716E),
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            key: const Key('max-volume-enabled-switch'),
             value: enabled,
             onChanged: onChanged,
           ),

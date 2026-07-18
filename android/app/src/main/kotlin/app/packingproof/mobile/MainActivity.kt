@@ -1,10 +1,20 @@
 package app.packingproof.mobile
 
+import android.media.AudioManager
+import android.os.Bundle
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private var continuousCameraPlugin: ContinuousCameraPlugin? = null
+    private var maxVolumeController: MaxVolumeController? = null
+    private var maxVolumeChannel: MethodChannel? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        volumeControlStream = AudioManager.STREAM_MUSIC
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -13,6 +23,33 @@ class MainActivity : FlutterActivity() {
             messenger = flutterEngine.dartExecutor.binaryMessenger,
             textures = flutterEngine.renderer,
         )
+        maxVolumeController = MaxVolumeController(this)
+        maxVolumeChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "app.packingproof.mobile/system_volume",
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "beginSession" -> {
+                        maxVolumeController?.enable()
+                        result.success(null)
+                    }
+                    "endSession" -> {
+                        maxVolumeController?.pauseSession()
+                        result.success(null)
+                    }
+                    "disable" -> {
+                        maxVolumeController?.disable()
+                        result.success(null)
+                    }
+                    "boost" -> {
+                        maxVolumeController?.boost()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -29,6 +66,27 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         continuousCameraPlugin?.dispose()
         continuousCameraPlugin = null
+        maxVolumeChannel?.setMethodCallHandler(null)
+        maxVolumeChannel = null
+        maxVolumeController?.dispose()
+        maxVolumeController = null
         super.onDestroy()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        maxVolumeController?.resumeSession()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            maxVolumeController?.resumeSession()
+        }
+    }
+
+    override fun onStop() {
+        maxVolumeController?.pauseSession()
+        super.onStop()
     }
 }

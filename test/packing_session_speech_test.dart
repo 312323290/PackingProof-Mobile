@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/controllers/packing_session_controller.dart';
 import 'package:packing_proof_mobile/models/speech_prompt.dart';
 import 'package:packing_proof_mobile/services/session_repository.dart';
+import 'package:packing_proof_mobile/services/max_volume_service.dart';
 import 'package:packing_proof_mobile/services/speech_prompt_service.dart';
 
 void main() {
@@ -45,6 +46,47 @@ void main() {
     expect(speech.enabled, isFalse);
     expect((await repository.loadSettings()).speechEnabled, isFalse);
   });
+
+  test('最大音量开关同步服务并持久化', () async {
+    final _FakeMaxVolumeSink volume = _FakeMaxVolumeSink();
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final PackingSessionController controller = PackingSessionController(
+      repository: repository,
+      speechService: _FakeSpeechSink(),
+      maxVolumeService: volume,
+    );
+
+    await controller.setMaxVolumeEnabled(false);
+    expect(controller.maxVolumeEnabled, isFalse);
+    expect(volume.disableCount, 1);
+    expect((await repository.loadSettings()).maxVolumeEnabled, isFalse);
+
+    await controller.setMaxVolumeEnabled(true);
+    expect(volume.beginCount, 1);
+    expect((await repository.loadSettings()).maxVolumeEnabled, isTrue);
+  });
+}
+
+class _FakeMaxVolumeSink implements MaxVolumeSink {
+  int beginCount = 0;
+  int endCount = 0;
+  int disableCount = 0;
+  int boostCount = 0;
+
+  @override
+  Future<void> beginSession() async => beginCount++;
+
+  @override
+  Future<void> endSession() async => endCount++;
+
+  @override
+  Future<void> disable() async => disableCount++;
+
+  @override
+  Future<void> boost() async => boostCount++;
+
+  @override
+  Future<void> dispose() async {}
 }
 
 class _FakeSpeechSink implements SpeechPromptSink {

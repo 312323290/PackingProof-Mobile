@@ -30,6 +30,7 @@ void main() {
     final settings = await repository.loadSettings();
     expect(settings.workMode, WorkMode.sameCodeStop);
     expect(settings.speechEnabled, isTrue);
+    expect(settings.maxVolumeEnabled, isTrue);
 
     await repository.saveSpeechEnabled(false);
     final Map<String, Object?> persisted = Map<String, Object?>.from(
@@ -38,7 +39,20 @@ void main() {
     );
     expect(persisted['workMode'], 'sameCodeStop');
     expect(persisted['speechEnabled'], isFalse);
+    expect(persisted['maxVolumeEnabled'], isTrue);
     expect(persisted['futureOption'], <String, Object>{'enabled': true});
+  });
+
+  test('音量设置默认开启并保留其他字段', () async {
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+
+    expect((await repository.loadSettings()).maxVolumeEnabled, isTrue);
+    await repository.saveMaxVolumeEnabled(false);
+    await repository.saveSpeechEnabled(false);
+
+    final settings = await repository.loadSettings();
+    expect(settings.maxVolumeEnabled, isFalse);
+    expect(settings.speechEnabled, isFalse);
   });
 
   test('切换工作模式不会覆盖语音设置', () async {

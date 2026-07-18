@@ -5,8 +5,6 @@ plugins {
 }
 
 dependencies {
-    implementation("androidx.media3:media3-container:1.10.1")
-    implementation("androidx.media3:media3-muxer:1.10.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
 }
 

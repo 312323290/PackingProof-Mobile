@@ -39,6 +39,7 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
     _range = RangeValues(0, _maximumMilliseconds);
     _video = VideoPlayerController.file(File(widget.session.filePath));
     _initialized = _video.initialize().then((_) async {
+      await _video.setVolume(1);
       final double availableMilliseconds =
           (_video.value.duration - widget.session.mediaStart).inMilliseconds
               .clamp(0, widget.session.playbackDuration.inMilliseconds)

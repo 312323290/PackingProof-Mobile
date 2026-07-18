@@ -19,6 +19,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaRecorder
+import android.media.MediaMuxer
 import android.os.Bundle
 import android.os.Build
 import android.os.Handler
@@ -27,13 +28,6 @@ import android.os.SystemClock
 import android.util.Range
 import android.util.Size
 import android.view.Surface
-import androidx.annotation.OptIn
-import androidx.media3.common.C
-import androidx.media3.common.util.MediaFormatUtil
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.container.Mp4OrientationData
-import androidx.media3.muxer.BufferInfo
-import androidx.media3.muxer.FragmentedMp4Muxer
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -42,18 +36,15 @@ import com.google.mlkit.vision.common.InputImage
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
 import java.io.File
-import java.io.FileOutputStream
 import java.nio.ByteBuffer
-import java.nio.channels.Channels
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 
 /**
  * Keeps one Camera2 session and one hardware video encoder alive while work is active.
- * Barcode boundaries only rotate the fragmented MP4 muxer, so preview and camera capture
+ * Barcode boundaries only rotate the MP4 muxer, so preview and camera capture
  * never restart. Each completed label is therefore an independent physical file.
  */
-@OptIn(UnstableApi::class)
 class ContinuousSegmentCamera(
     private val activity: Activity,
     private val textures: TextureRegistry,
@@ -119,7 +110,7 @@ class ContinuousSegmentCamera(
     private var pendingSplitPath: String? = null
     private val pendingAudio = mutableListOf<EncodedSample>()
 
-    private var muxer: FragmentedMp4Muxer? = null
+    private var muxer: MediaMuxer? = null
     private var videoTrack = -1
     private var audioTrack = -1
     private var currentPath: String? = null
@@ -761,19 +752,16 @@ class ContinuousSegmentCamera(
     private fun formatsReady(): Boolean = videoOutputFormat != null && audioOutputFormat != null
 
     private fun openMuxer(path: String, basePtsUs: Long, startedAtMs: Long) {
-        val output = FileOutputStream(path)
-        val newMuxer = FragmentedMp4Muxer.Builder(Channels.newChannel(output))
-            .setFragmentDurationMs(1_000L)
-            .setSampleCopyingEnabled(true)
-            .build()
-        newMuxer.addMetadataEntry(Mp4OrientationData(sensorOrientation))
-        val videoFormat = MediaFormatUtil.createFormatFromMediaFormat(videoOutputFormat!!)
-            .buildUpon()
-            .setRotationDegrees(sensorOrientation)
-            .build()
-        val audioFormat = MediaFormatUtil.createFormatFromMediaFormat(audioOutputFormat!!)
-        videoTrack = newMuxer.addTrack(videoFormat)
-        audioTrack = newMuxer.addTrack(audioFormat)
+        val outputFile = File(path)
+        outputFile.parentFile?.mkdirs()
+        if (outputFile.exists() && !outputFile.delete()) {
+            error("无法覆盖录像文件")
+        }
+        val newMuxer = MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        newMuxer.setOrientationHint(sensorOrientation)
+        videoTrack = newMuxer.addTrack(videoOutputFormat!!)
+        audioTrack = newMuxer.addTrack(audioOutputFormat!!)
+        newMuxer.start()
         muxer = newMuxer
         currentPath = path
         segmentBasePtsUs = basePtsUs
@@ -789,11 +777,19 @@ class ContinuousSegmentCamera(
         if (ptsUs <= lastVideoPtsUs) ptsUs = lastVideoPtsUs + 1L
         lastVideoPtsUs = ptsUs
         lastMediaPtsUs = max(lastMediaPtsUs, sourcePtsUs)
-        val media3Flags = if (flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0) C.BUFFER_FLAG_KEY_FRAME else 0
+        val sample = buffer.slice()
+        val info = MediaCodec.BufferInfo().apply {
+            set(
+                0,
+                sample.remaining(),
+                ptsUs,
+                flags and MediaCodec.BUFFER_FLAG_KEY_FRAME,
+            )
+        }
         activeMuxer.writeSampleData(
             videoTrack,
-            buffer,
-            BufferInfo(ptsUs, buffer.remaining(), media3Flags),
+            sample,
+            info,
         )
     }
 
@@ -805,11 +801,10 @@ class ContinuousSegmentCamera(
         if (ptsUs <= lastAudioPtsUs) ptsUs = lastAudioPtsUs + 1L
         lastAudioPtsUs = ptsUs
         lastMediaPtsUs = max(lastMediaPtsUs, sourcePtsUs)
-        activeMuxer.writeSampleData(
-            audioTrack,
-            ByteBuffer.wrap(sample.bytes),
-            BufferInfo(ptsUs, sample.bytes.size, 0),
-        )
+        val info = MediaCodec.BufferInfo().apply {
+            set(0, sample.bytes.size, ptsUs, 0)
+        }
+        activeMuxer.writeSampleData(audioTrack, ByteBuffer.wrap(sample.bytes), info)
     }
 
     private fun audioPtsOnVideoTimeline(sample: EncodedSample): Long {
@@ -865,8 +860,9 @@ class ContinuousSegmentCamera(
         audioTrack = -1
         if (closing != null) {
             try {
-                closing.close()
+                closing.stop()
             } finally {
+                closing.release()
                 if (deleteEmpty && path != null) File(path).delete()
             }
         }

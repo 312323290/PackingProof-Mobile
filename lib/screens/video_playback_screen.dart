@@ -28,6 +28,8 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   late Duration _playbackStart;
   late Duration _playbackEnd;
   bool _handlingBoundary = false;
+  bool _resumeAfterScrub = false;
+  double? _scrubMilliseconds;
 
   @override
   void initState() {
@@ -37,6 +39,7 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
     _playbackEnd = _session.playbackEnd;
     _video = VideoPlayerController.file(File(_session.filePath));
     _initialized = _video.initialize().then((_) async {
+      await _video.setVolume(1);
       final Duration sourceDuration = _video.value.duration;
       if (_playbackStart > sourceDuration) {
         _playbackStart = Duration.zero;
@@ -73,6 +76,60 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  Duration get _playbackDuration => _playbackEnd - _playbackStart;
+
+  double _relativePositionMilliseconds(VideoPlayerValue value) {
+    final double maximum = _playbackDuration.inMilliseconds.toDouble();
+    if (maximum <= 0) {
+      return 0;
+    }
+    return (_scrubMilliseconds ??
+            (value.position - _playbackStart).inMilliseconds.toDouble())
+        .clamp(0, maximum);
+  }
+
+  void _startScrubbing(double value) {
+    _resumeAfterScrub = _video.value.isPlaying;
+    _handlingBoundary = true;
+    if (_resumeAfterScrub) {
+      unawaited(_video.pause());
+    }
+    setState(() => _scrubMilliseconds = value);
+  }
+
+  void _scrubTo(double value) {
+    setState(() => _scrubMilliseconds = value);
+    unawaited(
+      _video.seekTo(_playbackStart + Duration(milliseconds: value.round())),
+    );
+  }
+
+  Future<void> _finishScrubbing(double value) async {
+    await _video.seekTo(_playbackStart + Duration(milliseconds: value.round()));
+    _scrubMilliseconds = null;
+    _handlingBoundary = false;
+    if (_resumeAfterScrub && value < _playbackDuration.inMilliseconds) {
+      await _video.play();
+    }
+    _resumeAfterScrub = false;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  String _formatDuration(Duration duration) {
+    final int totalSeconds = duration.inSeconds.clamp(0, 359999);
+    final int hours = totalSeconds ~/ 3600;
+    final int minutes = totalSeconds.remainder(3600) ~/ 60;
+    final int seconds = totalSeconds.remainder(60);
+    final String minuteText = minutes.toString().padLeft(2, '0');
+    final String secondText = seconds.toString().padLeft(2, '0');
+    if (hours > 0) {
+      return '$hours:$minuteText:$secondText';
+    }
+    return '$minuteText:$secondText';
   }
 
   void _handlePlaybackBoundary() {
@@ -136,16 +193,7 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_session.displayCode),
-        actions: <Widget>[
-          IconButton(
-            tooltip: '剪辑',
-            onPressed: _video.value.isInitialized ? _openTrim : null,
-            icon: const Icon(Icons.content_cut_rounded),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text(_session.displayCode)),
       body: FutureBuilder<void>(
         future: _initialized,
         builder: (BuildContext context, AsyncSnapshot<void> snapshot) {
@@ -155,33 +203,70 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
           if (snapshot.hasError) {
             return const Center(child: Text('录像无法播放，请检查文件是否仍在本机'));
           }
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(18, 8, 18, 30),
-            children: <Widget>[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: AspectRatio(
-                  aspectRatio: _video.value.aspectRatio,
-                  child: Stack(
-                    fit: StackFit.expand,
+          return ValueListenableBuilder<VideoPlayerValue>(
+            valueListenable: _video,
+            builder:
+                (BuildContext context, VideoPlayerValue value, Widget? child) {
+                  final double maximum = _playbackDuration.inMilliseconds
+                      .toDouble();
+                  final double position = _relativePositionMilliseconds(value);
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 30),
                     children: <Widget>[
-                      VideoPlayer(_video),
-                      Center(
-                        child: IconButton.filled(
-                          onPressed: _togglePlayback,
-                          iconSize: 34,
-                          icon: Icon(
-                            _video.value.isPlaying
-                                ? Icons.pause_rounded
-                                : Icons.play_arrow_rounded,
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: AspectRatio(
+                          aspectRatio: value.aspectRatio,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: <Widget>[
+                              VideoPlayer(_video),
+                              Center(
+                                child: IconButton.filled(
+                                  onPressed: _togglePlayback,
+                                  iconSize: 34,
+                                  icon: Icon(
+                                    value.isPlaying
+                                        ? Icons.pause_rounded
+                                        : Icons.play_arrow_rounded,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      Slider(
+                        value: maximum > 0 ? position : 0,
+                        max: maximum > 0 ? maximum : 1,
+                        onChangeStart: maximum > 0 ? _startScrubbing : null,
+                        onChanged: maximum > 0 ? _scrubTo : null,
+                        onChangeEnd: maximum > 0 ? _finishScrubbing : null,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Row(
+                          children: <Widget>[
+                            Text(
+                              _formatDuration(
+                                Duration(milliseconds: position.round()),
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(_formatDuration(_playbackDuration)),
+                            const SizedBox(width: 14),
+                            OutlinedButton.icon(
+                              onPressed: _openTrim,
+                              icon: const Icon(Icons.content_cut_rounded),
+                              label: const Text('剪辑'),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
-                  ),
-                ),
-              ),
-            ],
+                  );
+                },
           );
         },
       ),

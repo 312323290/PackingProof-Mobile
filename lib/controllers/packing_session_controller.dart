@@ -8,7 +8,9 @@ import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/barcode_marker.dart';
+import '../models/app_settings.dart';
 import '../models/recording_session.dart';
+import '../models/speech_prompt.dart';
 import '../models/work_mode.dart';
 import '../services/barcode_candidate_policy.dart';
 import '../services/barcode_stability_tracker.dart';
@@ -17,6 +19,7 @@ import '../services/continuous_camera_service.dart';
 import '../services/nv21_center_crop.dart';
 import '../services/recording_timeline.dart';
 import '../services/session_repository.dart';
+import '../services/speech_prompt_service.dart';
 
 enum PackingSessionPhase {
   initializing,
@@ -28,17 +31,21 @@ enum PackingSessionPhase {
 }
 
 class PackingSessionController extends ChangeNotifier {
-  PackingSessionController({SessionRepository? repository})
-    : _repository = repository ?? SessionRepository(),
-      _barcodeScanner = BarcodeScanner(
-        formats: const <BarcodeFormat>[BarcodeFormat.all],
-      );
+  PackingSessionController({
+    SessionRepository? repository,
+    SpeechPromptSink? speechService,
+  }) : _repository = repository ?? SessionRepository(),
+       _speechService = speechService ?? SpeechPromptService(),
+       _barcodeScanner = BarcodeScanner(
+         formats: const <BarcodeFormat>[BarcodeFormat.all],
+       );
 
   static const Duration analysisInterval = Duration(milliseconds: 200);
   static const Duration transitionSettleDelay = Duration(milliseconds: 120);
   static const int recordingFps = 30;
 
   final SessionRepository _repository;
+  final SpeechPromptSink _speechService;
   final BarcodeScanner _barcodeScanner;
   final BarcodeStabilityTracker _stabilityTracker = BarcodeStabilityTracker();
   final RecordingTimeline _timeline = RecordingTimeline();
@@ -55,6 +62,7 @@ class PackingSessionController extends ChangeNotifier {
   BarcodeMarker? _lastMarker;
   String _candidateCode = '';
   WorkMode _workMode = WorkMode.continuousScan;
+  bool _speechEnabled = true;
   String? _errorMessage;
   bool _processingFrame = false;
   bool _handlingBarcode = false;
@@ -75,6 +83,7 @@ class PackingSessionController extends ChangeNotifier {
   String get candidateCode => _candidateCode;
   String get currentCode => _timeline.currentCode;
   WorkMode get workMode => _workMode;
+  bool get speechEnabled => _speechEnabled;
   String? get errorMessage => _errorMessage;
   bool get isRecording => _phase == PackingSessionPhase.recording;
   bool get isBusy =>
@@ -97,18 +106,23 @@ class PackingSessionController extends ChangeNotifier {
     try {
       await _repository.initialize();
       _sessions = await _repository.loadSessions();
-      _workMode = await _repository.loadWorkMode();
+      final AppSettings settings = await _repository.loadSettings();
+      _workMode = settings.workMode;
+      _speechEnabled = settings.speechEnabled;
+      await _speechService.setEnabled(_speechEnabled);
       if (Platform.isAndroid) {
         final ContinuousCameraService nativeCamera = ContinuousCameraService();
         nativeCamera.onBarcodeFrame = _processNativeBarcodeFrame;
         nativeCamera.onError = (String message) {
           _errorMessage = message;
+          _speakErrorMessage(message);
           if (!_disposed) {
             notifyListeners();
           }
         };
         _nativeCamera = nativeCamera;
         _nativeInitialization = await nativeCamera.initialize();
+        _speechService.resetIncidents();
         _setPhase(PackingSessionPhase.ready);
         return;
       }
@@ -139,11 +153,16 @@ class PackingSessionController extends ChangeNotifier {
         // Some tablets and emulators expose a camera without a controllable flash.
       }
       _setPhase(PackingSessionPhase.ready);
+      _speechService.resetIncidents();
     } on CameraException catch (error) {
       _setCameraError(error);
     } on Object catch (error) {
       _errorMessage = '摄像头初始化失败，请重试\n$error';
       _setPhase(PackingSessionPhase.error);
+      _speechService.enqueue(
+        SpeechPrompt.cameraNotReady,
+        incidentKey: SpeechPrompt.cameraNotReady.name,
+      );
     }
   }
 
@@ -158,6 +177,12 @@ class PackingSessionController extends ChangeNotifier {
         ? _nativeInitialization == null
         : camera == null || !camera.value.isInitialized;
     if (cameraUnavailable || isBusy || isRecording) {
+      if (cameraUnavailable) {
+        _speechService.enqueue(
+          SpeechPrompt.cameraNotReady,
+          incidentKey: SpeechPrompt.cameraNotReady.name,
+        );
+      }
       return;
     }
 
@@ -166,6 +191,7 @@ class PackingSessionController extends ChangeNotifier {
     _candidateCode = '';
     _timeline.reset();
     _stabilityTracker.reset();
+    _speechService.resetIncidents();
 
     try {
       await WakelockPlus.enable();
@@ -179,6 +205,7 @@ class PackingSessionController extends ChangeNotifier {
       await WakelockPlus.disable();
       _errorMessage = '无法开始录像，请重新检查摄像头\n$error';
       _setPhase(PackingSessionPhase.error);
+      _speakErrorMessage(error.toString());
     }
   }
 
@@ -204,12 +231,15 @@ class PackingSessionController extends ChangeNotifier {
       await WakelockPlus.disable();
       await Future<void>.delayed(transitionSettleDelay);
       _setPhase(PackingSessionPhase.ready);
+      _speechService.resetIncidents();
+      _speechService.enqueue(SpeechPrompt.recordingStopped);
       return savedSessions.isEmpty ? null : savedSessions.last;
     } on Object catch (error) {
       _timeline.reset();
       await WakelockPlus.disable();
       _errorMessage = '录像保存失败，请保留应用并重试\n$error';
       _setPhase(PackingSessionPhase.error);
+      _speakErrorMessage(error.toString());
       return null;
     }
   }
@@ -222,6 +252,18 @@ class PackingSessionController extends ChangeNotifier {
     notifyListeners();
     await _repository.saveWorkMode(mode);
   }
+
+  Future<void> setSpeechEnabled(bool enabled) async {
+    if (_speechEnabled == enabled) {
+      return;
+    }
+    _speechEnabled = enabled;
+    notifyListeners();
+    await _speechService.setEnabled(enabled);
+    await _repository.saveSpeechEnabled(enabled);
+  }
+
+  Future<void> previewSpeech() => _speechService.preview();
 
   Future<void> _startRecording() async {
     if (Platform.isAndroid) {
@@ -253,6 +295,7 @@ class PackingSessionController extends ChangeNotifier {
     await Future<void>.delayed(transitionSettleDelay);
     _setPhase(PackingSessionPhase.recording);
     _startElapsedTimer();
+    _speechService.enqueue(SpeechPrompt.recordingStarted);
   }
 
   Future<void> _startNativeRecording() async {
@@ -272,6 +315,7 @@ class PackingSessionController extends ChangeNotifier {
     _elapsed = Duration.zero;
     _setPhase(PackingSessionPhase.recording);
     _startElapsedTimer();
+    _speechService.enqueue(SpeechPrompt.recordingStarted);
   }
 
   Future<List<RecordingSession>> _finishRecording() async {
@@ -563,7 +607,17 @@ class PackingSessionController extends ChangeNotifier {
               ? await _splitNativeRecording(code)
               : _startNextTimelineSegment(code, now);
           if (marker != null) {
+            _speechService.resolveIncident(SpeechPrompt.segmentSaveFailed.name);
             _showMarkerFeedback(marker);
+          }
+        } on Object catch (error) {
+          _errorMessage = '录像分段保存失败\n$error';
+          _speechService.enqueue(
+            SpeechPrompt.segmentSaveFailed,
+            incidentKey: SpeechPrompt.segmentSaveFailed.name,
+          );
+          if (!_disposed) {
+            notifyListeners();
           }
         } finally {
           _handlingBarcode = false;
@@ -667,6 +721,41 @@ class PackingSessionController extends ChangeNotifier {
       _ => '摄像头暂时不可用，请重试\n${error.description ?? error.code}',
     };
     _setPhase(PackingSessionPhase.error);
+    _speakErrorMessage('${error.code} ${error.description ?? ''}');
+  }
+
+  void _speakErrorMessage(String message) {
+    final String normalized = message.toLowerCase();
+    final SpeechPrompt prompt;
+    if (normalized.contains('permission') ||
+        normalized.contains('权限') ||
+        normalized.contains('accessdenied') ||
+        normalized.contains('accessrestricted')) {
+      prompt = SpeechPrompt.permissionRequired;
+    } else if (normalized.contains('没有检测到') ||
+        normalized.contains('nocamera')) {
+      prompt = SpeechPrompt.cameraNotFound;
+    } else if (normalized.contains('断开')) {
+      prompt = SpeechPrompt.cameraDisconnected;
+    } else if (normalized.contains('声音') || normalized.contains('麦克风')) {
+      prompt = SpeechPrompt.audioRecordingFailed;
+    } else if (normalized.contains('分段')) {
+      prompt = SpeechPrompt.segmentSaveFailed;
+    } else if (normalized.contains('文件创建')) {
+      prompt = SpeechPrompt.videoFileCreateFailed;
+    } else if (normalized.contains('保存')) {
+      prompt = SpeechPrompt.recordingSaveFailed;
+    } else if (normalized.contains('视频编码器')) {
+      prompt = SpeechPrompt.recordingFailed;
+    } else if (normalized.contains('未准备') ||
+        normalized.contains('摄像头初始化') ||
+        normalized.contains('摄像头打开') ||
+        normalized.contains('camera_not_ready')) {
+      prompt = SpeechPrompt.cameraNotReady;
+    } else {
+      prompt = SpeechPrompt.recordingFailed;
+    }
+    _speechService.enqueue(prompt, incidentKey: prompt.name);
   }
 
   void _setPhase(PackingSessionPhase value) {
@@ -724,6 +813,7 @@ class PackingSessionController extends ChangeNotifier {
       unawaited(nativeCamera.dispose());
     }
     unawaited(_barcodeScanner.close());
+    unawaited(_speechService.dispose());
     super.dispose();
   }
 }

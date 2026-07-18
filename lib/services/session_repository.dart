@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../models/app_settings.dart';
 import '../models/recording_session.dart';
 import '../models/work_mode.dart';
 
@@ -165,27 +166,46 @@ class SessionRepository {
   }
 
   Future<WorkMode> loadWorkMode() async {
+    return (await loadSettings()).workMode;
+  }
+
+  Future<AppSettings> loadSettings() async {
     await initialize();
     if (!await _settingsFile.exists()) {
-      return WorkMode.continuousScan;
+      return const AppSettings();
     }
     try {
       final Object? decoded = jsonDecode(await _settingsFile.readAsString());
       final Map<String, Object?> values = Map<String, Object?>.from(
         decoded! as Map<Object?, Object?>,
       );
-      return workModeFromStorage(values['workMode']);
+      return AppSettings.fromJson(values);
     } on Object {
-      return WorkMode.continuousScan;
+      return const AppSettings();
     }
   }
 
   Future<void> saveWorkMode(WorkMode mode) async {
+    final AppSettings settings = await loadSettings();
+    await saveSettings(settings.copyWith(workMode: mode));
+  }
+
+  Future<void> saveSpeechEnabled(bool enabled) async {
+    final AppSettings settings = await loadSettings();
+    await saveSettings(settings.copyWith(speechEnabled: enabled));
+  }
+
+  Future<void> saveSettings(AppSettings settings) async {
     await initialize();
     final String contents = const JsonEncoder.withIndent(
       '  ',
-    ).convert(<String, Object>{'workMode': mode.storageValue});
-    await _settingsFile.writeAsString(contents, flush: true);
+    ).convert(settings.toJson());
+    final File tempFile = File('${_settingsFile.path}.tmp');
+    await tempFile.writeAsString(contents, flush: true);
+    if (await _settingsFile.exists()) {
+      await _settingsFile.delete();
+    }
+    await tempFile.rename(_settingsFile.path);
   }
 
   Future<void> _writeSessions(List<RecordingSession> sessions) async {

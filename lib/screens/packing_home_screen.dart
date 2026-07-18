@@ -67,7 +67,10 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
         builder: (BuildContext context) => RecordingsScreen(
           sessions: _controller.sessions,
           workMode: _controller.workMode,
+          speechEnabled: _controller.speechEnabled,
           onWorkModeChanged: _controller.setWorkMode,
+          onSpeechEnabledChanged: _controller.setSpeechEnabled,
+          onSpeechPreview: _controller.previewSpeech,
           onSessionUpdated: _controller.updateSession,
           onDeleteSessions: _controller.deleteSessions,
         ),

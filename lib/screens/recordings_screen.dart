@@ -9,7 +9,10 @@ class RecordingsScreen extends StatefulWidget {
   const RecordingsScreen({
     required this.sessions,
     required this.workMode,
+    required this.speechEnabled,
     required this.onWorkModeChanged,
+    required this.onSpeechEnabledChanged,
+    required this.onSpeechPreview,
     required this.onSessionUpdated,
     required this.onDeleteSessions,
     super.key,
@@ -17,7 +20,10 @@ class RecordingsScreen extends StatefulWidget {
 
   final List<RecordingSession> sessions;
   final WorkMode workMode;
+  final bool speechEnabled;
   final Future<void> Function(WorkMode mode) onWorkModeChanged;
+  final Future<void> Function(bool enabled) onSpeechEnabledChanged;
+  final Future<void> Function() onSpeechPreview;
   final Future<void> Function(RecordingSession session) onSessionUpdated;
   final Future<void> Function(Set<String> sessionIds) onDeleteSessions;
 
@@ -27,6 +33,7 @@ class RecordingsScreen extends StatefulWidget {
 
 class _RecordingsScreenState extends State<RecordingsScreen> {
   late WorkMode _workMode;
+  late bool _speechEnabled;
   late List<RecordingSession> _sessions;
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
@@ -55,6 +62,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   void initState() {
     super.initState();
     _workMode = widget.workMode;
+    _speechEnabled = widget.speechEnabled;
     _sessions = List<RecordingSession>.of(widget.sessions);
   }
 
@@ -70,6 +78,14 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     }
     setState(() => _workMode = mode);
     await widget.onWorkModeChanged(mode);
+  }
+
+  Future<void> _setSpeechEnabled(bool enabled) async {
+    if (_speechEnabled == enabled) {
+      return;
+    }
+    setState(() => _speechEnabled = enabled);
+    await widget.onSpeechEnabledChanged(enabled);
   }
 
   Future<void> _updateSession(RecordingSession updated) async {
@@ -183,6 +199,12 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
         children: <Widget>[
           _WorkModeSettings(workMode: _workMode, onChanged: _setWorkMode),
+          const SizedBox(height: 12),
+          _SpeechPromptSettings(
+            enabled: _speechEnabled,
+            onChanged: _setSpeechEnabled,
+            onPreview: widget.onSpeechPreview,
+          ),
           const SizedBox(height: 20),
           SearchBar(
             key: const Key('recording-search'),
@@ -326,6 +348,64 @@ class _WorkModeSettings extends StatelessWidget {
               fontSize: 13,
               height: 1.5,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpeechPromptSettings extends StatelessWidget {
+  const _SpeechPromptSettings({
+    required this.enabled,
+    required this.onChanged,
+    required this.onPreview,
+  });
+
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+  final Future<void> Function() onPreview;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('speech-prompt-settings'),
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F6F4),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  '语音提示',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+                SizedBox(height: 5),
+                Text(
+                  'Edge 音色，离线自动使用系统语音',
+                  style: TextStyle(
+                    color: Color(0xFF69716E),
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            key: const Key('speech-preview-button'),
+            onPressed: enabled ? onPreview : null,
+            child: const Text('试听'),
+          ),
+          Switch(
+            key: const Key('speech-enabled-switch'),
+            value: enabled,
+            onChanged: onChanged,
           ),
         ],
       ),

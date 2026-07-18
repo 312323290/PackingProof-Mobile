@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "format": "audio-24khz-48kbitrate-mono-mp3",
+  "prompts": [
+    {
+      "id": "recordingStarted",
+      "text": "开始录制",
+      "priority": "normal",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "file": "recording_started.mp3",
+      "bytes": 9792
+    },
+    {
+      "id": "recordingStopped",
+      "text": "停止录制",
+      "priority": "normal",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "file": "recording_stopped.mp3",
+      "bytes": 9792
+    },
+    {
+      "id": "previewEnabled",
+      "text": "语音提示已开启",
+      "priority": "normal",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "file": "preview_enabled.mp3",
+      "bytes": 13104
+    },
+    {
+      "id": "cameraNotReady",
+      "text": "摄像头未就绪",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "camera_not_ready.mp3",
+      "bytes": 13968
+    },
+    {
+      "id": "cameraNotFound",
+      "text": "未检测到摄像头",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "camera_not_found.mp3",
+      "bytes": 14976
+    },
+    {
+      "id": "permissionRequired",
+      "text": "需要摄像头和麦克风权限",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "permission_required.mp3",
+      "bytes": 18864
+    },
+    {
+      "id": "recordingFailed",
+      "text": "录制失败",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "recording_failed.mp3",
+      "bytes": 11088
+    },
+    {
+      "id": "audioRecordingFailed",
+      "text": "声音录制异常",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "audio_recording_failed.mp3",
+      "bytes": 13536
+    },
+    {
+      "id": "videoFileCreateFailed",
+      "text": "录像文件创建失败",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "video_file_create_failed.mp3",
+      "bytes": 16272
+    },
+    {
+      "id": "segmentSaveFailed",
+      "text": "录像分段保存失败",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "segment_save_failed.mp3",
+      "bytes": 15696
+    },
+    {
+      "id": "recordingSaveFailed",
+      "text": "录像保存失败",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "recording_save_failed.mp3",
+      "bytes": 13680
+    },
+    {
+      "id": "cameraDisconnected",
+      "text": "摄像头连接已断开",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "camera_disconnected.mp3",
+      "bytes": 16128
+    }
+  ]
+}

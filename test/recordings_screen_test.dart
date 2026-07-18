@@ -13,9 +13,12 @@ void main() {
         home: RecordingsScreen(
           sessions: const [],
           workMode: selected,
+          speechEnabled: true,
           onWorkModeChanged: (WorkMode mode) async {
             selected = mode;
           },
+          onSpeechEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (_) async {},
         ),
@@ -31,6 +34,45 @@ void main() {
 
     expect(selected, WorkMode.sameCodeStop);
     expect(find.textContaining('再次识别当前面单'), findsOneWidget);
+  });
+
+  testWidgets('语音设置可关闭并在开启时试听', (WidgetTester tester) async {
+    bool enabled = true;
+    int previewCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: enabled,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (bool value) async {
+            enabled = value;
+          },
+          onSpeechPreview: () async {
+            previewCount++;
+          },
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('speech-prompt-settings')), findsOneWidget);
+    expect(find.text('Edge 音色，离线自动使用系统语音'), findsOneWidget);
+    await tester.tap(find.text('试听'));
+    await tester.pump();
+    expect(previewCount, 1);
+
+    await tester.tap(find.byKey(const Key('speech-enabled-switch')));
+    await tester.pump();
+    expect(enabled, isFalse);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const Key('speech-preview-button')))
+          .onPressed,
+      isNull,
+    );
   });
 
   testWidgets('录像卡片不重复显示内部识别标记数量', (WidgetTester tester) async {
@@ -54,7 +96,10 @@ void main() {
             ),
           ],
           workMode: WorkMode.continuousScan,
+          speechEnabled: true,
           onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (_) async {},
         ),
@@ -76,7 +121,10 @@ void main() {
             _session('clip-2', 'SF9876543210', startedAt),
           ],
           workMode: WorkMode.continuousScan,
+          speechEnabled: true,
           onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (_) async {},
         ),
@@ -106,7 +154,10 @@ void main() {
             _session('clip-1', 'JT1234567890', startedAt),
           ],
           workMode: WorkMode.continuousScan,
+          speechEnabled: true,
           onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (Set<String> ids) async {
             deletedIds = ids;

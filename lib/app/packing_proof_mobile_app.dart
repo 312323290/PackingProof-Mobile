@@ -18,7 +18,7 @@ class PackingProofMobileApp extends StatelessWidget {
     );
 
     return MaterialApp(
-      title: 'PackingProof-Mobile',
+      title: '包裹留证',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

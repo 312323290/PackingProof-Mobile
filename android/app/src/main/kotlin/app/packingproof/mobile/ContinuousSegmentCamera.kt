@@ -56,7 +56,7 @@ class ContinuousSegmentCamera(
         private const val VIDEO_WIDTH = 1920
         private const val VIDEO_HEIGHT = 1080
         private const val VIDEO_FPS = 30
-        private const val MIN_AUTO_VIDEO_FPS = 15
+        private const val MIN_AUTO_VIDEO_FPS = 5
         private const val HEVC_VIDEO_BIT_RATE = 7_000_000
         private const val AVC_VIDEO_BIT_RATE = 10_000_000
         private const val AUDIO_SAMPLE_RATE = 48_000
@@ -527,18 +527,14 @@ class ContinuousSegmentCamera(
             CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_60HZ,
         )?.let { request.set(CaptureRequest.CONTROL_AE_ANTIBANDING_MODE, it) }
 
-        val videoStabilizationMode = chooseSupportedMode(
+        chooseSupportedMode(
             characteristics.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES),
-            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON,
-        )
-        if (videoStabilizationMode != null) {
-            request.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, videoStabilizationMode)
-        } else {
-            chooseSupportedMode(
-                characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION),
-                CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON,
-            )?.let { request.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, it) }
-        }
+            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
+        )?.let { request.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, it) }
+        chooseSupportedMode(
+            characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION),
+            CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON,
+        )?.let { request.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, it) }
 
         chooseSupportedMode(
             characteristics.get(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES),
@@ -580,7 +576,7 @@ class ContinuousSegmentCamera(
             ?: return null
         return ranges.filter {
             it.lower in MIN_AUTO_VIDEO_FPS until VIDEO_FPS && it.upper == VIDEO_FPS
-        }.maxByOrNull { it.lower }
+        }.minByOrNull { it.lower }
             ?: ranges.firstOrNull { it.lower == VIDEO_FPS && it.upper == VIDEO_FPS }
             ?: ranges.filter { it.lower <= VIDEO_FPS && it.upper >= VIDEO_FPS }
                 .minByOrNull { it.upper - it.lower }

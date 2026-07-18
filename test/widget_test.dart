@@ -38,6 +38,7 @@ void main() {
     );
     expect(backing.color, Colors.white);
     expect(find.byType(TextField), findsNothing);
+    expect(find.byKey(const Key('recording-button-shimmer')), findsNothing);
   });
 
   testWidgets('启动录像时保持摄像头预览可见', (WidgetTester tester) async {
@@ -87,6 +88,11 @@ void main() {
   });
 
   testWidgets('录像中显示时长胶囊、加粗单号和红色结束按钮', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(useMaterial3: true),
@@ -94,6 +100,7 @@ void main() {
           phase: PackingSessionPhase.recording,
           elapsed: const Duration(seconds: 8),
           currentCode: '770017871213193',
+          nativePreviewSize: const Size(1080, 1920),
           previewOverride: const ColoredBox(color: Colors.black),
           onPrimaryPressed: () {},
           onRetryPressed: () {},
@@ -106,6 +113,20 @@ void main() {
     expect(find.text('00:08'), findsOneWidget);
     expect(find.text('770017871213193'), findsOneWidget);
     expect(find.text('结束工作'), findsOneWidget);
+    expect(find.byKey(const Key('recording-button-shimmer')), findsOneWidget);
+
+    final Rect previewViewport = tester.getRect(
+      find.byKey(const Key('camera-preview-viewport')),
+    );
+    final Rect durationPill = tester.getRect(
+      find.byKey(const Key('recording-duration-pill')),
+    );
+    expect(previewViewport.size.aspectRatio, closeTo(9 / 16, 0.001));
+    expect(durationPill.center.dx, closeTo(previewViewport.center.dx, 1));
+    expect(
+      durationPill.center.dy,
+      greaterThan(previewViewport.top + previewViewport.height * 0.65),
+    );
 
     final Text shippingCode = tester.widget<Text>(
       find.byKey(const Key('current-shipping-code')),

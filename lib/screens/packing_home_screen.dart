@@ -8,6 +8,7 @@ import '../app/packing_proof_mobile_app.dart';
 import '../controllers/packing_session_controller.dart';
 import '../models/barcode_marker.dart';
 import '../models/work_mode.dart';
+import '../services/preview_cover_transform.dart';
 import 'recordings_screen.dart';
 
 class PackingHomeScreen extends StatefulWidget {
@@ -86,7 +87,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
         return PackingHomeView(
           cameraController: _controller.cameraController,
           nativeTextureId: _controller.nativeTextureId,
-          nativePreviewAspectRatio: _controller.nativePreviewAspectRatio,
+          nativePreviewSize: _controller.nativePreviewSize,
           phase: _controller.phase,
           elapsed: _controller.elapsed,
           lastMarker: _controller.lastMarker,
@@ -112,7 +113,7 @@ class PackingHomeView extends StatelessWidget {
     required this.onRecordingsPressed,
     this.cameraController,
     this.nativeTextureId,
-    this.nativePreviewAspectRatio,
+    this.nativePreviewSize,
     this.lastMarker,
     this.candidateCode = '',
     this.currentCode = '',
@@ -124,7 +125,7 @@ class PackingHomeView extends StatelessWidget {
 
   final CameraController? cameraController;
   final int? nativeTextureId;
-  final double? nativePreviewAspectRatio;
+  final Size? nativePreviewSize;
   final PackingSessionPhase phase;
   final Duration elapsed;
   final BarcodeMarker? lastMarker;
@@ -151,16 +152,35 @@ class PackingHomeView extends StatelessWidget {
         bottom: false,
         child: LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
-            final double panelHeight = (constraints.maxHeight * 0.24).clamp(
-              196.0,
-              216.0,
+            final double minimumPanelHeight = (constraints.maxHeight * 0.24)
+                .clamp(204.0, 224.0);
+            final double previewAspectRatio = _portraitPreviewAspectRatio;
+            final double cameraHeight =
+                (constraints.maxWidth / previewAspectRatio).clamp(
+                  0.0,
+                  constraints.maxHeight,
+                );
+            final double naturalPanelTop =
+                constraints.maxHeight - minimumPanelHeight;
+            final double uncroppedPanelTop = cameraHeight - 28;
+            final double panelTop = uncroppedPanelTop < naturalPanelTop
+                ? uncroppedPanelTop
+                : naturalPanelTop;
+            final double panelHeight = constraints.maxHeight - panelTop;
+            final double cameraPanelOverlap = (cameraHeight - panelTop).clamp(
+              0.0,
+              cameraHeight,
             );
             return Stack(
               fit: StackFit.expand,
               children: <Widget>[
-                Positioned.fill(
-                  bottom: panelHeight - 28,
-                  child: _CameraArea(this),
+                Positioned(
+                  key: const Key('camera-preview-viewport'),
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  height: cameraHeight,
+                  child: _CameraArea(this, bottomOcclusion: cameraPanelOverlap),
                 ),
                 Align(
                   alignment: Alignment.bottomCenter,
@@ -173,24 +193,39 @@ class PackingHomeView extends StatelessWidget {
       ),
     );
   }
+
+  double get _portraitPreviewAspectRatio {
+    final Size? sourceSize =
+        nativePreviewSize ??
+        (cameraController?.value.isInitialized == true
+            ? cameraController?.value.previewSize
+            : null);
+    if (sourceSize == null || sourceSize.width <= 0 || sourceSize.height <= 0) {
+      return 9 / 16;
+    }
+    return sourceSize.width <= sourceSize.height
+        ? sourceSize.width / sourceSize.height
+        : sourceSize.height / sourceSize.width;
+  }
 }
 
 class _CameraArea extends StatelessWidget {
-  const _CameraArea(this.view);
+  const _CameraArea(this.view, {required this.bottomOcclusion});
 
   final PackingHomeView view;
+  final double bottomOcclusion;
 
   @override
   Widget build(BuildContext context) {
+    final double lowerOverlayInset = bottomOcclusion + 18;
     Widget preview;
     final CameraController? camera = view.cameraController;
     if (view.previewOverride != null) {
       preview = view.previewOverride!;
-    } else if (view.nativeTextureId != null &&
-        view.nativePreviewAspectRatio != null) {
+    } else if (view.nativeTextureId != null && view.nativePreviewSize != null) {
       preview = NativeCameraPreviewCover(
         textureId: view.nativeTextureId!,
-        portraitAspectRatio: view.nativePreviewAspectRatio!,
+        sourceSize: view.nativePreviewSize!,
       );
     } else if (camera?.value.isInitialized == true) {
       preview = CameraPreviewCover(controller: camera!);
@@ -208,34 +243,38 @@ class _CameraArea extends StatelessWidget {
         fit: StackFit.expand,
         children: <Widget>[
           Positioned.fill(child: preview),
-          const Positioned(
+          Positioned(
             left: 24,
             right: 24,
             top: 64,
-            bottom: 72,
-            child: SizedBox(
+            bottom: lowerOverlayInset + 2,
+            child: const SizedBox(
               key: Key('scan-guide'),
               child: CustomPaint(painter: _ScanGuidePainter()),
             ),
           ),
           if (view._isRecording)
             Positioned(
-              left: 20,
-              top: 18,
-              child: _RecordingDurationPill(elapsed: view.elapsed),
+              left: 0,
+              right: 0,
+              bottom: lowerOverlayInset,
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: _RecordingDurationPill(elapsed: view.elapsed),
+              ),
             ),
           if (view.lastMarker != null)
             Positioned(
               left: 20,
               right: 20,
-              bottom: 48,
+              bottom: lowerOverlayInset + 54,
               child: _RecognitionToast(marker: view.lastMarker!),
             )
           else if (view.candidateCode.isNotEmpty)
             Positioned(
               left: 20,
               right: 20,
-              bottom: 48,
+              bottom: lowerOverlayInset + 54,
               child: Text(
                 '正在确认 · ${view.candidateCode}',
                 textAlign: TextAlign.center,
@@ -297,33 +336,19 @@ class _RecordingDurationPill extends StatelessWidget {
 class NativeCameraPreviewCover extends StatelessWidget {
   const NativeCameraPreviewCover({
     required this.textureId,
-    required this.portraitAspectRatio,
+    required this.sourceSize,
     super.key,
   });
 
   final int textureId;
-  final double portraitAspectRatio;
+  final Size sourceSize;
 
   @override
   Widget build(BuildContext context) {
-    const double naturalHeight = 1000;
-    return ClipRect(
-      child: SizedBox.expand(
-        child: FittedBox(
-          fit: BoxFit.cover,
-          alignment: Alignment.center,
-          clipBehavior: Clip.hardEdge,
-          child: SizedBox(
-            key: const Key('native-camera-preview-natural-size'),
-            width: naturalHeight * portraitAspectRatio,
-            height: naturalHeight,
-            child: Texture(
-              textureId: textureId,
-              filterQuality: FilterQuality.none,
-            ),
-          ),
-        ),
-      ),
+    return _PreviewCoverViewport(
+      sourceSize: sourceSize,
+      previewKey: const Key('native-camera-preview-natural-size'),
+      child: Texture(textureId: textureId, filterQuality: FilterQuality.low),
     );
   }
 }
@@ -393,28 +418,53 @@ class CameraPreviewCoverLayout extends StatelessWidget {
           return const SizedBox.expand();
         }
 
-        final double rawAspectRatio = value.aspectRatio;
-        final double portraitAspectRatio = rawAspectRatio > 1
-            ? 1 / rawAspectRatio
-            : rawAspectRatio;
-        const double naturalHeight = 1000;
-        return ClipRect(
-          child: SizedBox.expand(
-            child: FittedBox(
-              fit: BoxFit.cover,
-              alignment: Alignment.center,
-              clipBehavior: Clip.hardEdge,
-              child: SizedBox(
-                key: const Key('camera-preview-natural-size'),
-                width: naturalHeight * portraitAspectRatio,
-                height: naturalHeight,
-                child: child,
-              ),
-            ),
-          ),
+        final Size previewSize = value.previewSize!;
+        final Size portraitSize = previewSize.width > previewSize.height
+            ? Size(previewSize.height, previewSize.width)
+            : previewSize;
+        return _PreviewCoverViewport(
+          sourceSize: portraitSize,
+          previewKey: const Key('camera-preview-natural-size'),
+          child: child!,
         );
       },
       child: preview,
+    );
+  }
+}
+
+class _PreviewCoverViewport extends StatelessWidget {
+  const _PreviewCoverViewport({
+    required this.sourceSize,
+    required this.previewKey,
+    required this.child,
+  });
+
+  final Size sourceSize;
+  final Key previewKey;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final PreviewCoverTransform transform = PreviewCoverTransform.contain(
+          sourceSize: sourceSize,
+          canvasSize: Size(constraints.maxWidth, constraints.maxHeight),
+        );
+        return ClipRect(
+          child: Stack(
+            fit: StackFit.expand,
+            clipBehavior: Clip.hardEdge,
+            children: <Widget>[
+              Positioned.fromRect(
+                rect: transform.sourceDestinationRect,
+                child: SizedBox(key: previewKey, child: child),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -525,7 +575,7 @@ class _ControlPanel extends StatelessWidget {
                 height: 1.35,
               ),
             ),
-            const SizedBox(height: 11),
+            const SizedBox(height: 5),
           ] else ...<Widget>[
             Text(
               isError ? (view.errorMessage ?? '请重新检查摄像头权限') : '对准面单条码',
@@ -538,50 +588,9 @@ class _ControlPanel extends StatelessWidget {
                 height: 1.45,
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 10),
           ],
-          FilledButton.icon(
-            key: const Key('primary-work-button'),
-            onPressed: view._isBusy
-                ? null
-                : isError
-                ? view.onRetryPressed
-                : view.onPrimaryPressed,
-            style: view._isRecording
-                ? FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFD92D20),
-                    foregroundColor: Colors.white,
-                  )
-                : null,
-            icon: view._isBusy
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2.4,
-                    ),
-                  )
-                : Icon(
-                    isError
-                        ? Icons.refresh_rounded
-                        : view._isRecording
-                        ? Icons.stop_circle_outlined
-                        : Icons.videocam_outlined,
-                  ),
-            label: Text(
-              view.phase == PackingSessionPhase.initializing
-                  ? '正在准备摄像头'
-                  : view.phase == PackingSessionPhase.starting
-                  ? '正在启动录像'
-                  : view.phase == PackingSessionPhase.saving
-                  ? '正在保存录像'
-                  : isError
-                  ? '重新检查'
-                  : view._isRecording
-                  ? '结束工作'
-                  : '开始工作',
-            ),
-          ),
+          _PrimaryWorkButton(view: view, isError: isError),
           const SizedBox(height: 1),
           TextButton(
             onPressed: view._isRecording || view._isBusy
@@ -608,6 +617,170 @@ class _ControlPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PrimaryWorkButton extends StatefulWidget {
+  const _PrimaryWorkButton({required this.view, required this.isError});
+
+  final PackingHomeView view;
+  final bool isError;
+
+  @override
+  State<_PrimaryWorkButton> createState() => _PrimaryWorkButtonState();
+}
+
+class _PrimaryWorkButtonState extends State<_PrimaryWorkButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _shimmerController;
+
+  @override
+  void initState() {
+    super.initState();
+    _shimmerController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    );
+    _syncShimmer();
+  }
+
+  @override
+  void didUpdateWidget(_PrimaryWorkButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.view._isRecording != widget.view._isRecording) {
+      _syncShimmer();
+    }
+  }
+
+  void _syncShimmer() {
+    if (widget.view._isRecording) {
+      _shimmerController.repeat();
+    } else {
+      _shimmerController.stop();
+      _shimmerController.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _shimmerController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final PackingHomeView view = widget.view;
+    return FilledButton(
+      key: const Key('primary-work-button'),
+      onPressed: view._isBusy
+          ? null
+          : widget.isError
+          ? view.onRetryPressed
+          : view.onPrimaryPressed,
+      style: view._isRecording
+          ? FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFD92D20),
+              foregroundColor: Colors.white,
+            )
+          : null,
+      child: SizedBox(
+        width: double.infinity,
+        height: 24,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: <Widget>[
+            if (view._isRecording)
+              Positioned(
+                key: const Key('recording-button-shimmer'),
+                left: -24,
+                right: -24,
+                top: -17,
+                bottom: -17,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: AnimatedBuilder(
+                    animation: _shimmerController,
+                    builder: (BuildContext context, Widget? child) {
+                      return CustomPaint(
+                        painter: _RecordingButtonShimmerPainter(
+                          Curves.easeInOutQuad.transform(
+                            _shimmerController.value,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (view._isBusy)
+                  const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2.4,
+                    ),
+                  )
+                else
+                  Icon(
+                    widget.isError
+                        ? Icons.refresh_rounded
+                        : view._isRecording
+                        ? Icons.stop_circle_outlined
+                        : Icons.videocam_outlined,
+                  ),
+                const SizedBox(width: 8),
+                Text(
+                  view.phase == PackingSessionPhase.initializing
+                      ? '正在准备摄像头'
+                      : view.phase == PackingSessionPhase.starting
+                      ? '正在启动录像'
+                      : view.phase == PackingSessionPhase.saving
+                      ? '正在保存录像'
+                      : widget.isError
+                      ? '重新检查'
+                      : view._isRecording
+                      ? '结束工作'
+                      : '开始工作',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecordingButtonShimmerPainter extends CustomPainter {
+  const _RecordingButtonShimmerPainter(this.progress);
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double bandWidth = size.width * 0.55;
+    final double left = -bandWidth + progress * (size.width + bandWidth * 2);
+    final Rect band = Rect.fromLTWH(left, 0, bandWidth, size.height);
+    final Paint paint = Paint()
+      ..shader = const LinearGradient(
+        colors: <Color>[
+          Colors.transparent,
+          Color(0x10FFFFFF),
+          Color(0x78FFFFFF),
+          Color(0x10FFFFFF),
+          Colors.transparent,
+        ],
+        stops: <double>[0, 0.3, 0.5, 0.7, 1],
+      ).createShader(band);
+    canvas.drawRect(band, paint);
+  }
+
+  @override
+  bool shouldRepaint(_RecordingButtonShimmerPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 String _recordingHint(PackingHomeView view) {

@@ -19,16 +19,12 @@ class ContinuousCameraInitialization {
   final int fps;
   final String videoMime;
 
-  double get portraitAspectRatio {
+  Size get portraitPreviewSize {
     final bool swapsDimensions =
         sensorOrientation == 90 || sensorOrientation == 270;
-    final double width = swapsDimensions
-        ? previewHeight.toDouble()
-        : previewWidth.toDouble();
-    final double height = swapsDimensions
-        ? previewWidth.toDouble()
-        : previewHeight.toDouble();
-    return width / height;
+    return swapsDimensions
+        ? Size(previewHeight.toDouble(), previewWidth.toDouble())
+        : Size(previewWidth.toDouble(), previewHeight.toDouble());
   }
 
   factory ContinuousCameraInitialization.fromMap(Map<Object?, Object?> map) {

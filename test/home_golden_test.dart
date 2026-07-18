@@ -87,6 +87,7 @@ void main() {
         home: PackingHomeView(
           phase: PackingSessionPhase.ready,
           elapsed: Duration.zero,
+          nativePreviewSize: const Size(1080, 1920),
           previewOverride: Image(image: preview, fit: BoxFit.cover),
           onPrimaryPressed: () {},
           onRetryPressed: () {},

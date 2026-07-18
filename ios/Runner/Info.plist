@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>PackingProof-Mobile</string>
+	<string>包裹留证</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>PackingProof-Mobile</string>
+	<string>包裹留证</string>
 	<key>NSCameraUsageDescription</key>
 	<string>用于识别快递面单并连续录制打包过程</string>
 	<key>NSMicrophoneUsageDescription</key>

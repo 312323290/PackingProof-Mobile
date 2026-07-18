@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/screens/packing_home_screen.dart';
+import 'package:packing_proof_mobile/services/preview_cover_transform.dart';
 
 void main() {
-  testWidgets('录像前后都按竖屏宽高比等比裁切', (WidgetTester tester) async {
+  testWidgets('录像前后都完整显示竖屏画面', (WidgetTester tester) async {
     final ValueNotifier<CameraValue> cameraValue = ValueNotifier<CameraValue>(
       _cameraValue(previewSize: const Size(1920, 1080)),
     );
@@ -27,13 +28,9 @@ void main() {
       ),
     );
 
-    final FittedBox beforeRecording = tester.widget<FittedBox>(
-      find.byType(FittedBox),
-    );
     final Size initialNaturalSize = tester.getSize(
       find.byKey(const Key('camera-preview-natural-size')),
     );
-    expect(beforeRecording.fit, BoxFit.cover);
     expect(initialNaturalSize.aspectRatio, closeTo(9 / 16, 0.001));
     expect(find.byType(RotatedBox), findsNothing);
 
@@ -75,6 +72,45 @@ void main() {
       find.byKey(const Key('camera-preview-natural-size')),
     );
     expect(naturalSize.aspectRatio, closeTo(9 / 16, 0.001));
+  });
+
+  testWidgets('原生纹理完整显示真实竖屏画面且保留过滤', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          width: 390,
+          height: 560,
+          child: NativeCameraPreviewCover(
+            textureId: 7,
+            sourceSize: Size(1080, 1920),
+          ),
+        ),
+      ),
+    );
+
+    final Size naturalSize = tester.getSize(
+      find.byKey(const Key('native-camera-preview-natural-size')),
+    );
+    expect(naturalSize.aspectRatio, closeTo(9 / 16, 0.001));
+    expect(
+      tester.widget<Texture>(find.byType(Texture)).filterQuality,
+      FilterQuality.low,
+    );
+  });
+
+  test('完整显示模式保留全部源画面', () {
+    final PreviewCoverTransform transform = PreviewCoverTransform.contain(
+      sourceSize: const Size(1080, 1440),
+      canvasSize: const Size(390, 560),
+    );
+
+    expect(transform.visibleSourceRect, Offset.zero & const Size(1080, 1440));
+    expect(transform.sourceDestinationRect, transform.destinationRect);
+    expect(transform.destinationRect.left, greaterThanOrEqualTo(0));
+    expect(transform.destinationRect.top, greaterThanOrEqualTo(0));
+    expect(transform.destinationRect.right, lessThanOrEqualTo(390));
+    expect(transform.destinationRect.bottom, lessThanOrEqualTo(560));
   });
 }
 

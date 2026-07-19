@@ -99,20 +99,21 @@ void main() {
     );
   });
 
-  testWidgets('前置原生预览默认水平镜像', (WidgetTester tester) async {
+  testWidgets('原生前置预览不重复翻转 Camera2 镜像', (WidgetTester tester) async {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
         child: NativeCameraPreviewCover(
           textureId: 8,
           sourceSize: Size(1080, 1920),
-          mirrored: true,
         ),
       ),
     );
 
-    final Transform transform = tester.widget<Transform>(find.byType(Transform));
-    expect(transform.transform.storage[0], -1);
+    final Transform transform = tester.widget<Transform>(
+      find.byType(Transform),
+    );
+    expect(transform.transform.storage[0], 1);
     expect(transform.transform.storage[5], 1);
   });
 

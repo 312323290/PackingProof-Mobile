@@ -412,7 +412,6 @@ class _CameraArea extends StatelessWidget {
       preview = NativeCameraPreviewCover(
         textureId: view.nativeTextureId!,
         sourceSize: view.nativePreviewSize!,
-        mirrored: view.frontCameraActive,
       );
     } else if (camera?.value.isInitialized == true) {
       preview = CameraPreviewCover(
@@ -632,13 +631,11 @@ class NativeCameraPreviewCover extends StatelessWidget {
   const NativeCameraPreviewCover({
     required this.textureId,
     required this.sourceSize,
-    this.mirrored = false,
     super.key,
   });
 
   final int textureId;
   final Size sourceSize;
-  final bool mirrored;
 
   @override
   Widget build(BuildContext context) {
@@ -652,7 +649,9 @@ class NativeCameraPreviewCover extends StatelessWidget {
     return Transform(
       key: const Key('native-camera-preview-mirror'),
       alignment: Alignment.center,
-      transform: mirrored ? Matrix4.rotationY(math.pi) : Matrix4.identity(),
+      // Camera2 already mirrors the front preview stream on Android. Applying
+      // another Flutter transform would turn it back into a non-mirrored view.
+      transform: Matrix4.identity(),
       child: viewport,
     );
   }

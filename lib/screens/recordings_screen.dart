@@ -40,6 +40,9 @@ class RecordingsScreen extends StatefulWidget {
     this.backedRetention = BackedRetentionPolicy.days7,
     this.onBackupRetentionChanged,
     this.onLoadRemoteRecordings,
+    this.onLoadRemoteRecordingStatuses,
+    this.hiddenRemoteRecordingIds = const <int>{},
+    this.onHideRemoteRecordings,
     this.remotePlaybackHeaders = const <String, String>{},
     this.mode = RecordingsScreenMode.history,
     this.embedded = false,
@@ -75,11 +78,18 @@ class RecordingsScreen extends StatefulWidget {
   })?
   onBackupRetentionChanged;
   final Future<RemoteRecordingPage> Function({
-    String cursor,
-    required int limit,
+    required int page,
+    required int pageSize,
     String keyword,
   })?
   onLoadRemoteRecordings;
+  final Future<
+    Map<int, ({RemoteRecordingStatus status, bool exists, String reason})>
+  >
+  Function(Iterable<int> ids)?
+  onLoadRemoteRecordingStatuses;
+  final Set<int> hiddenRemoteRecordingIds;
+  final Future<void> Function(Set<int> ids)? onHideRemoteRecordings;
   final Map<String, String> remotePlaybackHeaders;
   final RecordingsScreenMode mode;
   final bool embedded;
@@ -103,10 +113,15 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late UnbackedRetentionPolicy _unbackedRetention;
   late BackedRetentionPolicy _backedRetention;
   final List<RemoteRecording> _remoteRecordings = <RemoteRecording>[];
+  final Map<int, List<RemoteRecording>> _remotePages =
+      <int, List<RemoteRecording>>{};
+  final Map<int, ({RemoteRecordingStatus status, bool exists, String reason})>
+  _remoteStatuses = {};
+  late Set<int> _hiddenRemoteIds;
   Timer? _remoteSearchTimer;
   bool _loadingRemote = false;
-  bool _remoteHasMore = true;
-  String _remoteCursor = '';
+  int _remoteTotal = 0;
+  int _remoteDeviceTotal = 0;
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
   String _query = '';
@@ -143,11 +158,12 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _backupSnapshot = widget.backupSnapshot;
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
+    _hiddenRemoteIds = Set<int>.of(widget.hiddenRemoteRecordingIds);
     _applyExternalSearch(widget.externalSearchQuery);
     widget.backupListenable?.addListener(_refreshBackupSnapshot);
     if (widget.mode == RecordingsScreenMode.history && widget.active) {
       WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _loadRemote(reset: true),
+        (_) => _loadRemote(reset: true, pageNumber: 1, prefetchNext: true),
       );
     }
   }
@@ -163,16 +179,21 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _maxVolumeEnabled = widget.maxVolumeEnabled;
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
+    _hiddenRemoteIds.addAll(widget.hiddenRemoteRecordingIds);
     if (!oldWidget.active && widget.active && _remoteRecordings.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback(
-        (_) => unawaited(_loadRemote(reset: true)),
+        (_) => unawaited(
+          _loadRemote(reset: true, pageNumber: 1, prefetchNext: true),
+        ),
       );
     }
     if (oldWidget.externalSearchQuery != widget.externalSearchQuery &&
         widget.externalSearchQuery.isNotEmpty) {
       _applyExternalSearch(widget.externalSearchQuery);
       WidgetsBinding.instance.addPostFrameCallback(
-        (_) => unawaited(_loadRemote(reset: true)),
+        (_) => unawaited(
+          _loadRemote(reset: true, pageNumber: 1, prefetchNext: true),
+        ),
       );
     }
   }
@@ -206,15 +227,16 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       }
       if (next.endpoint == null) {
         _remoteRecordings.clear();
-        _remoteCursor = '';
-        _remoteHasMore = true;
+        _remotePages.clear();
+        _remoteTotal = 0;
+        _remoteDeviceTotal = 0;
         _historyPage = 0;
       }
     });
     if (widget.active &&
         _backupSnapshot.connectionStatus == LanConnectionStatus.connected &&
         _remoteRecordings.isEmpty) {
-      unawaited(_loadRemote(reset: true));
+      unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));
     }
   }
 
@@ -238,7 +260,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         .whereType<int>()
         .toSet();
     for (final RemoteRecording remote in _remoteRecordings) {
-      if (includedRemoteIds.add(remote.id)) {
+      if (!_hiddenRemoteIds.contains(remote.id) &&
+          includedRemoteIds.add(remote.id)) {
         values.add(_RecordingListItem(remote: remote));
       }
     }
@@ -268,47 +291,123 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         .toList(growable: false);
   }
 
-  Future<void> _loadRemote({bool reset = false}) async {
+  Future<void> _loadRemote({
+    bool reset = false,
+    required int pageNumber,
+    bool prefetchNext = false,
+  }) async {
     if (_loadingRemote ||
         !widget.active ||
         widget.onLoadRemoteRecordings == null ||
-        _backupSnapshot.connectionStatus != LanConnectionStatus.connected ||
-        (!reset && !_remoteHasMore)) {
+        _backupSnapshot.connectionStatus != LanConnectionStatus.connected) {
       return;
     }
     final int requestGeneration = ++_remoteRequestGeneration;
     setState(() {
       _loadingRemote = true;
       if (reset) {
-        _remoteCursor = '';
-        _remoteHasMore = true;
+        _remotePages.clear();
+        _remoteRecordings.clear();
+        _remoteTotal = 0;
+        _remoteDeviceTotal = 0;
         _historyPage = 0;
       }
     });
     try {
-      final RemoteRecordingPage page = await widget.onLoadRemoteRecordings!(
-        cursor: _remoteCursor,
-        limit: _historyPageSize,
+      final RemoteRecordingPage result = await widget.onLoadRemoteRecordings!(
+        page: pageNumber,
+        pageSize: _historyPageSize,
         keyword: _query,
       );
       if (!mounted || requestGeneration != _remoteRequestGeneration) return;
       setState(() {
-        if (reset) _remoteRecordings.clear();
-        final Set<int> existingIds = _remoteRecordings
-            .map((RemoteRecording item) => item.id)
-            .toSet();
-        _remoteRecordings.addAll(
-          page.data.where((RemoteRecording item) => existingIds.add(item.id)),
-        );
-        _remoteCursor = page.nextCursor;
-        _remoteHasMore = page.hasMore;
+        _remotePages[result.page] = result.data;
+        _remoteTotal = result.total;
+        _remoteDeviceTotal = result.deviceTotal;
+        _rebuildRemoteRecordings();
       });
+      await _refreshRemoteStatuses(result.data);
+      if (prefetchNext && result.hasMore && mounted) {
+        await _loadRemotePageWithoutBusy(result.page + 1, requestGeneration);
+      }
     } on Object {
       // Connection state is updated by the backup service; cached rows stay visible.
     } finally {
       if (mounted && requestGeneration == _remoteRequestGeneration) {
         setState(() => _loadingRemote = false);
       }
+    }
+  }
+
+  Future<void> _loadRemotePageWithoutBusy(
+    int pageNumber,
+    int requestGeneration,
+  ) async {
+    if (_remotePages.containsKey(pageNumber) ||
+        widget.onLoadRemoteRecordings == null ||
+        _backupSnapshot.connectionStatus != LanConnectionStatus.connected) {
+      return;
+    }
+    final RemoteRecordingPage page = await widget.onLoadRemoteRecordings!(
+      page: pageNumber,
+      pageSize: _historyPageSize,
+      keyword: _query,
+    );
+    if (!mounted || requestGeneration != _remoteRequestGeneration) return;
+    setState(() {
+      _remotePages[page.page] = page.data;
+      _remoteTotal = page.total;
+      _remoteDeviceTotal = page.deviceTotal;
+      _rebuildRemoteRecordings();
+    });
+    await _refreshRemoteStatuses(page.data);
+  }
+
+  void _rebuildRemoteRecordings() {
+    final entries = _remotePages.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    _remoteRecordings
+      ..clear()
+      ..addAll(entries.expand((entry) => entry.value));
+  }
+
+  Future<void> _refreshRemoteStatuses(List<RemoteRecording> page) async {
+    final callback = widget.onLoadRemoteRecordingStatuses;
+    if (callback == null) return;
+    final Set<int> ids = page.map((item) => item.id).toSet()
+      ..addAll(
+        _backupSnapshot.jobs
+            .where(
+              (job) =>
+                  job.destinationComputerId ==
+                  _backupSnapshot.endpoint?.computerId,
+            )
+            .expand((job) => job.remoteRecordIds),
+      );
+    if (ids.isEmpty) return;
+    try {
+      final statuses = await callback(ids);
+      if (!mounted || statuses.isEmpty) return;
+      setState(() {
+        _remoteStatuses.addAll(statuses);
+        for (final int pageNumber in _remotePages.keys.toList()) {
+          _remotePages[pageNumber] = _remotePages[pageNumber]!
+              .map((RemoteRecording item) {
+                final status = statuses[item.id];
+                return status == null
+                    ? item
+                    : item.withStatus(
+                        status: status.status,
+                        exists: status.exists,
+                        reason: status.reason,
+                      );
+              })
+              .toList(growable: false);
+        }
+        _rebuildRemoteRecordings();
+      });
+    } on Object {
+      // The page remains usable with the availability returned by /api/videos.
     }
   }
 
@@ -363,8 +462,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       _remoteRequestGeneration++;
       _loadingRemote = false;
       _remoteRecordings.clear();
-      _remoteCursor = '';
-      _remoteHasMore = true;
+      _remotePages.clear();
+      _remoteTotal = 0;
+      _remoteDeviceTotal = 0;
       _historyPage = 0;
     });
   }
@@ -377,7 +477,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _remoteSearchTimer?.cancel();
     _remoteSearchTimer = Timer(
       const Duration(milliseconds: 300),
-      () => unawaited(_loadRemote(reset: true)),
+      () => unawaited(
+        _loadRemote(reset: true, pageNumber: 1, prefetchNext: true),
+      ),
     );
   }
 
@@ -591,20 +693,20 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   }
 
   Future<void> _showNextHistoryPage(int pageCount) async {
-    if (_historyPage + 1 < pageCount) {
-      setState(() => _historyPage++);
-      return;
+    if (_historyPage + 1 >= pageCount) return;
+    final int nextHistoryPage = _historyPage + 1;
+    final int remotePage = nextHistoryPage + 1;
+    if (!_remotePages.containsKey(remotePage) &&
+        _backupSnapshot.connectionStatus == LanConnectionStatus.connected) {
+      await _loadRemote(pageNumber: remotePage);
     }
-    if (_remoteHasMore == false ||
-        _backupSnapshot.connectionStatus != LanConnectionStatus.connected) {
-      return;
-    }
-    await _loadRemote();
     if (!mounted) return;
-    final int updatedPageCount = (_visibleItems.length / _historyPageSize)
-        .ceil();
-    if (_historyPage + 1 < updatedPageCount) {
-      setState(() => _historyPage++);
+    setState(() => _historyPage = nextHistoryPage);
+    final int prefetchPage = remotePage + 1;
+    if (prefetchPage <= (_remoteTotal / _historyPageSize).ceil() &&
+        !_remotePages.containsKey(prefetchPage) &&
+        _backupSnapshot.connectionStatus == LanConnectionStatus.connected) {
+      unawaited(_loadRemote(pageNumber: prefetchPage));
     }
   }
 
@@ -612,9 +714,22 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   Widget build(BuildContext context) {
     final List<RecordingSession> visibleSessions = _filteredSessions;
     final List<_RecordingListItem> visibleItems = _visibleItems;
-    final int historyPageCount = visibleItems.isEmpty
-        ? 0
-        : (visibleItems.length / _historyPageSize).ceil();
+    final int localCount = _filteredSessions
+        .where((session) => File(session.filePath).existsSync())
+        .length;
+    final int localLogicalCount = _filteredSessions.length;
+    final int estimatedCount = switch (_sourceFilter) {
+      RecordingSourceFilter.local => localCount,
+      RecordingSourceFilter.backedUp => _remoteDeviceTotal,
+      RecordingSourceFilter.computer => _remoteTotal,
+      RecordingSourceFilter.all =>
+        localLogicalCount +
+            _remoteTotal -
+            _remoteDeviceTotal.clamp(0, localLogicalCount),
+    };
+    final int historyPageCount = estimatedCount <= 0
+        ? (visibleItems.isEmpty ? 0 : 1)
+        : (estimatedCount / _historyPageSize).ceil();
     final int historyPage = historyPageCount == 0
         ? 0
         : _historyPage >= historyPageCount
@@ -719,7 +834,13 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         _query = '';
                         _historyPage = 0;
                       });
-                      unawaited(_loadRemote(reset: true));
+                      unawaited(
+                        _loadRemote(
+                          reset: true,
+                          pageNumber: 1,
+                          prefetchNext: true,
+                        ),
+                      );
                     },
                     icon: const Icon(Icons.close_rounded),
                   ),
@@ -775,22 +896,50 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                 final bool localAvailable =
                     item.local != null &&
                     File(item.local!.filePath).existsSync();
+                final LanBackupJob? backupJob = item.local == null
+                    ? null
+                    : _backupSnapshot.jobs
+                          .where(
+                            (LanBackupJob job) =>
+                                job.filePath == item.local!.filePath,
+                          )
+                          .firstOrNull;
+                final bool remoteAvailable =
+                    item.remote != null &&
+                    item.remote!.status == RemoteRecordingStatus.available &&
+                    item.remote!.exists;
+                final bool computerCleared =
+                    (item.remote != null && !remoteAvailable) ||
+                    (backupJob?.remoteRecordIds.any(
+                          (id) =>
+                              _remoteStatuses[id]?.status != null &&
+                              _remoteStatuses[id]!.status !=
+                                  RemoteRecordingStatus.available,
+                        ) ??
+                        false);
+                final bool unavailable = !localAvailable && !remoteAvailable;
                 return Padding(
                   padding: EdgeInsets.only(
                     bottom: index == pageItems.length - 1 ? 0 : 10,
                   ),
                   child: _RecordingTile(
                     session: session,
-                    backupJob: _backupSnapshot.jobs
-                        .where(
-                          (LanBackupJob job) =>
-                              job.filePath == session.filePath,
-                        )
-                        .firstOrNull,
+                    backupJob: backupJob,
                     managing: _managing && item.local != null,
+                    unavailable: unavailable,
                     sourceLabel: localAvailable
-                        ? (item.remote == null ? '本机' : '本机 · 已备份')
-                        : (item.remote == null ? '已备份 · 电脑离线' : '电脑录像'),
+                        ? (computerCleared
+                              ? '本机 · 电脑已清理'
+                              : remoteAvailable ||
+                                    backupJob?.state ==
+                                        LanBackupJobState.completed
+                              ? '本机 · 已备份'
+                              : '本机')
+                        : (item.remote == null
+                              ? '已备份 · 电脑离线'
+                              : remoteAvailable
+                              ? '电脑录像'
+                              : '电脑录像 · 已清理'),
                     selected: _selectedIds.contains(session.id),
                     onTap: () async {
                       if (_managing) {
@@ -798,9 +947,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         return;
                       }
                       FocusManager.instance.primaryFocus?.unfocus();
-                      if (!localAvailable && item.remote == null) {
+                      if (unavailable) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('电脑当前不可用，暂时无法播放这段录像')),
+                          const SnackBar(content: Text('录像已清理或文件不存在，无法播放')),
                         );
                         return;
                       }
@@ -818,25 +967,32 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                                           ),
                                     remoteUri: localAvailable
                                         ? null
-                                        : item.remote?.playUri,
+                                        : remoteAvailable
+                                        ? item.remote?.playUri
+                                        : null,
                                     remoteHeaders: widget.remotePlaybackHeaders,
                                   ),
                             ),
                           );
                       if (deleted == true && mounted && item.local != null) {
+                        final Set<int> hiddenIds = <int>{
+                          if (item.remote != null) item.remote!.id,
+                          if (backupJob != null) ...backupJob.remoteRecordIds,
+                        };
                         setState(() {
+                          _hiddenRemoteIds.addAll(hiddenIds);
                           _sessions.removeWhere(
                             (RecordingSession value) =>
                                 value.id == item.local!.id,
                           );
                         });
+                        await widget.onHideRemoteRecordings?.call(hiddenIds);
                       }
                     },
                   ),
                 );
               }),
-            if (historyPageCount > 1 ||
-                (_remoteHasMore && _backupSnapshot.connected))
+            if (historyPageCount > 1)
               _HistoryPagination(
                 currentPage: historyPage,
                 pageCount: historyPageCount,
@@ -845,18 +1001,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                     _backupSnapshot.connected &&
                     _backupSnapshot.connectionStatus !=
                         LanConnectionStatus.connected,
-                canLoadMore:
-                    _remoteHasMore &&
-                    _backupSnapshot.connectionStatus ==
-                        LanConnectionStatus.connected,
+                canLoadMore: historyPage + 1 < historyPageCount,
                 onPrevious: historyPage == 0
                     ? null
                     : () => setState(() => _historyPage = historyPage - 1),
-                onNext:
-                    historyPage + 1 < historyPageCount ||
-                        (_remoteHasMore &&
-                            _backupSnapshot.connectionStatus ==
-                                LanConnectionStatus.connected)
+                onNext: historyPage + 1 < historyPageCount
                     ? () => _showNextHistoryPage(historyPageCount)
                     : null,
               ),
@@ -1584,6 +1733,7 @@ class _RecordingTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.sourceLabel,
+    this.unavailable = false,
     this.backupJob,
   });
 
@@ -1593,90 +1743,95 @@ class _RecordingTile extends StatelessWidget {
   final VoidCallback onTap;
   final LanBackupJob? backupJob;
   final String sourceLabel;
+  final bool unavailable;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFFF5F6F3),
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
+    return Opacity(
+      opacity: unavailable ? 0.52 : 1,
+      child: Material(
+        color: const Color(0xFFF5F6F3),
         borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: <Widget>[
-              if (managing)
-                Checkbox(value: selected, onChanged: (_) => onTap())
-              else
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFDDEDE7),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: const Icon(
-                    Icons.play_arrow_rounded,
-                    color: PackingProofMobileApp.forest,
-                  ),
-                ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            session.displayCode,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _StatusChip(label: sourceLabel),
-                      ],
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: <Widget>[
+                if (managing)
+                  Checkbox(value: selected, onChanged: (_) => onTap())
+                else
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFDDEDE7),
+                      borderRadius: BorderRadius.circular(15),
                     ),
-                    const SizedBox(height: 7),
-                    Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFF69716E),
-                              fontSize: 12,
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      color: PackingProofMobileApp.forest,
+                    ),
+                  ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              session.displayCode,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
-                        ),
-                        if (backupJob != null &&
-                            backupJob!.state !=
-                                LanBackupJobState.completed) ...[
                           const SizedBox(width: 8),
-                          _StatusChip(
-                            label: _backupLabel(backupJob!),
-                            error: backupJob!.state == LanBackupJobState.failed,
-                          ),
+                          _StatusChip(label: sourceLabel),
                         ],
-                      ],
-                    ),
-                  ],
+                      ),
+                      const SizedBox(height: 7),
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF69716E),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          if (backupJob != null &&
+                              backupJob!.state !=
+                                  LanBackupJobState.completed) ...[
+                            const SizedBox(width: 8),
+                            _StatusChip(
+                              label: _backupLabel(backupJob!),
+                              error:
+                                  backupJob!.state == LanBackupJobState.failed,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              if (!managing)
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Color(0xFF7B8380),
-                ),
-            ],
+                if (!managing)
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Color(0xFF7B8380),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

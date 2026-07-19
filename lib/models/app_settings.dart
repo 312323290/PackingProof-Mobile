@@ -10,6 +10,7 @@ class AppSettings {
     this.lanBackupAutoEnabled = true,
     this.unbackedRetention = UnbackedRetentionPolicy.days30,
     this.backedRetention = BackedRetentionPolicy.days7,
+    this.hiddenRemoteRecordingIds = const <int>{},
     this.extraValues = const <String, Object?>{},
   });
 
@@ -22,6 +23,13 @@ class AppSettings {
       ..remove('lanBackupAutoEnabled')
       ..remove('unbackedRetention')
       ..remove('backedRetention');
+    final Set<int> hiddenRemoteRecordingIds =
+        ((json['hiddenRemoteRecordingIds'] as List<Object?>?) ?? const [])
+            .whereType<num>()
+            .map((value) => value.toInt())
+            .where((value) => value > 0)
+            .toSet();
+    extraValues.remove('hiddenRemoteRecordingIds');
     return AppSettings(
       workMode: workModeFromStorage(json['workMode']),
       speechEnabled: json['speechEnabled'] is bool
@@ -40,6 +48,7 @@ class AppSettings {
         json['unbackedRetention'],
       ),
       backedRetention: backedRetentionFromStorage(json['backedRetention']),
+      hiddenRemoteRecordingIds: hiddenRemoteRecordingIds,
       extraValues: extraValues,
     );
   }
@@ -51,6 +60,7 @@ class AppSettings {
   final bool lanBackupAutoEnabled;
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
+  final Set<int> hiddenRemoteRecordingIds;
   final Map<String, Object?> extraValues;
 
   AppSettings copyWith({
@@ -61,6 +71,7 @@ class AppSettings {
     bool? lanBackupAutoEnabled,
     UnbackedRetentionPolicy? unbackedRetention,
     BackedRetentionPolicy? backedRetention,
+    Set<int>? hiddenRemoteRecordingIds,
   }) {
     return AppSettings(
       workMode: workMode ?? this.workMode,
@@ -70,6 +81,8 @@ class AppSettings {
       lanBackupAutoEnabled: lanBackupAutoEnabled ?? this.lanBackupAutoEnabled,
       unbackedRetention: unbackedRetention ?? this.unbackedRetention,
       backedRetention: backedRetention ?? this.backedRetention,
+      hiddenRemoteRecordingIds:
+          hiddenRemoteRecordingIds ?? this.hiddenRemoteRecordingIds,
       extraValues: extraValues,
     );
   }
@@ -83,5 +96,6 @@ class AppSettings {
     'lanBackupAutoEnabled': lanBackupAutoEnabled,
     'unbackedRetention': unbackedRetention.storageValue,
     'backedRetention': backedRetention.storageValue,
+    'hiddenRemoteRecordingIds': hiddenRemoteRecordingIds.toList()..sort(),
   };
 }

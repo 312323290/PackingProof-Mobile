@@ -93,4 +93,15 @@ void main() {
     expect(settings.workMode, WorkMode.sameCodeStop);
     expect(settings.speechEnabled, isFalse);
   });
+
+  test('删除本机记录后持久保留隐藏的电脑录像编号', () async {
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+
+    await repository.saveHiddenRemoteRecordingIds(<int>{8, 3});
+    await repository.saveSpeechEnabled(false);
+
+    final settings = await repository.loadSettings();
+    expect(settings.hiddenRemoteRecordingIds, <int>{3, 8});
+    expect(settings.speechEnabled, isFalse);
+  });
 }

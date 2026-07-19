@@ -40,10 +40,12 @@ abstract interface class LanBackupSink implements Listenable {
   Future<void> cancel(String jobId);
   Future<void> refresh();
   Future<RemoteRecordingPage> fetchRemoteRecordings({
-    String cursor = '',
-    required int limit,
+    required int page,
+    required int pageSize,
     String keyword = '',
   });
+  Future<Map<int, ({RemoteRecordingStatus status, bool exists, String reason})>>
+  fetchRemoteRecordingStatuses(Iterable<int> ids);
   Map<String, String> get playbackHeaders;
   Future<void> dispose();
 }
@@ -295,8 +297,8 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
 
   @override
   Future<RemoteRecordingPage> fetchRemoteRecordings({
-    String cursor = '',
-    required int limit,
+    required int page,
+    required int pageSize,
     String keyword = '',
   }) async {
     final LanBackupEndpoint? endpoint = _snapshot.endpoint;
@@ -304,10 +306,11 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       return const RemoteRecordingPage.empty();
     }
     final Uri uri = endpoint.baseUri.replace(
-      path: '/api/mobile-backup/recordings',
+      path: '/api/videos',
       queryParameters: <String, String>{
-        'limit': '$limit',
-        if (cursor.isNotEmpty) 'cursor': cursor,
+        'page': '$page',
+        'size': '$pageSize',
+        if (_snapshot.deviceId.isNotEmpty) 'deviceId': _snapshot.deviceId,
         if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
       },
     );
@@ -349,8 +352,10 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       notifyListeners();
       return RemoteRecordingPage(
         data: recordings,
-        nextCursor: '${payload['nextCursor'] ?? ''}',
-        hasMore: payload['hasMore'] == true,
+        page: (payload['page'] as num?)?.toInt() ?? page,
+        pageSize: (payload['pageSize'] as num?)?.toInt() ?? pageSize,
+        total: (payload['total'] as num?)?.toInt() ?? recordings.length,
+        deviceTotal: (payload['deviceTotal'] as num?)?.toInt() ?? 0,
       );
     } on Object {
       _snapshot = _snapshot.copyWith(
@@ -359,6 +364,54 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       notifyListeners();
       return const RemoteRecordingPage.empty();
     }
+  }
+
+  @override
+  Future<Map<int, ({RemoteRecordingStatus status, bool exists, String reason})>>
+  fetchRemoteRecordingStatuses(Iterable<int> ids) async {
+    final LanBackupEndpoint? endpoint = _snapshot.endpoint;
+    final List<int> values = ids
+        .where((int id) => id > 0)
+        .toSet()
+        .take(100)
+        .toList();
+    if (endpoint == null || _accessKey.isEmpty || values.isEmpty) {
+      return const <
+        int,
+        ({RemoteRecordingStatus status, bool exists, String reason})
+      >{};
+    }
+    final Uri uri = endpoint.baseUri.replace(
+      path: '/api/videos/status',
+      queryParameters: <String, String>{'ids': values.join(',')},
+    );
+    final HttpClientRequest request = await _httpClient
+        .getUrl(uri)
+        .timeout(const Duration(seconds: 5));
+    request.headers.set('X-EPM-Access-Key', _accessKey);
+    final HttpClientResponse response = await request.close().timeout(
+      const Duration(seconds: 10),
+    );
+    final String body = await utf8.decoder.bind(response).join();
+    if (response.statusCode != HttpStatus.ok) {
+      throw HttpException('电脑录像状态读取失败（${response.statusCode}）');
+    }
+    final Map<String, Object?> payload = Map<String, Object?>.from(
+      jsonDecode(body) as Map<Object?, Object?>,
+    );
+    return <int, ({RemoteRecordingStatus status, bool exists, String reason})>{
+      for (final Object? value
+          in (payload['data'] as List<Object?>?) ?? const <Object?>[])
+        if (value is Map)
+          (value['id'] as num).toInt(): (
+            status: RemoteRecordingStatus.values.firstWhere(
+              (RemoteRecordingStatus status) => status.name == value['status'],
+              orElse: () => RemoteRecordingStatus.missing,
+            ),
+            exists: value['exists'] == true,
+            reason: '${value['reason'] ?? ''}',
+          ),
+    };
   }
 
   @override
@@ -389,6 +442,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
             )
             .toList(growable: false);
     _snapshot = LanBackupSnapshot(
+      deviceId: '${values['deviceId'] ?? _snapshot.deviceId}',
       endpoint: endpoint,
       jobs: jobs,
       autoEnabled: _snapshot.autoEnabled,

@@ -12,6 +12,8 @@ enum LanConnectionStatus {
   rePair,
 }
 
+enum RemoteRecordingStatus { available, deleted, missing }
+
 class LanBackupEndpoint {
   const LanBackupEndpoint({
     required this.baseUri,
@@ -96,6 +98,7 @@ class LanBackupSnapshot {
     this.autoEnabled = true,
     this.message,
     this.connectionStatus = LanConnectionStatus.disconnected,
+    this.deviceId = '',
   });
 
   final LanBackupEndpoint? endpoint;
@@ -103,6 +106,7 @@ class LanBackupSnapshot {
   final bool autoEnabled;
   final String? message;
   final LanConnectionStatus connectionStatus;
+  final String deviceId;
 
   bool get connected => endpoint != null;
   int get pendingCount => jobs.where((LanBackupJob job) {
@@ -143,6 +147,7 @@ class LanBackupSnapshot {
     String? message,
     bool clearMessage = false,
     LanConnectionStatus? connectionStatus,
+    String? deviceId,
   }) {
     return LanBackupSnapshot(
       endpoint: clearEndpoint ? null : endpoint ?? this.endpoint,
@@ -150,6 +155,7 @@ class LanBackupSnapshot {
       autoEnabled: autoEnabled ?? this.autoEnabled,
       message: clearMessage ? null : message ?? this.message,
       connectionStatus: connectionStatus ?? this.connectionStatus,
+      deviceId: deviceId ?? this.deviceId,
     );
   }
 }
@@ -166,6 +172,9 @@ class RemoteRecording {
     required this.sourceSessionId,
     required this.contentSha256,
     required this.playUri,
+    this.exists = true,
+    this.status = RemoteRecordingStatus.available,
+    this.statusReason = '',
   });
 
   factory RemoteRecording.fromJson(Map<String, Object?> json, Uri baseUri) {
@@ -186,6 +195,7 @@ class RemoteRecording {
       playUri: baseUri.resolve(
         '${json['playUrl'] ?? '/api/videos/${json['id']}/play?compat=1'}',
       ),
+      exists: json['exists'] != false,
     );
   }
 
@@ -199,23 +209,55 @@ class RemoteRecording {
   final String sourceSessionId;
   final String contentSha256;
   final Uri playUri;
+  final bool exists;
+  final RemoteRecordingStatus status;
+  final String statusReason;
+
+  RemoteRecording withStatus({
+    required RemoteRecordingStatus status,
+    required bool exists,
+    String reason = '',
+  }) => RemoteRecording(
+    id: id,
+    trackingNumber: trackingNumber,
+    startedAt: startedAt,
+    duration: duration,
+    sourceType: sourceType,
+    sourceDeviceId: sourceDeviceId,
+    sourceDeviceName: sourceDeviceName,
+    sourceSessionId: sourceSessionId,
+    contentSha256: contentSha256,
+    playUri: playUri,
+    exists: exists,
+    status: status,
+    statusReason: reason,
+  );
 }
 
 class RemoteRecordingPage {
   const RemoteRecordingPage({
     required this.data,
-    required this.nextCursor,
-    required this.hasMore,
+    required this.page,
+    required this.pageSize,
+    required this.total,
+    required this.deviceTotal,
   });
 
   const RemoteRecordingPage.empty()
     : data = const <RemoteRecording>[],
-      nextCursor = '',
-      hasMore = false;
+      page = 1,
+      pageSize = 10,
+      total = 0,
+      deviceTotal = 0;
 
   final List<RemoteRecording> data;
-  final String nextCursor;
-  final bool hasMore;
+  final int page;
+  final int pageSize;
+  final int total;
+  final int deviceTotal;
+
+  int get pageCount => total <= 0 ? 0 : (total + pageSize - 1) ~/ pageSize;
+  bool get hasMore => page < pageCount;
 }
 
 DateTime? _dateTime(Object? value) => switch (value) {

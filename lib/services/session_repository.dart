@@ -280,6 +280,11 @@ class SessionRepository {
     await saveSettings(settings.copyWith(lanBackupAutoEnabled: enabled));
   }
 
+  Future<void> saveHiddenRemoteRecordingIds(Set<int> ids) async {
+    final AppSettings settings = await loadSettings();
+    await saveSettings(settings.copyWith(hiddenRemoteRecordingIds: ids));
+  }
+
   Future<void> saveBackupRetention({
     required UnbackedRetentionPolicy unbacked,
     required BackedRetentionPolicy backed,

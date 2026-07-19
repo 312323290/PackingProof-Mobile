@@ -181,12 +181,15 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       onDisconnectBackup: _controller.disconnectBackup,
       onRetryBackup: _controller.retryBackup,
       onLoadRemoteRecordings: _controller.fetchRemoteRecordings,
+      onLoadRemoteRecordingStatuses: _controller.fetchRemoteRecordingStatuses,
       remotePlaybackHeaders: _controller.remotePlaybackHeaders,
       onConnectComputer: _beginComputerPairing,
       onScanSearch: _beginHistorySearchScan,
       onSpeechPreview: _controller.previewSpeech,
       onSessionUpdated: _controller.updateSession,
       onDeleteSessions: _controller.deleteSessions,
+      hiddenRemoteRecordingIds: _controller.hiddenRemoteRecordingIds,
+      onHideRemoteRecordings: _controller.hideRemoteRecordings,
     );
   }
 }

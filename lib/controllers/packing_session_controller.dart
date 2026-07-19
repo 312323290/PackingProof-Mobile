@@ -100,6 +100,7 @@ class PackingSessionController extends ChangeNotifier {
   int _segmentIndex = 1;
   bool _torchEnabled = false;
   bool _workActive = false;
+  Set<int> _hiddenRemoteRecordingIds = <int>{};
 
   CameraController? get cameraController => _cameraController;
   int? get nativeTextureId => _nativeInitialization?.textureId;
@@ -135,6 +136,8 @@ class PackingSessionController extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   bool get isRecording => _phase == PackingSessionPhase.recording;
   bool get isWorking => _workActive;
+  Set<int> get hiddenRemoteRecordingIds =>
+      Set<int>.unmodifiable(_hiddenRemoteRecordingIds);
   bool get isBusy =>
       _phase == PackingSessionPhase.initializing ||
       _phase == PackingSessionPhase.starting ||
@@ -161,6 +164,9 @@ class PackingSessionController extends ChangeNotifier {
       _maxVolumeEnabled = settings.maxVolumeEnabled;
       _unbackedRetention = settings.unbackedRetention;
       _backedRetention = settings.backedRetention;
+      _hiddenRemoteRecordingIds = Set<int>.of(
+        settings.hiddenRemoteRecordingIds,
+      );
       if (!_backupListenerAttached) {
         _lanBackupService.addListener(_handleBackupChanged);
         _backupListenerAttached = true;
@@ -466,14 +472,18 @@ class PackingSessionController extends ChangeNotifier {
   Future<void> retryBackup(String jobId) => _lanBackupService.retry(jobId);
 
   Future<RemoteRecordingPage> fetchRemoteRecordings({
-    String cursor = '',
-    required int limit,
+    required int page,
+    required int pageSize,
     String keyword = '',
   }) => _lanBackupService.fetchRemoteRecordings(
-    cursor: cursor,
-    limit: limit,
+    page: page,
+    pageSize: pageSize,
     keyword: keyword,
   );
+
+  Future<Map<int, ({RemoteRecordingStatus status, bool exists, String reason})>>
+  fetchRemoteRecordingStatuses(Iterable<int> ids) =>
+      _lanBackupService.fetchRemoteRecordingStatuses(ids);
 
   Map<String, String> get remotePlaybackHeaders =>
       _lanBackupService.playbackHeaders;
@@ -674,6 +684,13 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<void> deleteSessions(Set<String> sessionIds) async {
     _sessions = await _repository.deleteSessions(sessionIds);
+    notifyListeners();
+  }
+
+  Future<void> hideRemoteRecordings(Set<int> ids) async {
+    if (ids.isEmpty) return;
+    _hiddenRemoteRecordingIds = <int>{..._hiddenRemoteRecordingIds, ...ids};
+    await _repository.saveHiddenRemoteRecordingIds(_hiddenRemoteRecordingIds);
     notifyListeners();
   }
 

@@ -277,7 +277,7 @@ void main() {
             connectionStatus: LanConnectionStatus.offline,
           ),
           onLoadRemoteRecordings:
-              ({cursor = '', required limit, keyword = ''}) async {
+              ({required page, required pageSize, keyword = ''}) async {
                 loadCount++;
                 return const RemoteRecordingPage.empty();
               },
@@ -521,17 +521,17 @@ void main() {
     expect(find.text('2 / 2 页'), findsOneWidget);
   });
 
-  testWidgets('电脑录像仅在首次进入、下一页和搜索时按游标请求', (WidgetTester tester) async {
-    final List<String> requestedCursors = <String>[];
+  testWidgets('电脑录像首次缓存两页且搜索重置分页', (WidgetTester tester) async {
+    final List<int> requestedPages = <int>[];
     final List<String> requestedKeywords = <String>[];
     Future<RemoteRecordingPage> loadRemote({
-      String cursor = '',
-      required int limit,
+      required int page,
+      required int pageSize,
       String keyword = '',
     }) async {
-      requestedCursors.add(cursor);
+      requestedPages.add(page);
       requestedKeywords.add(keyword);
-      final int start = cursor.isEmpty ? 0 : 10;
+      final int start = (page - 1) * pageSize;
       return RemoteRecordingPage(
         data: List<RemoteRecording>.generate(
           keyword.isEmpty ? 10 : 1,
@@ -555,8 +555,10 @@ void main() {
             playUri: Uri.parse('http://192.168.1.20/video'),
           ),
         ),
-        nextCursor: cursor.isEmpty && keyword.isEmpty ? 'cursor-10' : '',
-        hasMore: cursor.isEmpty && keyword.isEmpty,
+        page: page,
+        pageSize: pageSize,
+        total: keyword.isEmpty ? 20 : 1,
+        deviceTotal: 0,
       );
     }
 
@@ -587,11 +589,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(requestedCursors, <String>['']);
+    expect(requestedPages, <int>[1, 2]);
 
     await tester.drag(find.byType(ListView), const Offset(0, -1000));
     await tester.pumpAndSettle();
-    expect(requestedCursors, <String>['']);
+    expect(requestedPages, <int>[1, 2]);
 
     await tester.scrollUntilVisible(
       find.byKey(const Key('recording-page-next')),
@@ -600,11 +602,11 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('recording-page-next')));
     await tester.pumpAndSettle();
-    expect(requestedCursors, <String>['', 'cursor-10']);
+    expect(requestedPages, <int>[1, 2]);
 
     await tester.tap(find.byKey(const Key('recording-page-previous')));
     await tester.pump();
-    expect(requestedCursors, <String>['', 'cursor-10']);
+    expect(requestedPages, <int>[1, 2]);
 
     await tester.drag(find.byType(ListView), const Offset(0, 1800));
     await tester.pumpAndSettle();
@@ -617,9 +619,71 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 350));
     await tester.pumpAndSettle();
-    expect(requestedCursors.last, '');
+    expect(requestedPages.last, 1);
     expect(requestedKeywords.last, 'SEARCH');
     expect(find.text('SEARCHED'), findsOneWidget);
+  });
+
+  testWidgets('电脑已清理的录像显示灰色状态且禁止播放', (WidgetTester tester) async {
+    final RemoteRecording remote = RemoteRecording(
+      id: 7,
+      trackingNumber: 'CLEANED-001',
+      startedAt: DateTime(2026, 7, 19, 12),
+      duration: const Duration(seconds: 5),
+      sourceType: 'external',
+      sourceDeviceId: 'phone-1',
+      sourceDeviceName: '手机',
+      sourceSessionId: 'session-1',
+      contentSha256: 'sha',
+      playUri: Uri.parse('http://192.168.1.20/api/videos/7/play'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '电脑',
+            ),
+            connectionStatus: LanConnectionStatus.connected,
+          ),
+          onLoadRemoteRecordings:
+              ({required page, required pageSize, keyword = ''}) async =>
+                  RemoteRecordingPage(
+                    data: page == 1 ? <RemoteRecording>[remote] : const [],
+                    page: page,
+                    pageSize: pageSize,
+                    total: 1,
+                    deviceTotal: 1,
+                  ),
+          onLoadRemoteRecordingStatuses: (ids) async => {
+            7: (
+              status: RemoteRecordingStatus.deleted,
+              exists: false,
+              reason: '容量清理',
+            ),
+          },
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('电脑录像 · 已清理'), findsOneWidget);
+    await tester.tap(find.text('CLEANED-001'));
+    await tester.pump();
+    expect(find.text('录像已清理或文件不存在，无法播放'), findsOneWidget);
   });
 
   testWidgets('录像来源标签显示在快递单号右侧', (WidgetTester tester) async {

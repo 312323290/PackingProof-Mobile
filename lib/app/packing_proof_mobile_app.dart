@@ -165,10 +165,17 @@ class StartupNoticeScreen extends StatelessWidget {
                   filterQuality: FilterQuality.high,
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 14),
+              const Text(
+                '欢迎使用包裹留证',
+                key: Key('startup-notice-title'),
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 20),
               Container(
                 key: const Key('startup-notice-card'),
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF2F6F4),
                   border: Border.all(color: const Color(0xFFD5E0DB)),
@@ -177,20 +184,11 @@ class StartupNoticeScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    const Text(
-                      '欢迎使用包裹留证',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
                     Text(
                       '本项目名为 PackingProof-Mobile（包裹留证），开源且免费\n\n'
                       '录像和面单号只保存在你的设备中，不会上传到互联网\n\n'
                       '如需电脑备份，由你主动连接；备份仅在局域网内进行',
-                      textAlign: TextAlign.right,
+                      textAlign: TextAlign.left,
                       style: const TextStyle(fontSize: 15, height: 1.65),
                     ),
                   ],

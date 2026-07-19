@@ -19,6 +19,19 @@ void main() {
     );
 
     expect(find.byKey(const Key('startup-notice-card')), findsOneWidget);
+    final Text title = tester.widget<Text>(
+      find.byKey(const Key('startup-notice-title')),
+    );
+    expect(title.textAlign, TextAlign.center);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('startup-notice-card')),
+        matching: find.text('欢迎使用包裹留证'),
+      ),
+      findsNothing,
+    );
+    final Text body = tester.widget<Text>(find.textContaining('开源且免费'));
+    expect(body.textAlign, TextAlign.left);
     expect(find.textContaining('开源且免费'), findsOneWidget);
     expect(find.textContaining('备份仅在局域网内进行'), findsOneWidget);
   });

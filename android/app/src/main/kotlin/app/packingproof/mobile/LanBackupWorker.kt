@@ -131,7 +131,6 @@ internal class LanBackupWorker(
             .put("errorMessage", JSONObject.NULL)
         store.writeJob(job)
         LanBackupCleanupScheduler.reschedule(applicationContext, store, job)
-        notifyBatchCompleteIfIdle()
         return Result.success()
     }
 
@@ -156,20 +155,6 @@ internal class LanBackupWorker(
             )
         }
         return result
-    }
-
-    private fun notifyBatchCompleteIfIdle() {
-        if (store.jobs().any { it.optString("state") in setOf("pending", "uploading", "paused") }) return
-        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val completed = store.jobs().count { it.optString("state") == "completed" }
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(applicationContext.applicationInfo.icon)
-            .setContentTitle("录像备份完成")
-            .setContentText("已备份 $completed 个视频")
-            .setAutoCancel(true)
-            .setOnlyAlertOnce(true)
-            .build()
-        manager.notify(0x50424B, notification)
     }
 
     private fun fail(job: JSONObject, message: String): Result {

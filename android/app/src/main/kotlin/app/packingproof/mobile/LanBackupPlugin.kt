@@ -1,12 +1,7 @@
 package app.packingproof.mobile
 
-import android.Manifest
 import android.app.Activity
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
@@ -64,7 +59,6 @@ internal class LanBackupPlugin(
                         call.argument<String>("computerName") ?: "已连接电脑",
                     )
                     credentials.save(accessKey)
-                    requestNotificationPermissionIfNeeded()
                     schedulePending()
                     result.success(null)
                 }
@@ -153,19 +147,6 @@ internal class LanBackupPlugin(
         "connection" to store.connection()?.toFlutterValue(),
         "jobs" to store.jobs().map { it.toFlutterValue() },
     )
-
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                activity,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                4103,
-            )
-        }
-    }
 
     fun dispose() {
         channel.setMethodCallHandler(null)

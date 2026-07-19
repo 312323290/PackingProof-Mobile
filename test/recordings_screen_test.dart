@@ -200,6 +200,63 @@ void main() {
     expect(find.text('仓库电脑 · 192.168.1.20:5280'), findsOneWidget);
   });
 
+  testWidgets('本机录像全部备份后按钮显示灰色备份完成', (WidgetTester tester) async {
+    const String videoPath = 'video.mp4';
+    final DateTime startedAt = DateTime(2026, 7, 19, 12);
+    int backupCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: <RecordingSession>[
+            RecordingSession(
+              id: 'local-1',
+              filePath: videoPath,
+              startedAt: startedAt,
+              endedAt: startedAt.add(const Duration(seconds: 5)),
+              markers: const <BarcodeMarker>[],
+            ),
+          ],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '仓库电脑',
+            ),
+            jobs: <LanBackupJob>[
+              LanBackupJob(
+                id: 'job-1',
+                filePath: videoPath,
+                state: LanBackupJobState.completed,
+                uploadedBytes: 1,
+                totalBytes: 1,
+              ),
+            ],
+            connectionStatus: LanConnectionStatus.connected,
+          ),
+          onBackupNow: () async => backupCount++,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('备份完成'), findsOneWidget);
+    final TextButton button = tester.widget<TextButton>(
+      find.byKey(const Key('backup-now-button')),
+    );
+    expect(button.onPressed, isNull);
+    expect(backupCount, 0);
+  });
+
   testWidgets('等待续传不会误显示为正在备份', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(

@@ -590,6 +590,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             const SizedBox(height: 12),
             _ComputerBackupSettings(
               snapshot: _backupSnapshot,
+              allBackedUp: _allLocalFilesBackedUp,
               onConnect:
                   widget.onConnectComputer ??
                   () => Navigator.of(context).pop(true),
@@ -768,6 +769,18 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             )
           : null,
     );
+  }
+
+  bool get _allLocalFilesBackedUp {
+    final Set<String> localPaths = _sessions
+        .map((RecordingSession session) => session.filePath)
+        .where((String path) => path.isNotEmpty)
+        .toSet();
+    final Set<String> completedPaths = _backupSnapshot.jobs
+        .where((LanBackupJob job) => job.state == LanBackupJobState.completed)
+        .map((LanBackupJob job) => job.filePath)
+        .toSet();
+    return localPaths.every(completedPaths.contains);
   }
 }
 
@@ -981,6 +994,7 @@ class _RetentionDropdowns extends StatelessWidget {
 class _ComputerBackupSettings extends StatelessWidget {
   const _ComputerBackupSettings({
     required this.snapshot,
+    required this.allBackedUp,
     required this.onConnect,
     this.onAutoChanged,
     this.onBackupNow,
@@ -994,6 +1008,7 @@ class _ComputerBackupSettings extends StatelessWidget {
   });
 
   final LanBackupSnapshot snapshot;
+  final bool allBackedUp;
   final VoidCallback onConnect;
   final Future<void> Function(bool enabled)? onAutoChanged;
   final Future<void> Function()? onBackupNow;
@@ -1150,7 +1165,16 @@ class _ComputerBackupSettings extends StatelessWidget {
                   label: const Text('连接电脑'),
                 )
               else ...<Widget>[
-                TextButton(onPressed: onBackupNow, child: const Text('立即备份')),
+                TextButton.icon(
+                  key: const Key('backup-now-button'),
+                  onPressed: allBackedUp ? null : onBackupNow,
+                  icon: Icon(
+                    allBackedUp
+                        ? Icons.check_circle_rounded
+                        : Icons.backup_rounded,
+                  ),
+                  label: Text(allBackedUp ? '备份完成' : '立即备份'),
+                ),
                 if (failed != null)
                   TextButton(
                     onPressed: onRetry == null

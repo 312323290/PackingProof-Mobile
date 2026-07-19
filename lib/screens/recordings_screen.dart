@@ -133,6 +133,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final Set<String> _selectedIds = <String>{};
+  final Map<String, Future<String?>> _localThumbnailFutures =
+      <String, Future<String?>>{};
   String _query = '';
   bool _managing = false;
   int _historyPage = 0;
@@ -561,8 +563,15 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     setState(() {
       _managing = !_managing;
       _selectedIds.clear();
+      _historyPage = 0;
+      if (_managing) {
+        _sourceFilter = RecordingSourceFilter.local;
+      }
     });
   }
+
+  Future<String?> _localThumbnail(String filePath) => _localThumbnailFutures
+      .putIfAbsent(filePath, () => _thumbnailService.generate(filePath));
 
   void _toggleSelection(String id) {
     setState(() {
@@ -696,21 +705,34 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final List<RecordingSession> visibleSessions = _filteredSessions;
-    final List<_RecordingListItem> visibleItems = _visibleItems;
+    final List<_RecordingListItem> visibleItems = _managing
+        ? _visibleItems
+              .where(
+                (item) =>
+                    item.local != null &&
+                    File(item.local!.filePath).existsSync(),
+              )
+              .toList(growable: false)
+        : _visibleItems;
+    final List<RecordingSession> visibleSessions = visibleItems
+        .map((item) => item.local)
+        .whereType<RecordingSession>()
+        .toList(growable: false);
     final int localCount = _filteredSessions
         .where((session) => File(session.filePath).existsSync())
         .length;
     final int localLogicalCount = _filteredSessions.length;
-    final int estimatedCount = switch (_sourceFilter) {
-      RecordingSourceFilter.local => localCount,
-      RecordingSourceFilter.backedUp => _remoteDeviceTotal,
-      RecordingSourceFilter.computer => _remoteTotal,
-      RecordingSourceFilter.all =>
-        localLogicalCount +
-            _remoteTotal -
-            _remoteDeviceTotal.clamp(0, localLogicalCount),
-    };
+    final int estimatedCount = _managing
+        ? visibleItems.length
+        : switch (_sourceFilter) {
+            RecordingSourceFilter.local => localCount,
+            RecordingSourceFilter.backedUp => _remoteDeviceTotal,
+            RecordingSourceFilter.computer => _remoteTotal,
+            RecordingSourceFilter.all =>
+              localLogicalCount +
+                  _remoteTotal -
+                  _remoteDeviceTotal.clamp(0, localLogicalCount),
+          };
     final int historyPageCount = estimatedCount <= 0
         ? (visibleItems.isEmpty ? 0 : 1)
         : (estimatedCount / _historyPageSize).ceil();
@@ -914,7 +936,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         backupJob != null &&
                         _isJobConfirmedAvailable(backupJob),
                     localThumbnail: localAvailable
-                        ? _thumbnailService.generate(session.filePath)
+                        ? _localThumbnail(session.filePath)
                         : null,
                     remoteThumbnail: item.remote?.thumbnailUri,
                     remoteHeaders: widget.remotePlaybackHeaders,
@@ -1848,15 +1870,16 @@ class _RecordingTile extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: <Widget>[
-                if (managing)
-                  Checkbox(value: selected, onChanged: (_) => onTap())
-                else
-                  _RecordingThumbnail(
-                    localPath: localThumbnail,
-                    remoteUri: remoteThumbnail,
-                    remoteHeaders: remoteHeaders,
-                    unavailable: unavailable,
-                  ),
+                if (managing) ...<Widget>[
+                  Checkbox(value: selected, onChanged: (_) => onTap()),
+                  const SizedBox(width: 4),
+                ],
+                _RecordingThumbnail(
+                  localPath: localThumbnail,
+                  remoteUri: remoteThumbnail,
+                  remoteHeaders: remoteHeaders,
+                  unavailable: unavailable,
+                ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
@@ -1876,7 +1899,12 @@ class _RecordingTile extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          _StatusChip(label: sourceLabel, error: unavailable),
+                          _StatusChip(
+                            label: sourceLabel,
+                            tone: sourceLabel == '电脑'
+                                ? _StatusChipTone.computer
+                                : _StatusChipTone.local,
+                          ),
                           if (backedUp) ...<Widget>[
                             const SizedBox(width: 5),
                             const Icon(
@@ -1992,17 +2020,43 @@ class _HistoryPagination extends StatelessWidget {
   }
 }
 
+enum _StatusChipTone { neutral, local, computer, error }
+
 class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.label, this.error = false});
+  const _StatusChip({
+    required this.label,
+    this.error = false,
+    this.tone = _StatusChipTone.neutral,
+  });
 
   final String label;
   final bool error;
+  final _StatusChipTone tone;
 
   @override
   Widget build(BuildContext context) {
+    final _StatusChipTone resolvedTone = error ? _StatusChipTone.error : tone;
+    final (Color background, Color foreground) = switch (resolvedTone) {
+      _StatusChipTone.local => (
+        const Color(0xFFDDEDE7),
+        PackingProofMobileApp.forest,
+      ),
+      _StatusChipTone.computer => (
+        const Color(0xFFE2EBF8),
+        const Color(0xFF295F9E),
+      ),
+      _StatusChipTone.error => (
+        const Color(0xFFFFE5E2),
+        const Color(0xFFD92D20),
+      ),
+      _StatusChipTone.neutral => (
+        const Color(0xFFDDEDE7),
+        PackingProofMobileApp.forest,
+      ),
+    };
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: error ? const Color(0xFFFFE5E2) : const Color(0xFFDDEDE7),
+        color: background,
         borderRadius: BorderRadius.circular(99),
       ),
       child: Padding(
@@ -2010,9 +2064,7 @@ class _StatusChip extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: error
-                ? const Color(0xFFD92D20)
-                : PackingProofMobileApp.forest,
+            color: foreground,
             fontSize: 10,
             fontWeight: FontWeight.w800,
           ),

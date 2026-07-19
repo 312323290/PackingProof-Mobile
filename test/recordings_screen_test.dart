@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -724,13 +726,35 @@ void main() {
   });
 
   testWidgets('管理模式可多选并确认删除录像', (WidgetTester tester) async {
+    const MethodChannel thumbnailChannel = MethodChannel(
+      'app.packingproof.mobile/recording_thumbnail',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(thumbnailChannel, (_) async => null);
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(thumbnailChannel, null),
+    );
     final DateTime startedAt = DateTime(2026, 7, 18, 12);
+    final File localVideo = File('pubspec.yaml').absolute;
     Set<String>? deletedIds;
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
           sessions: <RecordingSession>[
-            _session('clip-1', 'JT1234567890', startedAt),
+            RecordingSession(
+              id: 'clip-1',
+              filePath: localVideo.path,
+              startedAt: startedAt,
+              endedAt: startedAt.add(const Duration(seconds: 8)),
+              markers: <BarcodeMarker>[
+                BarcodeMarker(
+                  code: 'JT1234567890',
+                  occurredAt: startedAt,
+                  offset: Duration.zero,
+                ),
+              ],
+            ),
           ],
           workMode: WorkMode.continuousScan,
           speechEnabled: true,
@@ -746,7 +770,6 @@ void main() {
         ),
       ),
     );
-
     await tester.tap(find.text('管理'));
     await tester.pump();
     await tester.drag(find.byType(ListView), const Offset(0, -420));
@@ -756,9 +779,9 @@ void main() {
 
     expect(find.text('已选 1 项'), findsOneWidget);
     await tester.tap(find.text('删除所选录像'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.widgetWithText(FilledButton, '删除'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(deletedIds, <String>{'clip-1'});
     expect(find.text('JT1234567890'), findsNothing);

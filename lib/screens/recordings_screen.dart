@@ -12,6 +12,7 @@ import '../models/recording_session.dart';
 import '../models/work_mode.dart';
 import '../widgets/about_settings.dart';
 import '../widgets/two_button_confirm_dialog.dart';
+import '../services/recording_thumbnail_service.dart';
 import 'video_playback_screen.dart';
 
 enum RecordingsScreenMode { history, settings }
@@ -36,6 +37,7 @@ class RecordingsScreen extends StatefulWidget {
     this.onAutoBackupChanged,
     this.onBackupNow,
     this.onDisconnectBackup,
+    this.onRetryConnection,
     this.onRetryBackup,
     this.unbackedRetention = UnbackedRetentionPolicy.days30,
     this.backedRetention = BackedRetentionPolicy.days7,
@@ -70,6 +72,7 @@ class RecordingsScreen extends StatefulWidget {
   final Future<void> Function(bool enabled)? onAutoBackupChanged;
   final Future<void> Function()? onBackupNow;
   final Future<void> Function()? onDisconnectBackup;
+  final Future<void> Function()? onRetryConnection;
   final Future<void> Function(String jobId)? onRetryBackup;
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
@@ -104,7 +107,9 @@ class RecordingsScreen extends StatefulWidget {
 }
 
 class _RecordingsScreenState extends State<RecordingsScreen> {
-  static const int _historyPageSize = 10;
+  static const int _historyPageSize = 5;
+  static const RecordingThumbnailService _thumbnailService =
+      RecordingThumbnailService();
 
   late WorkMode _workMode;
   late bool _speechEnabled;
@@ -272,14 +277,14 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
           final bool hasLocalFile =
               item.local != null && File(item.local!.filePath).existsSync();
           final bool backedUp =
-              item.remote != null ||
+              (item.remote != null &&
+                  item.remote!.status == RemoteRecordingStatus.available &&
+                  item.remote!.exists) ||
               (item.local != null &&
                   _backupSnapshot.jobs.any(
                     (job) =>
                         job.filePath == item.local!.filePath &&
-                        job.state == LanBackupJobState.completed &&
-                        job.destinationComputerId ==
-                            _backupSnapshot.endpoint?.computerId,
+                        _isJobConfirmedAvailable(job),
                   ));
           return switch (_sourceFilter) {
             RecordingSourceFilter.all => true,
@@ -750,7 +755,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             _HistorySummary(
               total: _sessions.length,
               today: _sessions.where((item) => _isToday(item.startedAt)).length,
-              backedUp: _backupSnapshot.completedCount,
+              backedUp: _confirmedBackedUpCount,
             ),
             const SizedBox(height: 12),
             _ComputerBackupSettings(
@@ -762,6 +767,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               onAutoChanged: widget.onAutoBackupChanged,
               onBackupNow: widget.onBackupNow,
               onDisconnect: _confirmDeleteComputer,
+              onRetryConnection: widget.onRetryConnection,
               onRetry: widget.onRetryBackup,
               unbackedRetention: _unbackedRetention,
               backedRetention: _backedRetention,
@@ -871,15 +877,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                     item.remote != null &&
                     item.remote!.status == RemoteRecordingStatus.available &&
                     item.remote!.exists;
-                final bool computerCleared =
-                    (item.remote != null && !remoteAvailable) ||
-                    (backupJob?.remoteRecordIds.any(
-                          (id) =>
-                              _remoteStatuses[id]?.status != null &&
-                              _remoteStatuses[id]!.status !=
-                                  RemoteRecordingStatus.available,
-                        ) ??
-                        false);
                 final bool unavailable = !localAvailable && !remoteAvailable;
                 return Padding(
                   padding: EdgeInsets.only(
@@ -890,19 +887,20 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                     backupJob: backupJob,
                     managing: _managing && item.local != null,
                     unavailable: unavailable,
-                    sourceLabel: localAvailable
-                        ? (computerCleared
-                              ? '本机 · 电脑已清理'
-                              : remoteAvailable ||
-                                    backupJob?.state ==
-                                        LanBackupJobState.completed
-                              ? '本机 · 已备份'
-                              : '本机')
-                        : (item.remote == null
-                              ? '已备份 · 电脑离线'
-                              : remoteAvailable
-                              ? '电脑录像'
-                              : '电脑录像 · 已清理'),
+                    sourceLabel: item.local != null && item.remote == null
+                        ? '本机'
+                        : localAvailable
+                        ? '本机'
+                        : '电脑',
+                    backedUp:
+                        localAvailable &&
+                        backupJob != null &&
+                        _isJobConfirmedAvailable(backupJob),
+                    localThumbnail: localAvailable
+                        ? _thumbnailService.generate(session.filePath)
+                        : null,
+                    remoteThumbnail: item.remote?.thumbnailUri,
+                    remoteHeaders: widget.remotePlaybackHeaders,
                     selected: _selectedIds.contains(session.id),
                     onTap: () async {
                       if (_managing) {
@@ -932,6 +930,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                                         ? null
                                         : remoteAvailable
                                         ? item.remote?.playUri
+                                        : null,
+                                    remoteVideoId: localAvailable
+                                        ? null
+                                        : remoteAvailable
+                                        ? item.remote?.id
                                         : null,
                                     remoteHeaders: widget.remotePlaybackHeaders,
                                   ),
@@ -993,16 +996,32 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         .map((RecordingSession session) => session.filePath)
         .where((String path) => path.isNotEmpty)
         .toSet();
-    final String currentComputerId = _backupSnapshot.endpoint?.computerId ?? '';
     final Set<String> completedPaths = _backupSnapshot.jobs
-        .where(
-          (LanBackupJob job) =>
-              job.state == LanBackupJobState.completed &&
-              job.destinationComputerId == currentComputerId,
-        )
+        .where(_isJobConfirmedAvailable)
         .map((LanBackupJob job) => job.filePath)
         .toSet();
-    return localPaths.every(completedPaths.contains);
+    return localPaths.isNotEmpty && localPaths.every(completedPaths.contains);
+  }
+
+  int get _confirmedBackedUpCount => _backupSnapshot.jobs
+      .where(_isJobConfirmedAvailable)
+      .map((LanBackupJob job) => job.filePath)
+      .toSet()
+      .length;
+
+  bool _isJobConfirmedAvailable(LanBackupJob job) {
+    final String currentComputerId = _backupSnapshot.endpoint?.computerId ?? '';
+    if (currentComputerId.isEmpty ||
+        job.state != LanBackupJobState.completed ||
+        job.destinationComputerId != currentComputerId ||
+        job.remoteRecordIds.isEmpty) {
+      return false;
+    }
+    return job.remoteRecordIds.every((int id) {
+      final status = _remoteStatuses[id];
+      return status == null ||
+          (status.status == RemoteRecordingStatus.available && status.exists);
+    });
   }
 }
 
@@ -1221,6 +1240,7 @@ class _ComputerBackupSettings extends StatelessWidget {
     this.onAutoChanged,
     this.onBackupNow,
     this.onDisconnect,
+    this.onRetryConnection,
     this.onRetry,
     required this.unbackedRetention,
     required this.backedRetention,
@@ -1235,6 +1255,7 @@ class _ComputerBackupSettings extends StatelessWidget {
   final Future<void> Function(bool enabled)? onAutoChanged;
   final Future<void> Function()? onBackupNow;
   final Future<void> Function()? onDisconnect;
+  final Future<void> Function()? onRetryConnection;
   final Future<void> Function(String jobId)? onRetry;
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
@@ -1265,6 +1286,8 @@ class _ComputerBackupSettings extends StatelessWidget {
         snapshot.connectionStatus == LanConnectionStatus.connected;
     final bool needsRepair =
         snapshot.connectionStatus == LanConnectionStatus.rePair;
+    final bool connecting =
+        snapshot.connectionStatus == LanConnectionStatus.connecting;
     final String stateLabel = online
         ? '电脑在线'
         : needsRepair
@@ -1284,8 +1307,12 @@ class _ComputerBackupSettings extends StatelessWidget {
         ? '扫描电脑二维码后自动备份'
         : snapshot.connectionStatus == LanConnectionStatus.rePair
         ? '需要重新配对'
+        : connecting
+        ? '正在重新连接电脑'
         : snapshot.connectionStatus == LanConnectionStatus.offline
-        ? '电脑离线，备份已暂停'
+        ? (snapshot.message?.isNotEmpty == true
+              ? snapshot.message!
+              : '电脑离线，备份已暂停')
         : active != null
         ? '正在备份 · $progress%'
         : failed != null
@@ -1394,7 +1421,7 @@ class _ComputerBackupSettings extends StatelessWidget {
           if (!paired)
             SizedBox(
               width: double.infinity,
-              child: FilledButton.tonalIcon(
+              child: OutlinedButton.icon(
                 key: const Key('connect-computer-button'),
                 onPressed: onConnect,
                 icon: const Icon(Icons.qr_code_scanner_rounded),
@@ -1405,34 +1432,44 @@ class _ComputerBackupSettings extends StatelessWidget {
             Row(
               children: <Widget>[
                 Expanded(
-                  child: TextButton.icon(
-                    key: const Key('backup-now-button'),
-                    onPressed: needsRepair
-                        ? onConnect
-                        : online && !allBackedUp
-                        ? onBackupNow
-                        : null,
-                    icon: Icon(
-                      needsRepair
-                          ? Icons.qr_code_scanner_rounded
-                          : allBackedUp && online
-                          ? Icons.check_circle_rounded
-                          : Icons.backup_rounded,
-                    ),
-                    label: Text(
-                      needsRepair
-                          ? '重新连接'
-                          : !online
-                          ? '电脑离线'
-                          : allBackedUp
-                          ? '备份完成'
-                          : '立即备份',
+                   child: OutlinedButton.icon(
+                     key: const Key('backup-now-button'),
+                     onPressed: connecting
+                         ? null
+                         : needsRepair
+                         ? onConnect
+                         : !online
+                         ? onRetryConnection
+                         : !allBackedUp
+                         ? onBackupNow
+                         : null,
+                     icon: Icon(
+                       connecting
+                           ? Icons.sync_rounded
+                           : needsRepair
+                           ? Icons.qr_code_scanner_rounded
+                           : !online
+                           ? Icons.refresh_rounded
+                           : allBackedUp && online
+                           ? Icons.check_circle_rounded
+                           : Icons.backup_rounded,
+                     ),
+                     label: Text(
+                       connecting
+                           ? '连接中'
+                           : needsRepair
+                           ? '重新连接'
+                           : !online
+                           ? '重试连接'
+                           : allBackedUp
+                           ? '备份完成'
+                           : '立即备份',
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: TextButton.icon(
+                   child: OutlinedButton.icon(
                     key: const Key('delete-computer-button'),
                     style: TextButton.styleFrom(
                       foregroundColor: const Color(0xFFC43D32),
@@ -1448,7 +1485,7 @@ class _ComputerBackupSettings extends StatelessWidget {
               const SizedBox(height: 4),
               SizedBox(
                 width: double.infinity,
-                child: TextButton.icon(
+                 child: OutlinedButton.icon(
                   onPressed: online && onRetry != null
                       ? () => onRetry!(failed.id)
                       : null,
@@ -1689,6 +1726,70 @@ class _NoSearchResults extends StatelessWidget {
   }
 }
 
+class _RecordingThumbnail extends StatelessWidget {
+  const _RecordingThumbnail({
+    this.localPath,
+    this.remoteUri,
+    required this.remoteHeaders,
+    required this.unavailable,
+  });
+
+  final Future<String?>? localPath;
+  final Uri? remoteUri;
+  final Map<String, String> remoteHeaders;
+  final bool unavailable;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget placeholder() => Container(
+      width: 76,
+      height: 48,
+      decoration: BoxDecoration(
+        color: const Color(0xFFDDE3E0),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(
+        unavailable ? Icons.videocam_off_rounded : Icons.play_arrow_rounded,
+        color: unavailable
+            ? const Color(0xFF8B9290)
+            : PackingProofMobileApp.forest,
+      ),
+    );
+
+    Widget image(String path, {bool network = false}) => ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        width: 76,
+        height: 48,
+        child: network
+            ? Image.network(
+                path,
+                headers: remoteHeaders,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => placeholder(),
+              )
+            : Image.file(
+                File(path),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => placeholder(),
+              ),
+      ),
+    );
+
+    if (unavailable) return placeholder();
+    if (localPath != null) {
+      return FutureBuilder<String?>(
+        future: localPath,
+        builder: (_, snapshot) => snapshot.data?.isNotEmpty == true
+            ? image(snapshot.data!)
+            : placeholder(),
+      );
+    }
+    if (remoteUri != null) return image(remoteUri.toString(), network: true);
+    return placeholder();
+  }
+}
+
 class _RecordingTile extends StatelessWidget {
   const _RecordingTile({
     required this.session,
@@ -1696,8 +1797,12 @@ class _RecordingTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.sourceLabel,
+    required this.backedUp,
+    required this.remoteHeaders,
     this.unavailable = false,
     this.backupJob,
+    this.localThumbnail,
+    this.remoteThumbnail,
   });
 
   final RecordingSession session;
@@ -1707,6 +1812,10 @@ class _RecordingTile extends StatelessWidget {
   final LanBackupJob? backupJob;
   final String sourceLabel;
   final bool unavailable;
+  final bool backedUp;
+  final Future<String?>? localThumbnail;
+  final Uri? remoteThumbnail;
+  final Map<String, String> remoteHeaders;
 
   @override
   Widget build(BuildContext context) {
@@ -1725,17 +1834,11 @@ class _RecordingTile extends StatelessWidget {
                 if (managing)
                   Checkbox(value: selected, onChanged: (_) => onTap())
                 else
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFDDEDE7),
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                    child: const Icon(
-                      Icons.play_arrow_rounded,
-                      color: PackingProofMobileApp.forest,
-                    ),
+                  _RecordingThumbnail(
+                    localPath: localThumbnail,
+                    remoteUri: remoteThumbnail,
+                    remoteHeaders: remoteHeaders,
+                    unavailable: unavailable,
                   ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -1756,7 +1859,15 @@ class _RecordingTile extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          _StatusChip(label: sourceLabel),
+                          _StatusChip(label: sourceLabel, error: unavailable),
+                          if (backedUp) ...<Widget>[
+                            const SizedBox(width: 5),
+                            const Icon(
+                              Icons.cloud_done_rounded,
+                              size: 17,
+                              color: PackingProofMobileApp.forest,
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 7),

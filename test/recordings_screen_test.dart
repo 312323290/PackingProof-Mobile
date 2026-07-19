@@ -234,7 +234,8 @@ void main() {
                 state: LanBackupJobState.completed,
                 uploadedBytes: 1,
                 totalBytes: 1,
-                destinationComputerId: 'computer-1',
+                 destinationComputerId: 'computer-1',
+                 remoteRecordIds: const <int>[1],
               ),
             ],
             connectionStatus: LanConnectionStatus.connected,
@@ -251,7 +252,7 @@ void main() {
     );
 
     expect(find.text('备份完成'), findsOneWidget);
-    final TextButton button = tester.widget<TextButton>(
+    final OutlinedButton button = tester.widget<OutlinedButton>(
       find.byKey(const Key('backup-now-button')),
     );
     expect(button.onPressed, isNull);
@@ -470,7 +471,7 @@ void main() {
     expect(find.text('JT1234567890'), findsNothing);
   });
 
-  testWidgets('录像记录每页显示十条并可翻页', (WidgetTester tester) async {
+  testWidgets('录像记录每页显示五条并可翻页', (WidgetTester tester) async {
     final DateTime startedAt = DateTime(2026, 7, 18, 12);
     await tester.pumpWidget(
       MaterialApp(
@@ -500,11 +501,11 @@ void main() {
     expect(find.text('CODE-10'), findsNothing);
 
     await tester.scrollUntilVisible(
-      find.text('CODE-09'),
+      find.text('CODE-04'),
       400,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('CODE-09'), findsOneWidget);
+    expect(find.text('CODE-04'), findsOneWidget);
     expect(find.text('CODE-10'), findsNothing);
 
     await tester.scrollUntilVisible(
@@ -512,13 +513,14 @@ void main() {
       400,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('1 / 2 页'), findsOneWidget);
+    expect(find.text('1 / 3 页'), findsOneWidget);
     await tester.tap(find.byKey(const Key('recording-page-next')));
     await tester.pump();
 
     expect(find.text('CODE-00'), findsNothing);
-    expect(find.text('CODE-10'), findsOneWidget);
-    expect(find.text('2 / 2 页'), findsOneWidget);
+    expect(find.text('CODE-05'), findsOneWidget);
+    expect(find.text('CODE-10'), findsNothing);
+    expect(find.text('2 / 3 页'), findsOneWidget);
   });
 
   testWidgets('电脑录像首次缓存两页且搜索重置分页', (WidgetTester tester) async {
@@ -602,11 +604,11 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('recording-page-next')));
     await tester.pumpAndSettle();
-    expect(requestedPages, <int>[1, 2]);
+    expect(requestedPages, <int>[1, 2, 3]);
 
     await tester.tap(find.byKey(const Key('recording-page-previous')));
     await tester.pump();
-    expect(requestedPages, <int>[1, 2]);
+    expect(requestedPages, <int>[1, 2, 3]);
 
     await tester.drag(find.byType(ListView), const Offset(0, 1800));
     await tester.pumpAndSettle();
@@ -680,7 +682,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('电脑录像 · 已清理'), findsOneWidget);
+    expect(find.text('电脑'), findsOneWidget);
     await tester.tap(find.text('CLEANED-001'));
     await tester.pump();
     expect(find.text('录像已清理或文件不存在，无法播放'), findsOneWidget);
@@ -710,7 +712,7 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, -420));
     await tester.pump();
     final Offset codeCenter = tester.getCenter(find.text('TRACKING-001'));
-    final Offset sourceCenter = tester.getCenter(find.text('已备份 · 电脑离线'));
+    final Offset sourceCenter = tester.getCenter(find.text('本机'));
     expect((codeCenter.dy - sourceCenter.dy).abs(), lessThan(2));
     expect(sourceCenter.dx, greaterThan(codeCenter.dx));
   });

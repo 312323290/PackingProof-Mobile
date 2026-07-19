@@ -12,6 +12,7 @@ class MainActivity : FlutterActivity() {
     private var maxVolumeChannel: MethodChannel? = null
     private var lanBackupPlugin: LanBackupPlugin? = null
     private var videoExportPlugin: VideoExportPlugin? = null
+    private var recordingThumbnailPlugin: RecordingThumbnailPlugin? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,6 +31,10 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
         )
         videoExportPlugin = VideoExportPlugin(
+            this,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
+        recordingThumbnailPlugin = RecordingThumbnailPlugin(
             this,
             flutterEngine.dartExecutor.binaryMessenger,
         )
@@ -84,6 +89,8 @@ class MainActivity : FlutterActivity() {
         lanBackupPlugin = null
         videoExportPlugin?.dispose()
         videoExportPlugin = null
+        recordingThumbnailPlugin?.dispose()
+        recordingThumbnailPlugin = null
         super.onDestroy()
     }
 

@@ -26,6 +26,7 @@ abstract interface class LanBackupSink implements Listenable {
   });
   Future<void> pair(String qrValue);
   Future<void> disconnect();
+  Future<bool> retryConnection();
   Future<void> setAutoEnabled(bool enabled);
   Future<void> setRetentionPolicies({
     required UnbackedRetentionPolicy unbacked,
@@ -202,6 +203,53 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     );
     _accessKey = '';
     notifyListeners();
+  }
+
+  @override
+  Future<bool> retryConnection() async {
+    final LanBackupEndpoint? endpoint = _snapshot.endpoint;
+    if (endpoint == null || _accessKey.isEmpty) return false;
+    _snapshot = _snapshot.copyWith(
+      connectionStatus: LanConnectionStatus.connecting,
+      message: '正在重新连接电脑',
+    );
+    notifyListeners();
+    try {
+      final HttpClientRequest request = await _httpClient
+          .getUrl(endpoint.baseUri.replace(path: '/api/mobile-backup/capabilities'))
+          .timeout(const Duration(seconds: 5));
+      request.followRedirects = false;
+      request.headers.set('X-EPM-Access-Key', _accessKey);
+      final HttpClientResponse response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
+      await response.drain<void>();
+      if (response.statusCode == HttpStatus.unauthorized ||
+          response.statusCode == HttpStatus.forbidden) {
+        _snapshot = _snapshot.copyWith(
+          connectionStatus: LanConnectionStatus.rePair,
+          message: '电脑连接已失效，请重新连接',
+        );
+        notifyListeners();
+        return false;
+      }
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('电脑连接失败（${response.statusCode}）');
+      }
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.connected,
+        message: '电脑已重新连接',
+      );
+      notifyListeners();
+      return true;
+    } on Object {
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.offline,
+        message: '仍无法连接，请确认电脑端已打开且处于同一局域网',
+      );
+      notifyListeners();
+      return false;
+    }
   }
 
   @override

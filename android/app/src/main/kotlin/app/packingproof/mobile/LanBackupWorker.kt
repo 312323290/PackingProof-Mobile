@@ -70,6 +70,7 @@ internal class LanBackupWorker(
             val chunkSize = createResponse.optInt("chunkSize", DEFAULT_CHUNK_SIZE)
                 .coerceIn(256 * 1024, 8 * 1024 * 1024)
 
+            var offsetResyncAttempts = 0
             RandomAccessFile(file, "r").use { input ->
                 while (offset < file.length()) {
                     if (isStopped) {
@@ -82,14 +83,34 @@ internal class LanBackupWorker(
                     val bytes = ByteArray(size)
                     input.seek(offset)
                     input.readFully(bytes)
-                    val nextOffset = putChunk(
-                        "$baseUrl/api/mobile-backup/uploads/$encodedUploadId/chunks",
-                        accessKey,
-                        bytes,
-                        offset,
-                        file.length(),
-                    )
-                    offset = nextOffset.coerceIn(offset + size, file.length())
+                    val nextOffset = try {
+                        putChunk(
+                            "$baseUrl/api/mobile-backup/uploads/$encodedUploadId/chunks",
+                            accessKey,
+                            bytes,
+                            offset,
+                            file.length(),
+                        )
+                    } catch (error: BackupHttpException) {
+                        if (error.statusCode != 409 || error.errorCode != "offset_mismatch") throw error
+                        val expected = error.expectedOffset
+                            ?.takeIf { it in 0L..file.length() }
+                            ?: throw error
+                        offsetResyncAttempts++
+                        if (offsetResyncAttempts > 3) {
+                            throw IOException("上传进度多次不同步，请重新备份")
+                        }
+                        Log.i(TAG, "Upload offset resynced id=${id.take(8)} from=$offset to=$expected")
+                        offset = expected
+                        job.put("uploadedBytes", offset)
+                        store.writeJob(job)
+                        continue
+                    }
+                    if (nextOffset <= offset || nextOffset > file.length()) {
+                        throw IOException("电脑返回的上传进度无效，请重新备份")
+                    }
+                    offsetResyncAttempts = 0
+                    offset = nextOffset
                     Log.d(TAG, "Chunk accepted id=${id.take(8)} offset=$offset total=${file.length()}")
                     job.put("uploadedBytes", offset)
                     store.writeJob(job)
@@ -105,18 +126,20 @@ internal class LanBackupWorker(
                     .put("sourceDeviceName", store.deviceName())
                     .put("sessions", completionSessions(job.getJSONArray("sessions"))),
             )
+            val recordIds = completion.optJSONArray("recordIds") ?: JSONArray()
             if (completion.optString("status") != "verified" ||
-                completion.optString("fileSha256") != sha256
+                completion.optString("fileSha256") != sha256 ||
+                recordIds.length() == 0
             ) {
                 return fail(job, "电脑未确认录像校验结果")
             }
-            complete(job, file.length(), completion.optJSONArray("recordIds") ?: JSONArray())
+            complete(job, file.length(), recordIds)
         } catch (error: BackupHttpException) {
             Log.w(TAG, "Backup HTTP failure id=${id.take(8)} status=${error.statusCode}", error)
             if (error.statusCode == 401 || error.statusCode == 403 || error.statusCode == 404) {
-                fail(job, error.message ?: "电脑拒绝备份")
+                fail(job, friendlyError(error))
             } else {
-                pause(job, error.message ?: "电脑暂时不可用")
+                pause(job, friendlyError(error))
             }
         } catch (error: IOException) {
             Log.w(TAG, "Backup network failure id=${id.take(8)}", error)
@@ -220,8 +243,35 @@ internal class LanBackupWorker(
         val status = connection.responseCode
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
         val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-        if (status !in 200..299) throw BackupHttpException(status, body.ifBlank { "HTTP $status" })
+        if (status !in 200..299) {
+            val payload = runCatching { JSONObject(body) }.getOrNull()
+            throw BackupHttpException(
+                statusCode = status,
+                errorCode = payload?.optString("errorCode").orEmpty(),
+                expectedOffset = payload
+                    ?.takeIf { it.has("expectedOffset") }
+                    ?.optLong("expectedOffset"),
+                message = payload?.optString("error")?.takeIf { it.isNotBlank() }
+                    ?: body.takeIf { it.isNotBlank() }
+                    ?: "HTTP $status",
+            )
+        }
         return if (body.isBlank()) JSONObject() else JSONObject(body)
+    }
+
+    private fun friendlyError(error: BackupHttpException): String = when (error.errorCode) {
+        "offset_mismatch" -> "上传进度不同步，请重试"
+        "sha256_mismatch" -> "录像校验失败，请重试"
+        "upload_not_found" -> "电脑上的续传任务已失效，请重新备份"
+        "storage_unavailable" -> "电脑存储暂不可用"
+        "invalid_content_range", "invalid_request", "invalid_json" -> "备份数据格式异常，请更新应用后重试"
+        "mobile_backup_failed" -> "电脑处理备份失败，请稍后重试"
+        else -> when (error.statusCode) {
+            401, 403 -> "电脑连接已失效，请重新连接"
+            404 -> "电脑端暂不支持此备份任务"
+            in 500..599 -> "电脑暂时无法处理备份"
+            else -> "备份失败，请稍后重试"
+        }
     }
 
     private fun foreground(job: JSONObject, progress: Int): ForegroundInfo {
@@ -254,7 +304,12 @@ internal class LanBackupWorker(
         job.getString("id").take(8).hashCode()
 }
 
-private class BackupHttpException(val statusCode: Int, message: String) : IOException(message)
+private class BackupHttpException(
+    val statusCode: Int,
+    val errorCode: String = "",
+    val expectedOffset: Long? = null,
+    message: String,
+) : IOException(message)
 
 private fun File.sha256(): String {
     val digest = MessageDigest.getInstance("SHA-256")

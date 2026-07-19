@@ -172,6 +172,7 @@ class RemoteRecording {
     required this.sourceSessionId,
     required this.contentSha256,
     required this.playUri,
+    this.thumbnailUri,
     this.exists = true,
     this.status = RemoteRecordingStatus.available,
     this.statusReason = '',
@@ -195,6 +196,9 @@ class RemoteRecording {
       playUri: baseUri.resolve(
         '${json['playUrl'] ?? '/api/videos/${json['id']}/play?compat=1'}',
       ),
+      thumbnailUri: json['thumbnailUrl'] == null
+          ? null
+          : baseUri.resolve('${json['thumbnailUrl']}'),
       exists: json['exists'] != false,
     );
   }
@@ -209,6 +213,7 @@ class RemoteRecording {
   final String sourceSessionId;
   final String contentSha256;
   final Uri playUri;
+  final Uri? thumbnailUri;
   final bool exists;
   final RemoteRecordingStatus status;
   final String statusReason;
@@ -228,6 +233,7 @@ class RemoteRecording {
     sourceSessionId: sourceSessionId,
     contentSha256: contentSha256,
     playUri: playUri,
+    thumbnailUri: thumbnailUri,
     exists: exists,
     status: status,
     statusReason: reason,
@@ -246,7 +252,7 @@ class RemoteRecordingPage {
   const RemoteRecordingPage.empty()
     : data = const <RemoteRecording>[],
       page = 1,
-      pageSize = 10,
+      pageSize = 5,
       total = 0,
       deviceTotal = 0;
 

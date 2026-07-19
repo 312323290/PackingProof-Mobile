@@ -187,6 +187,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       onBackupRetentionChanged: _controller.setBackupRetention,
       onBackupNow: _controller.backupAllSessions,
       onDisconnectBackup: _controller.disconnectBackup,
+      onRetryConnection: _controller.retryBackupConnection,
       onRetryBackup: _controller.retryBackup,
       onLoadRemoteRecordings: _controller.fetchRemoteRecordings,
       onLoadRemoteRecordingStatuses: _controller.fetchRemoteRecordingStatuses,

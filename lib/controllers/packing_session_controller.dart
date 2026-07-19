@@ -477,6 +477,13 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<void> disconnectBackup() => _lanBackupService.disconnect();
 
+  Future<void> retryBackupConnection() async {
+    final bool connected = await _lanBackupService.retryConnection();
+    if (connected && _lanBackupService.snapshot.autoEnabled) {
+      await _lanBackupService.backupAll(_sessions);
+    }
+  }
+
   Future<void> retryBackup(String jobId) => _lanBackupService.retry(jobId);
 
   Future<RemoteRecordingPage> fetchRemoteRecordings({

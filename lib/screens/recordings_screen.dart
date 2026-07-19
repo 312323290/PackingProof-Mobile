@@ -9,6 +9,7 @@ import '../models/backup_retention_policy.dart';
 import '../models/barcode_marker.dart';
 import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
+import '../services/order_info_receiver_service.dart';
 import '../models/work_mode.dart';
 import '../widgets/about_settings.dart';
 import '../widgets/two_button_confirm_dialog.dart';
@@ -24,9 +25,13 @@ class RecordingsScreen extends StatefulWidget {
     required this.sessions,
     required this.workMode,
     required this.speechEnabled,
+    this.orderSpeechEnabled = true,
+    this.orderReceiverSnapshot = const OrderInfoReceiverSnapshot(),
     required this.maxVolumeEnabled,
     required this.onWorkModeChanged,
     required this.onSpeechEnabledChanged,
+    this.onOrderSpeechEnabledChanged,
+    this.onRetryOrderReceiver,
     required this.onMaxVolumeEnabledChanged,
     required this.onSpeechPreview,
     required this.onSessionUpdated,
@@ -60,9 +65,13 @@ class RecordingsScreen extends StatefulWidget {
   final List<RecordingSession> sessions;
   final WorkMode workMode;
   final bool speechEnabled;
+  final bool orderSpeechEnabled;
+  final OrderInfoReceiverSnapshot orderReceiverSnapshot;
   final bool maxVolumeEnabled;
   final Future<void> Function(WorkMode mode) onWorkModeChanged;
   final Future<void> Function(bool enabled) onSpeechEnabledChanged;
+  final Future<void> Function(bool enabled)? onOrderSpeechEnabledChanged;
+  final Future<void> Function()? onRetryOrderReceiver;
   final Future<void> Function(bool enabled) onMaxVolumeEnabledChanged;
   final Future<void> Function() onSpeechPreview;
   final Future<void> Function(RecordingSession session) onSessionUpdated;
@@ -115,6 +124,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
 
   late WorkMode _workMode;
   late bool _speechEnabled;
+  late bool _orderSpeechEnabled;
   late bool _maxVolumeEnabled;
   late List<RecordingSession> _sessions;
   late int _localRecordingBytes;
@@ -155,7 +165,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               '${session.displayCode} '
               '${value.year}-${_two(value.month)}-${_two(value.day)} '
               '${value.month}月${value.day}日 '
-              '${_two(value.hour)}:${_two(value.minute)}';
+              '${_two(value.hour)}:${_two(value.minute)} '
+              '${session.orderInfo?.orderId ?? ''} '
+              '${session.orderInfo?.buyerMessage ?? ''} '
+              '${session.orderInfo?.sellerMemo ?? ''} '
+              '${session.orderInfo?.productInfo ?? ''}';
           return searchable.toLowerCase().contains(query);
         })
         .toList(growable: false);
@@ -166,6 +180,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     super.initState();
     _workMode = widget.workMode;
     _speechEnabled = widget.speechEnabled;
+    _orderSpeechEnabled = widget.orderSpeechEnabled;
     _maxVolumeEnabled = widget.maxVolumeEnabled;
     _sessions = List<RecordingSession>.of(widget.sessions);
     _refreshLocalRecordingStats();
@@ -191,6 +206,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     }
     _workMode = widget.workMode;
     _speechEnabled = widget.speechEnabled;
+    _orderSpeechEnabled = widget.orderSpeechEnabled;
     _maxVolumeEnabled = widget.maxVolumeEnabled;
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
@@ -512,6 +528,12 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     await widget.onSpeechEnabledChanged(enabled);
   }
 
+  Future<void> _setOrderSpeechEnabled(bool enabled) async {
+    if (_orderSpeechEnabled == enabled) return;
+    setState(() => _orderSpeechEnabled = enabled);
+    await widget.onOrderSpeechEnabledChanged?.call(enabled);
+  }
+
   Future<void> _setMaxVolumeEnabled(bool enabled) async {
     if (_maxVolumeEnabled == enabled) {
       return;
@@ -786,6 +808,17 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               enabled: _speechEnabled,
               onChanged: _setSpeechEnabled,
               onPreview: widget.onSpeechPreview,
+            ),
+            const SizedBox(height: 12),
+            _OrderSpeechSettings(
+              enabled: _orderSpeechEnabled,
+              masterEnabled: _speechEnabled,
+              onChanged: _setOrderSpeechEnabled,
+            ),
+            const SizedBox(height: 12),
+            _OrderReceiverSettings(
+              snapshot: widget.orderReceiverSnapshot,
+              onRetry: widget.onRetryOrderReceiver,
             ),
             const SizedBox(height: 12),
             _MaxVolumeSettings(
@@ -1154,6 +1187,7 @@ class _RecordingListItem {
                 offset: Duration.zero,
               ),
             ],
+      orderInfo: value.orderInfo,
     );
   }
 }
@@ -1806,6 +1840,164 @@ class _SpeechPromptSettings extends StatelessWidget {
             key: const Key('speech-enabled-switch'),
             value: enabled,
             onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrderSpeechSettings extends StatelessWidget {
+  const _OrderSpeechSettings({
+    required this.enabled,
+    required this.masterEnabled,
+    required this.onChanged,
+  });
+
+  final bool enabled;
+  final bool masterEnabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('order-speech-settings'),
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F6F4),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  '订单播报',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  masterEnabled ? '播报留言、备注和退款提醒' : '请先开启语音提示',
+                  style: const TextStyle(
+                    color: Color(0xFF69716E),
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            key: const Key('order-speech-enabled-switch'),
+            value: enabled,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrderReceiverSettings extends StatelessWidget {
+  const _OrderReceiverSettings({required this.snapshot, this.onRetry});
+
+  final OrderInfoReceiverSnapshot snapshot;
+  final Future<void> Function()? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool ready = snapshot.running && snapshot.url.isNotEmpty;
+    return Container(
+      key: const Key('order-receiver-settings'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F6F4),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Expanded(
+                child: Text(
+                  '订单接收',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: ready
+                      ? const Color(0xFFDDEDE7)
+                      : const Color(0xFFE1E5E3),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  ready ? '接收中' : '未启动',
+                  style: TextStyle(
+                    color: ready
+                        ? PackingProofMobileApp.forest
+                        : const Color(0xFF69716E),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            ready
+                ? snapshot.url
+                : snapshot.errorMessage.isEmpty
+                ? '请连接局域网 Wi-Fi 后重试'
+                : snapshot.errorMessage,
+            key: const Key('order-receiver-address'),
+            style: TextStyle(
+              color: ready
+                  ? PackingProofMobileApp.forest
+                  : const Color(0xFF69716E),
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            '在油猴脚本中将监控地址设为以上地址',
+            style: TextStyle(color: Color(0xFF69716E), fontSize: 13),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: ready
+                      ? () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: snapshot.url),
+                          );
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('接收地址已复制')),
+                          );
+                        }
+                      : null,
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  label: const Text('复制地址'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('重试'),
+                ),
+              ),
+            ],
           ),
         ],
       ),

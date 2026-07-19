@@ -10,9 +10,11 @@ import '../app/app_build_config.dart';
 import '../controllers/packing_session_controller.dart';
 import '../models/barcode_marker.dart';
 import '../models/work_mode.dart';
+import '../models/order_info.dart';
 import '../services/preview_cover_transform.dart';
 import '../services/session_repository.dart';
 import '../services/speech_prompt_service.dart';
+import '../widgets/order_info_sheet.dart';
 import 'recordings_screen.dart';
 
 @visibleForTesting
@@ -144,6 +146,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
                 lastMarker: _controller.lastMarker,
                 candidateCode: _controller.candidateCode,
                 currentCode: _controller.currentCode,
+                orderInfo: _controller.activeOrderInfo,
                 workMode: _controller.workMode,
                 errorMessage: _controller.errorMessage,
                 pairingScanActive: _controller.pairingScanActive,
@@ -190,6 +193,8 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       sessions: _controller.sessions,
       workMode: _controller.workMode,
       speechEnabled: _controller.speechEnabled,
+      orderSpeechEnabled: _controller.orderSpeechEnabled,
+      orderReceiverSnapshot: _controller.orderReceiverSnapshot,
       maxVolumeEnabled: _controller.maxVolumeEnabled,
       unbackedRetention: _controller.unbackedRetention,
       backedRetention: _controller.backedRetention,
@@ -198,6 +203,8 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       backupSnapshotProvider: () => _controller.backupSnapshot,
       onWorkModeChanged: _controller.setWorkMode,
       onSpeechEnabledChanged: _controller.setSpeechEnabled,
+      onOrderSpeechEnabledChanged: _controller.setOrderSpeechEnabled,
+      onRetryOrderReceiver: _controller.retryOrderReceiver,
       onMaxVolumeEnabledChanged: _controller.setMaxVolumeEnabled,
       onAutoBackupChanged: _controller.setLanBackupAutoEnabled,
       onBackupRetentionChanged: _controller.setBackupRetention,
@@ -280,6 +287,7 @@ class PackingHomeView extends StatelessWidget {
     this.lastMarker,
     this.candidateCode = '',
     this.currentCode = '',
+    this.orderInfo,
     this.workMode = WorkMode.continuousScan,
     this.errorMessage,
     this.pairingScanActive = false,
@@ -305,6 +313,7 @@ class PackingHomeView extends StatelessWidget {
   final BarcodeMarker? lastMarker;
   final String candidateCode;
   final String currentCode;
+  final OrderInfo? orderInfo;
   final WorkMode workMode;
   final String? errorMessage;
   final bool pairingScanActive;
@@ -940,15 +949,26 @@ class _ControlPanel extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 1),
-                Text(
-                  _recordingHint(view),
-                  maxLines: 1,
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF767D7A),
-                    fontSize: 12,
-                    height: 1.25,
+                GestureDetector(
+                  key: const Key('active-order-summary'),
+                  onTap: view.orderInfo == null
+                      ? null
+                      : () => showOrderInfoSheet(context, view.orderInfo!),
+                  child: Text(
+                    view.orderInfo?.summary ?? _recordingHint(view),
+                    maxLines: 1,
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: view.orderInfo?.hasRefundWarning == true
+                          ? const Color(0xFFC43D32)
+                          : const Color(0xFF767D7A),
+                      fontSize: 12,
+                      height: 1.25,
+                      fontWeight: view.orderInfo == null
+                          ? FontWeight.normal
+                          : FontWeight.w700,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 3),

@@ -174,13 +174,13 @@ internal class LanBackupWorker(
                         java.time.Instant.parse(source.getString("endedAt")),
                     ).toMillis()
                 }.getOrDefault(1L)
-            result.put(
-                JSONObject()
+            val completed = JSONObject()
                     .put("sessionId", source.getString("id"))
                     .put("trackingNumber", source.optString("trackingNumber"))
                     .put("startedAt", source.getString("startedAt"))
-                    .put("durationMilliseconds", duration.coerceAtLeast(1L)),
-            )
+                    .put("durationMilliseconds", duration.coerceAtLeast(1L))
+            source.optJSONObject("orderInfo")?.let { completed.put("orderInfo", it) }
+            result.put(completed)
         }
         return result
     }

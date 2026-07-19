@@ -109,6 +109,10 @@ void main() {
 
     expect(find.text('最大音量'), findsOneWidget);
     expect(find.text('工作时自动提高媒体音量'), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const Key('max-volume-enabled-switch')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('max-volume-enabled-switch')));
     await tester.pump();
     expect(enabled, isFalse);

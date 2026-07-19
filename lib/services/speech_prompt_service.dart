@@ -32,6 +32,33 @@ abstract interface class PreparableSpeechPromptSink {
   Future<void> prepare();
 }
 
+abstract interface class DynamicSpeechPromptSink {
+  void enqueueText(
+    String text, {
+    SpeechPromptPriority priority = SpeechPromptPriority.normal,
+    String? incidentKey,
+  });
+}
+
+class _QueuedSpeechPrompt {
+  _QueuedSpeechPrompt.fixed(SpeechPrompt value)
+    : prompt = value,
+      text = value.text,
+      voice = value.voice,
+      priority = value.priority;
+
+  _QueuedSpeechPrompt.dynamic({
+    required this.text,
+    required this.voice,
+    required this.priority,
+  }) : prompt = null;
+
+  final SpeechPrompt? prompt;
+  final String text;
+  final String voice;
+  final SpeechPromptPriority priority;
+}
+
 abstract interface class SpeechOutput {
   Future<void> playAsset(String assetPath);
 
@@ -53,7 +80,10 @@ abstract interface class EdgeSpeechGenerator {
 }
 
 class SpeechPromptService
-    implements SpeechPromptSink, PreparableSpeechPromptSink {
+    implements
+        SpeechPromptSink,
+        PreparableSpeechPromptSink,
+        DynamicSpeechPromptSink {
   SpeechPromptService({
     SpeechOutput? output,
     EdgeSpeechGenerator? edgeGenerator,
@@ -72,13 +102,14 @@ class SpeechPromptService
   final AssetBundle _assetBundle;
   final bool onlineEdgeTtsEnabled;
   final bool offlineSystemTtsOnly;
-  final ListQueue<SpeechPrompt> _queue = ListQueue<SpeechPrompt>();
+  final ListQueue<_QueuedSpeechPrompt> _queue =
+      ListQueue<_QueuedSpeechPrompt>();
   final Set<String> _activeIncidents = <String>{};
 
   bool _enabled = true;
   bool _draining = false;
   bool _disposed = false;
-  SpeechPrompt? _activePrompt;
+  _QueuedSpeechPrompt? _activePrompt;
   Future<void>? _prepareFuture;
 
   @override
@@ -123,26 +154,58 @@ class SpeechPromptService
         return;
       }
       _queue.removeWhere(
-        (SpeechPrompt queued) => queued.priority == SpeechPromptPriority.normal,
+        (_QueuedSpeechPrompt queued) =>
+            queued.priority == SpeechPromptPriority.normal,
       );
       unawaited(_output.stop());
     } else if (prompt == SpeechPrompt.recordingStarted) {
-      _queue.removeWhere((SpeechPrompt queued) => queued == SpeechPrompt.ready);
-      if (_activePrompt == SpeechPrompt.ready) {
+      _queue.removeWhere(
+        (_QueuedSpeechPrompt queued) => queued.prompt == SpeechPrompt.ready,
+      );
+      if (_activePrompt?.prompt == SpeechPrompt.ready) {
         unawaited(_output.stop());
       }
     } else if (prompt == SpeechPrompt.recordingStopped) {
       _queue.removeWhere(
-        (SpeechPrompt queued) =>
-            queued == SpeechPrompt.ready ||
-            queued == SpeechPrompt.recordingStarted,
+        (_QueuedSpeechPrompt queued) =>
+            queued.prompt == SpeechPrompt.ready ||
+            queued.prompt == SpeechPrompt.recordingStarted,
       );
-      if (_activePrompt == SpeechPrompt.ready ||
-          _activePrompt == SpeechPrompt.recordingStarted) {
+      if (_activePrompt?.prompt == SpeechPrompt.ready ||
+          _activePrompt?.prompt == SpeechPrompt.recordingStarted) {
         unawaited(_output.stop());
       }
     }
-    _queue.add(prompt);
+    _queue.add(_QueuedSpeechPrompt.fixed(prompt));
+    unawaited(_drain());
+  }
+
+  @override
+  void enqueueText(
+    String text, {
+    SpeechPromptPriority priority = SpeechPromptPriority.normal,
+    String? incidentKey,
+  }) {
+    final String normalized = text.trim();
+    if (_disposed || !_enabled || normalized.isEmpty) return;
+    if (priority == SpeechPromptPriority.warning) {
+      final String key = incidentKey ?? 'dynamic:$normalized';
+      if (!_activeIncidents.add(key)) return;
+      _queue.removeWhere(
+        (_QueuedSpeechPrompt queued) =>
+            queued.priority == SpeechPromptPriority.normal,
+      );
+      unawaited(_output.stop());
+    }
+    _queue.add(
+      _QueuedSpeechPrompt.dynamic(
+        text: normalized,
+        voice: priority == SpeechPromptPriority.warning
+            ? SpeechPrompt.warningVoice
+            : SpeechPrompt.normalVoice,
+        priority: priority,
+      ),
+    );
     unawaited(_drain());
   }
 
@@ -152,7 +215,7 @@ class SpeechPromptService
       return;
     }
     await _output.stop();
-    _queue.addFirst(SpeechPrompt.previewEnabled);
+    _queue.addFirst(_QueuedSpeechPrompt.fixed(SpeechPrompt.previewEnabled));
     unawaited(_drain());
     await waitUntilIdle();
   }
@@ -178,7 +241,7 @@ class SpeechPromptService
     _draining = true;
     try {
       while (_queue.isNotEmpty && !_disposed && _enabled) {
-        final SpeechPrompt prompt = _queue.removeFirst();
+        final _QueuedSpeechPrompt prompt = _queue.removeFirst();
         _activePrompt = prompt;
         try {
           await _playWithFallback(prompt);
@@ -194,9 +257,10 @@ class SpeechPromptService
     }
   }
 
-  Future<void> _playWithFallback(SpeechPrompt prompt) async {
+  Future<void> _playWithFallback(_QueuedSpeechPrompt item) async {
     await prepare();
-    if (await _hasBundledAsset(prompt)) {
+    final SpeechPrompt? prompt = item.prompt;
+    if (prompt != null && await _hasBundledAsset(prompt)) {
       try {
         await _output.playAsset(prompt.audioPlayerAssetPath);
         return;
@@ -205,7 +269,7 @@ class SpeechPromptService
       }
     }
 
-    final File? cached = await _cache.find(prompt);
+    final File? cached = await _cache.findText(item.text, item.voice);
     if (cached != null) {
       try {
         await _output.playFile(cached.path);
@@ -218,9 +282,13 @@ class SpeechPromptService
     if (onlineEdgeTtsEnabled) {
       try {
         final Uint8List bytes = await _edgeGenerator
-            .synthesize(text: prompt.text, voice: prompt.voice)
+            .synthesize(text: item.text, voice: item.voice)
             .timeout(const Duration(seconds: 10));
-        final File generated = await _cache.store(prompt, bytes);
+        final File generated = await _cache.storeText(
+          item.text,
+          item.voice,
+          bytes,
+        );
         await _output.playFile(generated.path);
         return;
       } on Object {
@@ -229,7 +297,7 @@ class SpeechPromptService
     }
 
     try {
-      await _output.speakSystem(prompt.text, offlineOnly: offlineSystemTtsOnly);
+      await _output.speakSystem(item.text, offlineOnly: offlineSystemTtsOnly);
     } on Object {
       // Speech must never interrupt or fail the recording workflow.
     }
@@ -308,10 +376,9 @@ class DeviceSpeechOutput implements SpeechOutput, PreparableSpeechOutput {
     AudioPlayer? audioPlayer,
     FlutterTts? systemTts,
     AudioCache? audioCache,
-  })
-    : _audioPlayer = audioPlayer ?? AudioPlayer(),
-      _systemTts = systemTts ?? FlutterTts(),
-      _audioCache = audioCache ?? AudioCache(prefix: 'assets/') {
+  }) : _audioPlayer = audioPlayer ?? AudioPlayer(),
+       _systemTts = systemTts ?? FlutterTts(),
+       _audioCache = audioCache ?? AudioCache(prefix: 'assets/') {
     _systemTts.setCompletionHandler(_completePlayback);
     _systemTts.setCancelHandler(_completePlayback);
     _systemTts.setErrorHandler((_) => _completePlayback());
@@ -478,8 +545,11 @@ class SpeechPromptCache {
   final int maxBytes;
 
   static String cacheKey(SpeechPrompt prompt) {
-    final String input =
-        '$cacheVersion|${prompt.text}|${prompt.voice}|24khz-48kbps-mono-mp3';
+    return cacheKeyFor(prompt.text, prompt.voice);
+  }
+
+  static String cacheKeyFor(String text, String voice) {
+    final String input = '$cacheVersion|$text|$voice|24khz-48kbps-mono-mp3';
     return sha256.convert(input.codeUnits).toString();
   }
 
@@ -492,8 +562,14 @@ class SpeechPromptCache {
   }
 
   Future<File?> find(SpeechPrompt prompt) async {
+    return findText(prompt.text, prompt.voice);
+  }
+
+  Future<File?> findText(String text, String voice) async {
     final Directory directory = await _resolveDirectory();
-    final File file = File(p.join(directory.path, '${cacheKey(prompt)}.mp3'));
+    final File file = File(
+      p.join(directory.path, '${cacheKeyFor(text, voice)}.mp3'),
+    );
     if (!await _isValid(file)) {
       if (await file.exists()) {
         await file.delete();
@@ -505,11 +581,17 @@ class SpeechPromptCache {
   }
 
   Future<File> store(SpeechPrompt prompt, Uint8List bytes) async {
+    return storeText(prompt.text, prompt.voice, bytes);
+  }
+
+  Future<File> storeText(String text, String voice, Uint8List bytes) async {
     if (!_hasMp3Header(bytes)) {
       throw const FormatException('Edge 返回的语音不是有效 MP3');
     }
     final Directory directory = await _resolveDirectory();
-    final File file = File(p.join(directory.path, '${cacheKey(prompt)}.mp3'));
+    final File file = File(
+      p.join(directory.path, '${cacheKeyFor(text, voice)}.mp3'),
+    );
     final File temporary = File('${file.path}.tmp');
     await temporary.writeAsBytes(bytes, flush: true);
     if (await file.exists()) {

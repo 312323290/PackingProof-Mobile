@@ -47,6 +47,19 @@ void main() {
     expect((await repository.loadSettings()).speechEnabled, isFalse);
   });
 
+  test('订单播报开关独立持久化', () async {
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final PackingSessionController controller = PackingSessionController(
+      repository: repository,
+      speechService: _FakeSpeechSink(),
+    );
+
+    await controller.setOrderSpeechEnabled(false);
+
+    expect(controller.orderSpeechEnabled, isFalse);
+    expect((await repository.loadSettings()).orderSpeechEnabled, isFalse);
+  });
+
   test('最大音量开关同步服务并持久化', () async {
     final _FakeMaxVolumeSink volume = _FakeMaxVolumeSink();
     final SessionRepository repository = SessionRepository(rootDirectory: root);

@@ -251,6 +251,11 @@ class SessionRepository {
     await saveSettings(settings.copyWith(speechEnabled: enabled));
   }
 
+  Future<void> saveOrderSpeechEnabled(bool enabled) async {
+    final AppSettings settings = await loadSettings();
+    await saveSettings(settings.copyWith(orderSpeechEnabled: enabled));
+  }
+
   Future<void> saveMaxVolumeEnabled(bool enabled) async {
     final AppSettings settings = await loadSettings();
     await saveSettings(settings.copyWith(maxVolumeEnabled: enabled));

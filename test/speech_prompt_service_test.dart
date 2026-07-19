@@ -107,6 +107,54 @@ void main() {
     await service.dispose();
   });
 
+  test('动态订单播报复用按文本和音色生成的缓存', () async {
+    final _FakeEdgeGenerator generator = _FakeEdgeGenerator(_mp3Bytes(200));
+    final SpeechPromptCache cache = SpeechPromptCache.inDirectory(root);
+    final SpeechPromptService first = SpeechPromptService(
+      output: _FakeSpeechOutput(),
+      edgeGenerator: generator,
+      cache: cache,
+      assetBundle: _MissingAssetBundle(),
+    );
+    first.enqueueText('买家留言，请放门口');
+    await first.waitUntilIdle();
+    expect(generator.calls, 1);
+    await first.dispose();
+
+    final _FakeEdgeGenerator secondGenerator = _FakeEdgeGenerator(null);
+    final _FakeSpeechOutput secondOutput = _FakeSpeechOutput();
+    final SpeechPromptService second = SpeechPromptService(
+      output: secondOutput,
+      edgeGenerator: secondGenerator,
+      cache: cache,
+      assetBundle: _MissingAssetBundle(),
+    );
+    second.enqueueText('买家留言，请放门口');
+    await second.waitUntilIdle();
+    expect(secondGenerator.calls, 0);
+    expect(secondOutput.files, hasLength(1));
+    await second.dispose();
+  });
+
+  test('单机版动态订单播报不调用在线 Edge', () async {
+    final _FakeEdgeGenerator generator = _FakeEdgeGenerator(_mp3Bytes(200));
+    final _FakeSpeechOutput output = _FakeSpeechOutput();
+    final SpeechPromptService service = SpeechPromptService(
+      output: output,
+      edgeGenerator: generator,
+      cache: SpeechPromptCache.inDirectory(root),
+      assetBundle: _MissingAssetBundle(),
+      onlineEdgeTtsEnabled: false,
+      offlineSystemTtsOnly: true,
+    );
+    service.enqueueText('卖家备注，核对颜色');
+    await service.waitUntilIdle();
+    expect(generator.calls, 0);
+    expect(output.systemTexts, <String>['卖家备注，核对颜色']);
+    expect(output.offlineOnlyRequests, <bool>[true]);
+    await service.dispose();
+  });
+
   test('内置音频存在时不调用 Edge 在线生成', () async {
     final _FakeSpeechOutput output = _FakeSpeechOutput();
     final _FakeEdgeGenerator generator = _FakeEdgeGenerator(_mp3Bytes(200));

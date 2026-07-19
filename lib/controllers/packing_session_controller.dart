@@ -12,6 +12,7 @@ import '../models/app_settings.dart';
 import '../models/backup_retention_policy.dart';
 import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
+import '../models/order_info.dart';
 import '../models/speech_prompt.dart';
 import '../models/work_mode.dart';
 import '../services/barcode_candidate_policy.dart';
@@ -21,6 +22,7 @@ import '../services/continuous_camera_service.dart';
 import '../services/initial_recording_prompt_policy.dart';
 import '../services/lan_backup_service.dart';
 import '../services/max_volume_service.dart';
+import '../services/order_info_receiver_service.dart';
 import '../services/nv21_center_crop.dart';
 import '../services/recording_timeline.dart';
 import '../services/session_repository.dart';
@@ -44,12 +46,14 @@ class PackingSessionController extends ChangeNotifier {
     MaxVolumeSink? maxVolumeService,
     LanBackupSink? lanBackupService,
     VideoWatermarkSink? videoWatermarkService,
+    OrderInfoReceiverSink? orderInfoReceiver,
   }) : _repository = repository ?? SessionRepository(),
        _speechService = speechService ?? SpeechPromptService(),
        _maxVolumeService = maxVolumeService ?? MaxVolumeService(),
        _lanBackupService = lanBackupService ?? LanBackupService(),
        _videoWatermarkService =
            videoWatermarkService ?? VideoWatermarkService(),
+       _orderInfoReceiver = orderInfoReceiver ?? OrderInfoReceiverService(),
        _barcodeScanner = BarcodeScanner(
          formats: const <BarcodeFormat>[BarcodeFormat.all],
        );
@@ -64,6 +68,7 @@ class PackingSessionController extends ChangeNotifier {
   final MaxVolumeSink _maxVolumeService;
   final LanBackupSink _lanBackupService;
   final VideoWatermarkSink _videoWatermarkService;
+  final OrderInfoReceiverSink _orderInfoReceiver;
   final BarcodeScanner _barcodeScanner;
   final BarcodeStabilityTracker _stabilityTracker = BarcodeStabilityTracker();
   final RecordingTimeline _timeline = RecordingTimeline();
@@ -85,6 +90,7 @@ class PackingSessionController extends ChangeNotifier {
   String _candidateCode = '';
   WorkMode _workMode = WorkMode.continuousScan;
   bool _speechEnabled = true;
+  bool _orderSpeechEnabled = true;
   bool _maxVolumeEnabled = true;
   UnbackedRetentionPolicy _unbackedRetention = UnbackedRetentionPolicy.days30;
   BackedRetentionPolicy _backedRetention = BackedRetentionPolicy.days7;
@@ -97,6 +103,7 @@ class PackingSessionController extends ChangeNotifier {
   bool _historyScanActive = false;
   bool _pairingBusy = false;
   bool _backupListenerAttached = false;
+  bool _orderReceiverListenerAttached = false;
   final Set<String> _handledDeletedBackupJobs = <String>{};
   String? _pairingMessage;
   String? _historyScanResult;
@@ -107,6 +114,9 @@ class PackingSessionController extends ChangeNotifier {
   bool _workActive = false;
   int _pairingSuccessRevision = 0;
   Set<int> _hiddenRemoteRecordingIds = <int>{};
+  StreamSubscription<OrderInfo>? _orderInfoSubscription;
+  OrderInfo? _activeOrderInfo;
+  String _lastAnnouncedOrderSignature = '';
 
   CameraController? get cameraController => _cameraController;
   int? get nativeTextureId => _nativeInitialization?.textureId;
@@ -120,6 +130,10 @@ class PackingSessionController extends ChangeNotifier {
   String get currentCode => _timeline.currentCode;
   WorkMode get workMode => _workMode;
   bool get speechEnabled => _speechEnabled;
+  bool get orderSpeechEnabled => _orderSpeechEnabled;
+  OrderInfo? get activeOrderInfo => _activeOrderInfo;
+  OrderInfoReceiverSnapshot get orderReceiverSnapshot =>
+      _orderInfoReceiver.snapshot;
   bool get maxVolumeEnabled => _maxVolumeEnabled;
   UnbackedRetentionPolicy get unbackedRetention => _unbackedRetention;
   BackedRetentionPolicy get backedRetention => _backedRetention;
@@ -168,6 +182,7 @@ class PackingSessionController extends ChangeNotifier {
       final AppSettings settings = await _repository.loadSettings();
       _workMode = settings.workMode;
       _speechEnabled = settings.speechEnabled;
+      _orderSpeechEnabled = settings.orderSpeechEnabled;
       _maxVolumeEnabled = settings.maxVolumeEnabled;
       _unbackedRetention = settings.unbackedRetention;
       _backedRetention = settings.backedRetention;
@@ -190,6 +205,14 @@ class PackingSessionController extends ChangeNotifier {
         unawaited(_registerSessionsForRetention(_sessions));
       }
       await _speechService.setEnabled(_speechEnabled);
+      if (!_orderReceiverListenerAttached) {
+        _orderInfoReceiver.addListener(_handleOrderReceiverChanged);
+        _orderReceiverListenerAttached = true;
+        _orderInfoSubscription = _orderInfoReceiver.received.listen(
+          _handleReceivedOrderInfo,
+        );
+        await _orderInfoReceiver.initialize();
+      }
       if (_speechService case final PreparableSpeechPromptSink speechService) {
         unawaited(speechService.prepare());
       }
@@ -306,6 +329,8 @@ class PackingSessionController extends ChangeNotifier {
     _lastMarker = null;
     _candidateCode = '';
     _timeline.reset();
+    _activeOrderInfo = null;
+    _lastAnnouncedOrderSignature = '';
     _stabilityTracker.reset();
     _speechService.resetIncidents();
     _beginInitialPromptFlow();
@@ -314,6 +339,7 @@ class PackingSessionController extends ChangeNotifier {
       await WakelockPlus.enable();
       await _setNativeWorkScanEnabled(true);
       _workActive = true;
+      await _orderInfoReceiver.setBackgroundKeepAlive(false);
       _elapsed = Duration.zero;
       _setPhase(PackingSessionPhase.waitingForBarcode);
       _scheduleInitialReadyPrompt();
@@ -321,6 +347,7 @@ class PackingSessionController extends ChangeNotifier {
       await _setNativeWorkScanEnabled(false);
       _cancelInitialPromptFlow();
       _workActive = false;
+      _activeOrderInfo = null;
       _timeline.reset();
       await WakelockPlus.disable();
       _setCameraError(error);
@@ -328,6 +355,7 @@ class PackingSessionController extends ChangeNotifier {
       await _setNativeWorkScanEnabled(false);
       _cancelInitialPromptFlow();
       _workActive = false;
+      _activeOrderInfo = null;
       _timeline.reset();
       await WakelockPlus.disable();
       _errorMessage = '无法开始录像，请重新检查摄像头\n$error';
@@ -350,6 +378,7 @@ class PackingSessionController extends ChangeNotifier {
       await _setNativeWorkScanEnabled(false);
       _workActive = false;
       _candidateCode = '';
+      _setActiveOrderInfo(null, announce: false);
       _stabilityTracker.reset();
       await WakelockPlus.disable();
       _setPhase(PackingSessionPhase.ready);
@@ -376,6 +405,7 @@ class PackingSessionController extends ChangeNotifier {
       _setPhase(PackingSessionPhase.ready);
       _speechService.resetIncidents();
       _speechService.enqueue(SpeechPrompt.recordingStopped);
+      _setActiveOrderInfo(null, announce: false);
       return savedSessions.isEmpty ? null : savedSessions.last;
     } on Object catch (error) {
       _timeline.reset();
@@ -406,6 +436,15 @@ class PackingSessionController extends ChangeNotifier {
     await _speechService.setEnabled(enabled);
     await _repository.saveSpeechEnabled(enabled);
   }
+
+  Future<void> setOrderSpeechEnabled(bool enabled) async {
+    if (_orderSpeechEnabled == enabled) return;
+    _orderSpeechEnabled = enabled;
+    notifyListeners();
+    await _repository.saveOrderSpeechEnabled(enabled);
+  }
+
+  Future<void> retryOrderReceiver() => _orderInfoReceiver.retry();
 
   Future<void> setMaxVolumeEnabled(bool enabled) async {
     if (_maxVolumeEnabled == enabled) {
@@ -583,7 +622,10 @@ class PackingSessionController extends ChangeNotifier {
       trackingNumber: _firstTrackingNumber(drafts),
     );
     final List<RecordingSession> sessions = drafts
-        .map((RecordingSession draft) => _sessionWithPath(draft, savedPath))
+        .map(
+          (RecordingSession draft) =>
+              _sessionWithPath(draft, savedPath, orderInfo: _activeOrderInfo),
+        )
         .toList(growable: false);
     _sessions = await _repository.addSessions(sessions);
     await _enqueueBackupIfNeeded(savedPath, sessions);
@@ -641,6 +683,8 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<void> handleInactive() async {
     _appIsActive = false;
+    final bool keepOrderReceiver = isWorking;
+    await _orderInfoReceiver.setBackgroundKeepAlive(keepOrderReceiver);
     if (isWorking) {
       await stopWork();
     }
@@ -652,6 +696,7 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<void> handleResumed() async {
     _appIsActive = true;
+    await _orderInfoReceiver.setBackgroundKeepAlive(false);
     await _beginMaxVolumeIfNeeded();
     final bool needsInitialization = Platform.isAndroid
         ? _nativeInitialization == null
@@ -937,8 +982,11 @@ class PackingSessionController extends ChangeNotifier {
     if (!isRecording || !_timeline.isActive) {
       _handlingBarcode = true;
       try {
+        final OrderInfo? orderInfo = await _orderInfoReceiver.lookup(code);
+        _setActiveOrderInfo(orderInfo, announce: false);
         await _startRecording();
         _bindCurrentCode(code, _timeline.segmentStartedAt ?? now);
+        _announceOrderInfo(orderInfo);
       } on Object catch (error) {
         _timeline.reset();
         _errorMessage = '无法开始录像，请重新对准面单\n$error';
@@ -976,6 +1024,9 @@ class PackingSessionController extends ChangeNotifier {
       case BarcodeWorkAction.startNextVideo:
         _handlingBarcode = true;
         try {
+          final OrderInfo? nextOrderInfo = await _orderInfoReceiver.lookup(
+            code,
+          );
           bool announced = false;
           void announceSegmentStarted(BarcodeMarker marker) {
             announced = true;
@@ -987,12 +1038,15 @@ class PackingSessionController extends ChangeNotifier {
           final BarcodeMarker? marker = Platform.isAndroid
               ? await _splitNativeRecording(
                   code,
+                  nextOrderInfo: nextOrderInfo,
                   onSegmentStarted: announceSegmentStarted,
                 )
               : _startNextTimelineSegment(code, now);
           if (marker != null && !announced) {
+            _setActiveOrderInfo(nextOrderInfo, announce: false);
             announceSegmentStarted(marker);
           }
+          if (marker != null) _announceOrderInfo(nextOrderInfo);
         } on Object catch (error) {
           _errorMessage = '录像分段保存失败\n$error';
           _speechService.enqueue(
@@ -1026,6 +1080,7 @@ class PackingSessionController extends ChangeNotifier {
       _setPhase(PackingSessionPhase.waitingForBarcode);
       _speechService.resetIncidents();
       _speechService.enqueue(SpeechPrompt.recordingStopped);
+      _setActiveOrderInfo(null, announce: false);
       return savedSessions.isEmpty ? null : savedSessions.last;
     } on Object catch (error) {
       _timeline.reset();
@@ -1040,6 +1095,7 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<BarcodeMarker?> _splitNativeRecording(
     String code, {
+    required OrderInfo? nextOrderInfo,
     required void Function(BarcodeMarker marker) onSegmentStarted,
   }) async {
     final ContinuousCameraService? camera = _nativeCamera;
@@ -1049,6 +1105,7 @@ class PackingSessionController extends ChangeNotifier {
       return null;
     }
     final int nextIndex = _segmentIndex + 1;
+    final OrderInfo? completedOrderInfo = _activeOrderInfo;
     final String nextId =
         '${recordingId}_${nextIndex.toString().padLeft(3, '0')}';
     final String nextPath = await _repository.recordingPath(nextId);
@@ -1060,6 +1117,7 @@ class PackingSessionController extends ChangeNotifier {
     if (transition == null) {
       throw StateError('录像时间线无法开始下一段');
     }
+    _setActiveOrderInfo(nextOrderInfo, announce: false);
     _resetSegmentElapsed();
     onSegmentStarted(transition.marker);
     final String watermarkedPath = await _videoWatermarkService.apply(
@@ -1081,6 +1139,7 @@ class PackingSessionController extends ChangeNotifier {
       id: completedId,
       path: savedPath,
       draft: transition.completed,
+      orderInfo: completedOrderInfo,
     );
     _sessions = await _repository.addSession(completed);
     await _enqueueBackupIfNeeded(savedPath, <RecordingSession>[completed]);
@@ -1109,6 +1168,7 @@ class PackingSessionController extends ChangeNotifier {
     required String id,
     required String path,
     required RecordingSegmentDraft draft,
+    OrderInfo? orderInfo,
   }) {
     return RecordingSession(
       id: id,
@@ -1116,6 +1176,7 @@ class PackingSessionController extends ChangeNotifier {
       startedAt: draft.startedAt,
       endedAt: draft.endedAt,
       markers: List<BarcodeMarker>.unmodifiable(draft.markers),
+      orderInfo: orderInfo ?? _activeOrderInfo,
     );
   }
 
@@ -1130,8 +1191,9 @@ class PackingSessionController extends ChangeNotifier {
 
   static RecordingSession _sessionWithPath(
     RecordingSession session,
-    String filePath,
-  ) => RecordingSession(
+    String filePath, {
+    OrderInfo? orderInfo,
+  }) => RecordingSession(
     id: session.id,
     filePath: filePath,
     startedAt: session.startedAt,
@@ -1139,7 +1201,61 @@ class PackingSessionController extends ChangeNotifier {
     markers: session.markers,
     mediaStart: session.mediaStart,
     mediaEnd: session.mediaEnd,
+    orderInfo: orderInfo ?? session.orderInfo,
   );
+
+  void _handleOrderReceiverChanged() {
+    if (!_disposed) notifyListeners();
+  }
+
+  void _handleReceivedOrderInfo(OrderInfo info) {
+    if (_disposed) return;
+    if (info.isTest) {
+      if (_speechService case final DynamicSpeechPromptSink speech) {
+        speech.enqueueText('已收到测试订单');
+      }
+      return;
+    }
+    if (_timeline.currentCode.isEmpty ||
+        info.trackingNumber != _timeline.currentCode.trim().toUpperCase()) {
+      return;
+    }
+    _setActiveOrderInfo(info, announce: false);
+    _announceOrderInfo(info);
+  }
+
+  void _setActiveOrderInfo(OrderInfo? value, {required bool announce}) {
+    _activeOrderInfo = value;
+    if (value == null) _lastAnnouncedOrderSignature = '';
+    if (!_disposed) notifyListeners();
+    if (announce) _announceOrderInfo(value);
+  }
+
+  void _announceOrderInfo(OrderInfo? info) {
+    if (!_speechEnabled || !_orderSpeechEnabled || info == null) return;
+    final String signature = <String>[
+      info.trackingNumber,
+      info.buyerMessage,
+      info.sellerMemo,
+      info.refundStatus,
+      '${info.isPrintedRefund}',
+    ].join('|');
+    if (signature == _lastAnnouncedOrderSignature) return;
+    _lastAnnouncedOrderSignature = signature;
+    if (_speechService case final DynamicSpeechPromptSink speech) {
+      for (final message in info.speechMessages) {
+        speech.enqueueText(
+          message.text,
+          priority: message.warning
+              ? SpeechPromptPriority.warning
+              : SpeechPromptPriority.normal,
+          incidentKey: message.warning
+              ? 'order-refund:${info.trackingNumber}:${info.refundStatus}'
+              : null,
+        );
+      }
+    }
+  }
 
   void _bindCurrentCode(String code, DateTime now) {
     final BarcodeMarker? marker = _timeline.bindCode(code, now);
@@ -1419,6 +1535,11 @@ class PackingSessionController extends ChangeNotifier {
     if (_backupListenerAttached) {
       _lanBackupService.removeListener(_handleBackupChanged);
     }
+    if (_orderReceiverListenerAttached) {
+      _orderInfoReceiver.removeListener(_handleOrderReceiverChanged);
+    }
+    unawaited(_orderInfoSubscription?.cancel());
+    unawaited(_orderInfoReceiver.dispose());
     unawaited(_lanBackupService.dispose());
     super.dispose();
   }

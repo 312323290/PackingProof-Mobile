@@ -9,6 +9,7 @@ import '../models/recording_session.dart';
 import '../services/video_share_service.dart';
 import '../services/remote_video_clip_service.dart';
 import '../widgets/two_button_confirm_dialog.dart';
+import '../widgets/order_info_sheet.dart';
 import 'video_trim_screen.dart';
 import 'remote_video_trim_screen.dart';
 
@@ -327,6 +328,13 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
       appBar: AppBar(
         title: Text(_session.displayCode),
         actions: <Widget>[
+          if (_session.orderInfo != null)
+            IconButton(
+              key: const Key('recording-order-info'),
+              tooltip: '订单信息',
+              onPressed: () => showOrderInfoSheet(context, _session.orderInfo!),
+              icon: const Icon(Icons.receipt_long_outlined),
+            ),
           if (widget.remoteUri == null && widget.onDelete != null)
             IconButton(
               key: const Key('delete-local-recording'),

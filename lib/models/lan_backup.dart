@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'recording_session.dart';
+import 'order_info.dart';
 
 enum LanBackupJobState { pending, uploading, paused, completed, failed }
 
@@ -187,6 +188,7 @@ class RemoteRecording {
     this.exists = true,
     this.status = RemoteRecordingStatus.available,
     this.statusReason = '',
+    this.orderInfo,
   });
 
   factory RemoteRecording.fromJson(Map<String, Object?> json, Uri baseUri) {
@@ -211,6 +213,7 @@ class RemoteRecording {
           ? null
           : baseUri.resolve('${json['thumbnailUrl']}'),
       exists: json['exists'] != false,
+      orderInfo: _orderInfoFromRemoteJson(json),
     );
   }
 
@@ -228,6 +231,7 @@ class RemoteRecording {
   final bool exists;
   final RemoteRecordingStatus status;
   final String statusReason;
+  final OrderInfo? orderInfo;
 
   RemoteRecording withStatus({
     required RemoteRecordingStatus status,
@@ -248,7 +252,21 @@ class RemoteRecording {
     exists: exists,
     status: status,
     statusReason: reason,
+    orderInfo: orderInfo,
   );
+}
+
+OrderInfo? _orderInfoFromRemoteJson(Map<String, Object?> json) {
+  final OrderInfo value = OrderInfo.fromMap(<Object?, Object?>{
+    'trackingNumber': json['trackingNumber'] ?? json['orderId'] ?? '',
+    'orderId': json['sourceOrderId'] ?? '',
+    'buyerMessage': json['buyerMessage'] ?? '',
+    'sellerMemo': json['sellerMemo'] ?? '',
+    'productInfo': json['productInfo'] ?? '',
+    if (json['orderInfo'] is Map)
+      ...Map<Object?, Object?>.from(json['orderInfo']! as Map),
+  });
+  return value.details.length <= 1 && value.orderId.isEmpty ? null : value;
 }
 
 class RemoteRecordingPage {
@@ -303,6 +321,7 @@ Map<String, Object?> recordingSessionBackupMap(RecordingSession session) {
           },
         )
         .toList(growable: false),
+    if (session.orderInfo != null) 'orderInfo': session.orderInfo!.toJson(),
   };
 }
 

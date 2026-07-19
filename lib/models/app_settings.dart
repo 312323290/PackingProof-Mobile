@@ -5,6 +5,7 @@ class AppSettings {
   const AppSettings({
     this.workMode = WorkMode.continuousScan,
     this.speechEnabled = true,
+    this.orderSpeechEnabled = true,
     this.maxVolumeEnabled = true,
     this.startupNoticeVersion = 0,
     this.lanBackupAutoEnabled = true,
@@ -18,6 +19,7 @@ class AppSettings {
     final Map<String, Object?> extraValues = Map<String, Object?>.of(json)
       ..remove('workMode')
       ..remove('speechEnabled')
+      ..remove('orderSpeechEnabled')
       ..remove('maxVolumeEnabled')
       ..remove('startupNoticeVersion')
       ..remove('lanBackupAutoEnabled')
@@ -34,6 +36,9 @@ class AppSettings {
       workMode: workModeFromStorage(json['workMode']),
       speechEnabled: json['speechEnabled'] is bool
           ? json['speechEnabled']! as bool
+          : true,
+      orderSpeechEnabled: json['orderSpeechEnabled'] is bool
+          ? json['orderSpeechEnabled']! as bool
           : true,
       maxVolumeEnabled: json['maxVolumeEnabled'] is bool
           ? json['maxVolumeEnabled']! as bool
@@ -55,6 +60,7 @@ class AppSettings {
 
   final WorkMode workMode;
   final bool speechEnabled;
+  final bool orderSpeechEnabled;
   final bool maxVolumeEnabled;
   final int startupNoticeVersion;
   final bool lanBackupAutoEnabled;
@@ -66,6 +72,7 @@ class AppSettings {
   AppSettings copyWith({
     WorkMode? workMode,
     bool? speechEnabled,
+    bool? orderSpeechEnabled,
     bool? maxVolumeEnabled,
     int? startupNoticeVersion,
     bool? lanBackupAutoEnabled,
@@ -76,6 +83,7 @@ class AppSettings {
     return AppSettings(
       workMode: workMode ?? this.workMode,
       speechEnabled: speechEnabled ?? this.speechEnabled,
+      orderSpeechEnabled: orderSpeechEnabled ?? this.orderSpeechEnabled,
       maxVolumeEnabled: maxVolumeEnabled ?? this.maxVolumeEnabled,
       startupNoticeVersion: startupNoticeVersion ?? this.startupNoticeVersion,
       lanBackupAutoEnabled: lanBackupAutoEnabled ?? this.lanBackupAutoEnabled,
@@ -91,6 +99,7 @@ class AppSettings {
     ...extraValues,
     'workMode': workMode.storageValue,
     'speechEnabled': speechEnabled,
+    'orderSpeechEnabled': orderSpeechEnabled,
     'maxVolumeEnabled': maxVolumeEnabled,
     'startupNoticeVersion': startupNoticeVersion,
     'lanBackupAutoEnabled': lanBackupAutoEnabled,

@@ -44,13 +44,30 @@ internal class LanBackupStateStore(private val context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
     }
 
+    fun retargetJobs(computerId: String) {
+        jobs().forEach { job ->
+            if (job.optString("destinationComputerId") == computerId) return@forEach
+            val file = File(job.optString("filePath"))
+            if (!file.exists()) return@forEach
+            job.put("destinationComputerId", computerId)
+                .put("state", "pending")
+                .put("uploadedBytes", 0L)
+                .put("backupCompletedAt", JSONObject.NULL)
+                .put("remoteRecordIds", JSONArray())
+                .put("errorMessage", JSONObject.NULL)
+            writeJob(job)
+        }
+    }
+
     fun upsertJob(filePath: String, sessions: JSONArray): JSONObject {
         val file = File(filePath)
         val id = stableId(file.canonicalPath)
         val existing = readJob(id)
+        val destinationComputerId = connection()?.optString("computerId").orEmpty()
         if (existing != null &&
             existing.optLong("totalBytes") == file.length() &&
-            existing.optLong("lastModified") == file.lastModified()
+            existing.optLong("lastModified") == file.lastModified() &&
+            existing.optString("destinationComputerId") == destinationComputerId
         ) {
             existing.put("sessions", sessions)
             if (!existing.has("fileCreatedAt")) {
@@ -68,6 +85,7 @@ internal class LanBackupStateStore(private val context: Context) {
             .put("id", id)
             .put("filePath", file.canonicalPath)
             .put("fileName", file.name)
+            .put("destinationComputerId", destinationComputerId)
             .put("state", "pending")
             .put("uploadedBytes", 0L)
             .put("totalBytes", file.length())

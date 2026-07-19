@@ -53,12 +53,15 @@ internal class LanBackupPlugin(
                 "saveConnection" -> {
                     val baseUrl = call.argument<String>("baseUrl") ?: error("缺少电脑地址")
                     val accessKey = call.argument<String>("accessKey") ?: error("缺少电脑密钥")
+                    val computerId = call.argument<String>("computerId") ?: ""
+                    WorkManager.getInstance(context).cancelAllWorkByTag("lan-backup")
                     store.saveConnection(
                         baseUrl,
-                        call.argument<String>("computerId") ?: "",
+                        computerId,
                         call.argument<String>("computerName") ?: "已连接电脑",
                     )
                     credentials.save(accessKey)
+                    store.retargetJobs(computerId)
                     schedulePending()
                     result.success(null)
                 }

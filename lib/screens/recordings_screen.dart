@@ -112,6 +112,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   String _query = '';
   bool _managing = false;
   int _historyPage = 0;
+  int _remoteRequestGeneration = 0;
   RecordingSourceFilter _sourceFilter = RecordingSourceFilter.all;
 
   List<RecordingSession> get _filteredSessions {
@@ -195,12 +196,23 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     if (!mounted) {
       return;
     }
+    final LanBackupSnapshot next =
+        widget.backupSnapshotProvider?.call() ?? widget.backupSnapshot;
     setState(() {
-      _backupSnapshot =
-          widget.backupSnapshotProvider?.call() ?? widget.backupSnapshot;
+      _backupSnapshot = next;
+      if (next.connectionStatus != LanConnectionStatus.connected) {
+        _remoteRequestGeneration++;
+        _loadingRemote = false;
+      }
+      if (next.endpoint == null) {
+        _remoteRecordings.clear();
+        _remoteCursor = '';
+        _remoteHasMore = true;
+        _historyPage = 0;
+      }
     });
     if (widget.active &&
-        _backupSnapshot.connected &&
+        _backupSnapshot.connectionStatus == LanConnectionStatus.connected &&
         _remoteRecordings.isEmpty) {
       unawaited(_loadRemote(reset: true));
     }
@@ -241,7 +253,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                   _backupSnapshot.jobs.any(
                     (job) =>
                         job.filePath == item.local!.filePath &&
-                        job.state == LanBackupJobState.completed,
+                        job.state == LanBackupJobState.completed &&
+                        job.destinationComputerId ==
+                            _backupSnapshot.endpoint?.computerId,
                   ));
           return switch (_sourceFilter) {
             RecordingSourceFilter.all => true,
@@ -258,33 +272,100 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     if (_loadingRemote ||
         !widget.active ||
         widget.onLoadRemoteRecordings == null ||
-        !_backupSnapshot.connected ||
+        _backupSnapshot.connectionStatus != LanConnectionStatus.connected ||
         (!reset && !_remoteHasMore)) {
       return;
     }
-    _loadingRemote = true;
-    if (reset) {
+    final int requestGeneration = ++_remoteRequestGeneration;
+    setState(() {
+      _loadingRemote = true;
+      if (reset) {
+        _remoteCursor = '';
+        _remoteHasMore = true;
+        _historyPage = 0;
+      }
+    });
+    try {
+      final RemoteRecordingPage page = await widget.onLoadRemoteRecordings!(
+        cursor: _remoteCursor,
+        limit: _historyPageSize,
+        keyword: _query,
+      );
+      if (!mounted || requestGeneration != _remoteRequestGeneration) return;
+      setState(() {
+        if (reset) _remoteRecordings.clear();
+        final Set<int> existingIds = _remoteRecordings
+            .map((RemoteRecording item) => item.id)
+            .toSet();
+        _remoteRecordings.addAll(
+          page.data.where((RemoteRecording item) => existingIds.add(item.id)),
+        );
+        _remoteCursor = page.nextCursor;
+        _remoteHasMore = page.hasMore;
+      });
+    } on Object {
+      // Connection state is updated by the backup service; cached rows stay visible.
+    } finally {
+      if (mounted && requestGeneration == _remoteRequestGeneration) {
+        setState(() => _loadingRemote = false);
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteComputer() async {
+    final LanBackupEndpoint? endpoint = _backupSnapshot.endpoint;
+    if (endpoint == null || widget.onDisconnectBackup == null) return;
+    final bool? continueDelete = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('删除这台电脑？'),
+        content: const Text('将删除电脑地址和连接密钥，并停止当前备份。手机中的录像不会被删除。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('继续'),
+          ),
+        ],
+      ),
+    );
+    if (continueDelete != true || !mounted) return;
+    final String identity = endpoint.computerName.isEmpty
+        ? endpoint.displayAddress
+        : '${endpoint.computerName}\n${endpoint.displayAddress}';
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('再次确认删除'),
+        content: Text('确定删除以下电脑？\n\n$identity'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFC43D32),
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('确认删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await widget.onDisconnectBackup!();
+    if (!mounted) return;
+    setState(() {
+      _remoteRequestGeneration++;
+      _loadingRemote = false;
+      _remoteRecordings.clear();
       _remoteCursor = '';
       _remoteHasMore = true;
       _historyPage = 0;
-    }
-    final RemoteRecordingPage page = await widget.onLoadRemoteRecordings!(
-      cursor: _remoteCursor,
-      limit: _historyPageSize,
-      keyword: _query,
-    );
-    if (!mounted) return;
-    setState(() {
-      if (reset) _remoteRecordings.clear();
-      final Set<int> existingIds = _remoteRecordings
-          .map((RemoteRecording item) => item.id)
-          .toSet();
-      _remoteRecordings.addAll(
-        page.data.where((RemoteRecording item) => existingIds.add(item.id)),
-      );
-      _remoteCursor = page.nextCursor;
-      _remoteHasMore = page.hasMore;
-      _loadingRemote = false;
     });
   }
 
@@ -514,7 +595,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       setState(() => _historyPage++);
       return;
     }
-    if (!_remoteHasMore || !_backupSnapshot.connected) return;
+    if (_remoteHasMore == false ||
+        _backupSnapshot.connectionStatus != LanConnectionStatus.connected) {
+      return;
+    }
     await _loadRemote();
     if (!mounted) return;
     final int updatedPageCount = (_visibleItems.length / _historyPageSize)
@@ -599,7 +683,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                   () => Navigator.of(context).pop(true),
               onAutoChanged: widget.onAutoBackupChanged,
               onBackupNow: widget.onBackupNow,
-              onDisconnect: widget.onDisconnectBackup,
+              onDisconnect: _confirmDeleteComputer,
               onRetry: widget.onRetryBackup,
               unbackedRetention: _unbackedRetention,
               backedRetention: _backedRetention,
@@ -743,20 +827,24 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                 currentPage: historyPage,
                 pageCount: historyPageCount,
                 loading: _loadingRemote,
-                canLoadMore: _remoteHasMore && _backupSnapshot.connected,
+                offline:
+                    _backupSnapshot.connected &&
+                    _backupSnapshot.connectionStatus !=
+                        LanConnectionStatus.connected,
+                canLoadMore:
+                    _remoteHasMore &&
+                    _backupSnapshot.connectionStatus ==
+                        LanConnectionStatus.connected,
                 onPrevious: historyPage == 0
                     ? null
                     : () => setState(() => _historyPage = historyPage - 1),
                 onNext:
                     historyPage + 1 < historyPageCount ||
-                        (_remoteHasMore && _backupSnapshot.connected)
+                        (_remoteHasMore &&
+                            _backupSnapshot.connectionStatus ==
+                                LanConnectionStatus.connected)
                     ? () => _showNextHistoryPage(historyPageCount)
                     : null,
-              ),
-            if (_loadingRemote)
-              const Padding(
-                padding: EdgeInsets.all(18),
-                child: Center(child: CircularProgressIndicator()),
               ),
           ],
         ],
@@ -779,8 +867,13 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         .map((RecordingSession session) => session.filePath)
         .where((String path) => path.isNotEmpty)
         .toSet();
+    final String currentComputerId = _backupSnapshot.endpoint?.computerId ?? '';
     final Set<String> completedPaths = _backupSnapshot.jobs
-        .where((LanBackupJob job) => job.state == LanBackupJobState.completed)
+        .where(
+          (LanBackupJob job) =>
+              job.state == LanBackupJobState.completed &&
+              job.destinationComputerId == currentComputerId,
+        )
         .map((LanBackupJob job) => job.filePath)
         .toSet();
     return localPaths.every(completedPaths.contains);
@@ -1041,6 +1134,26 @@ class _ComputerBackupSettings extends StatelessWidget {
         .where((LanBackupJob job) => job.state == LanBackupJobState.pending)
         .length;
     final int progress = ((active?.progress ?? 0) * 100).round();
+    final bool paired = snapshot.endpoint != null;
+    final bool online =
+        snapshot.connectionStatus == LanConnectionStatus.connected;
+    final bool needsRepair =
+        snapshot.connectionStatus == LanConnectionStatus.rePair;
+    final String stateLabel = online
+        ? '电脑在线'
+        : needsRepair
+        ? '需重新连接'
+        : '电脑离线';
+    final Color stateForeground = online
+        ? PackingProofMobileApp.forest
+        : needsRepair
+        ? const Color(0xFFA35A16)
+        : const Color(0xFF69716E);
+    final Color stateBackground = online
+        ? const Color(0xFFDDEDE7)
+        : needsRepair
+        ? const Color(0xFFFFE8CF)
+        : const Color(0xFFE1E5E3);
     final String? status = !snapshot.connected
         ? '扫描电脑二维码后自动备份'
         : snapshot.connectionStatus == LanConnectionStatus.rePair
@@ -1075,20 +1188,20 @@ class _ComputerBackupSettings extends StatelessWidget {
                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
                 ),
               ),
-              if (snapshot.connected) ...<Widget>[
+              if (paired) ...<Widget>[
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 9,
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFDDEDE7),
+                    color: stateBackground,
                     borderRadius: BorderRadius.circular(99),
                   ),
-                  child: const Text(
-                    '已连接',
+                  child: Text(
+                    stateLabel,
                     style: TextStyle(
-                      color: PackingProofMobileApp.forest,
+                      color: stateForeground,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                     ),
@@ -1098,6 +1211,12 @@ class _ComputerBackupSettings extends StatelessWidget {
                   key: const Key('auto-backup-switch'),
                   value: snapshot.autoEnabled,
                   onChanged: onAutoChanged,
+                  thumbColor: online
+                      ? null
+                      : const WidgetStatePropertyAll(Color(0xFF7D8581)),
+                  trackColor: online
+                      ? null
+                      : const WidgetStatePropertyAll(Color(0xFFD7DBD9)),
                 ),
               ],
             ],
@@ -1107,11 +1226,7 @@ class _ComputerBackupSettings extends StatelessWidget {
             Row(
               key: const Key('connected-computer-address'),
               children: <Widget>[
-                const Icon(
-                  Icons.computer_rounded,
-                  size: 16,
-                  color: PackingProofMobileApp.forest,
-                ),
+                Icon(Icons.computer_rounded, size: 16, color: stateForeground),
                 const SizedBox(width: 7),
                 Expanded(
                   child: Text(
@@ -1120,8 +1235,8 @@ class _ComputerBackupSettings extends StatelessWidget {
                         : '${snapshot.endpoint!.computerName} · ${snapshot.endpoint!.displayAddress}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: PackingProofMobileApp.forest,
+                    style: TextStyle(
+                      color: stateForeground,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                     ),
@@ -1156,39 +1271,73 @@ class _ComputerBackupSettings extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: <Widget>[
-              if (!snapshot.connected)
-                FilledButton.tonalIcon(
-                  key: const Key('connect-computer-button'),
-                  onPressed: onConnect,
-                  icon: const Icon(Icons.qr_code_scanner_rounded),
-                  label: const Text('连接电脑'),
-                )
-              else ...<Widget>[
-                TextButton.icon(
-                  key: const Key('backup-now-button'),
-                  onPressed: allBackedUp ? null : onBackupNow,
-                  icon: Icon(
-                    allBackedUp
-                        ? Icons.check_circle_rounded
-                        : Icons.backup_rounded,
+          if (!paired)
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonalIcon(
+                key: const Key('connect-computer-button'),
+                onPressed: onConnect,
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                label: const Text('连接电脑'),
+              ),
+            )
+          else ...<Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: TextButton.icon(
+                    key: const Key('backup-now-button'),
+                    onPressed: needsRepair
+                        ? onConnect
+                        : online && !allBackedUp
+                        ? onBackupNow
+                        : null,
+                    icon: Icon(
+                      needsRepair
+                          ? Icons.qr_code_scanner_rounded
+                          : allBackedUp && online
+                          ? Icons.check_circle_rounded
+                          : Icons.backup_rounded,
+                    ),
+                    label: Text(
+                      needsRepair
+                          ? '重新连接'
+                          : !online
+                          ? '电脑离线'
+                          : allBackedUp
+                          ? '备份完成'
+                          : '立即备份',
+                    ),
                   ),
-                  label: Text(allBackedUp ? '备份完成' : '立即备份'),
                 ),
-                if (failed != null)
-                  TextButton(
-                    onPressed: onRetry == null
-                        ? null
-                        : () => onRetry!(failed.id),
-                    child: const Text('重试'),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextButton.icon(
+                    key: const Key('delete-computer-button'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFC43D32),
+                    ),
+                    onPressed: onDisconnect,
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: const Text('删除电脑'),
                   ),
-                TextButton(onPressed: onDisconnect, child: const Text('断开')),
+                ),
               ],
+            ),
+            if (failed != null) ...<Widget>[
+              const SizedBox(height: 4),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed: online && onRetry != null
+                      ? () => onRetry!(failed.id)
+                      : null,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('重试失败任务'),
+                ),
+              ),
             ],
-          ),
+          ],
         ],
       ),
     );
@@ -1532,6 +1681,7 @@ class _HistoryPagination extends StatelessWidget {
     required this.currentPage,
     required this.pageCount,
     required this.loading,
+    required this.offline,
     required this.canLoadMore,
     required this.onPrevious,
     required this.onNext,
@@ -1540,6 +1690,7 @@ class _HistoryPagination extends StatelessWidget {
   final int currentPage;
   final int pageCount;
   final bool loading;
+  final bool offline;
   final bool canLoadMore;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
@@ -1561,14 +1712,16 @@ class _HistoryPagination extends StatelessWidget {
           SizedBox(
             width: 104,
             child: Text(
-              '${currentPage + 1} / $shownPageCount 页',
+              offline ? '电脑离线' : '${currentPage + 1} / $shownPageCount 页',
               textAlign: TextAlign.center,
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
           IconButton.outlined(
             key: const Key('recording-page-next'),
-            tooltip: canLoadMore && currentPage + 1 >= pageCount
+            tooltip: offline
+                ? '电脑离线'
+                : canLoadMore && currentPage + 1 >= pageCount
                 ? '加载下一页'
                 : '下一页',
             onPressed: loading ? null : onNext,

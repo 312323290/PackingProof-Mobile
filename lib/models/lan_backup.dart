@@ -45,6 +45,7 @@ class LanBackupJob {
     this.localDeletedAt,
     this.waitingCleanup = false,
     this.remoteRecordIds = const <int>[],
+    this.destinationComputerId = '',
   });
 
   factory LanBackupJob.fromMap(Map<Object?, Object?> map) {
@@ -67,6 +68,7 @@ class LanBackupJob {
           .whereType<num>()
           .map((num value) => value.toInt())
           .toList(growable: false),
+      destinationComputerId: '${map['destinationComputerId'] ?? ''}',
     );
   }
 
@@ -82,6 +84,7 @@ class LanBackupJob {
   final DateTime? localDeletedAt;
   final bool waitingCleanup;
   final List<int> remoteRecordIds;
+  final String destinationComputerId;
 
   double get progress => totalBytes <= 0 ? 0 : uploadedBytes / totalBytes;
 }

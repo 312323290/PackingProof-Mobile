@@ -43,6 +43,9 @@ internal class LanBackupWorker(
         val accessKey = credentials.load()
         if (!file.exists()) return fail(job, "录像文件不存在")
         if (connection == null || accessKey.isNullOrBlank()) return fail(job, "请重新连接电脑")
+        if (job.optString("destinationComputerId") != connection.optString("computerId")) {
+            return Result.failure()
+        }
 
         return try {
             Log.i(TAG, "Backup started id=${id.take(8)} file=${file.name} bytes=${file.length()}")

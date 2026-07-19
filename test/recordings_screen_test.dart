@@ -234,6 +234,7 @@ void main() {
                 state: LanBackupJobState.completed,
                 uploadedBytes: 1,
                 totalBytes: 1,
+                destinationComputerId: 'computer-1',
               ),
             ],
             connectionStatus: LanConnectionStatus.connected,
@@ -255,6 +256,88 @@ void main() {
     );
     expect(button.onPressed, isNull);
     expect(backupCount, 0);
+  });
+
+  testWidgets('电脑离线时使用中性状态且不请求远程历史', (WidgetTester tester) async {
+    int loadCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '仓库电脑',
+            ),
+            connectionStatus: LanConnectionStatus.offline,
+          ),
+          onLoadRemoteRecordings:
+              ({cursor = '', required limit, keyword = ''}) async {
+                loadCount++;
+                return const RemoteRecordingPage.empty();
+              },
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('电脑离线'), findsWidgets);
+    expect(loadCount, 0);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('删除电脑需要两次确认并显示名称与地址', (WidgetTester tester) async {
+    int deleteCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '仓库电脑',
+            ),
+            connectionStatus: LanConnectionStatus.connected,
+          ),
+          onDisconnectBackup: () async => deleteCount++,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('delete-computer-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('删除这台电脑？'), findsOneWidget);
+    await tester.tap(find.text('继续'));
+    await tester.pumpAndSettle();
+    expect(find.text('再次确认删除'), findsOneWidget);
+    expect(find.textContaining('仓库电脑'), findsWidgets);
+    expect(find.textContaining('192.168.1.20:5280'), findsWidgets);
+    expect(deleteCount, 0);
+    await tester.tap(find.text('确认删除'));
+    await tester.pumpAndSettle();
+    expect(deleteCount, 1);
   });
 
   testWidgets('等待续传不会误显示为正在备份', (WidgetTester tester) async {

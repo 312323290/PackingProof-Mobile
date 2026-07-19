@@ -148,10 +148,14 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const Icon(
-                Icons.phonelink_lock_rounded,
-                size: 58,
-                color: PackingProofMobileApp.forest,
+              Center(
+                child: Image.asset(
+                  'android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png',
+                  key: const Key('standalone-notice-app-icon'),
+                  width: 72,
+                  height: 72,
+                  filterQuality: FilterQuality.high,
+                ),
               ),
               const SizedBox(height: 24),
               const Text(

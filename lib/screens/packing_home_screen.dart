@@ -432,6 +432,16 @@ class _CameraArea extends StatelessWidget {
         fit: StackFit.expand,
         children: <Widget>[
           Positioned.fill(child: preview),
+          if (view._isRecording)
+            Positioned(
+              key: const Key('camera-watermark-position'),
+              top: 22,
+              right: view.flashAvailable ? 72 : 18,
+              child: _CameraWatermarkPreview(
+                timestamp: DateTime.now(),
+                trackingNumber: view.currentCode,
+              ),
+            ),
           Positioned(
             left: 24,
             right: 24,
@@ -541,6 +551,60 @@ class _CameraArea extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _CameraWatermarkPreview extends StatelessWidget {
+  const _CameraWatermarkPreview({
+    required this.timestamp,
+    required this.trackingNumber,
+  });
+
+  final DateTime timestamp;
+  final String trackingNumber;
+
+  @override
+  Widget build(BuildContext context) {
+    final String text = <String>[
+      _watermarkTimestamp(timestamp),
+      if (trackingNumber.isNotEmpty) 'Order:$trackingNumber',
+    ].join('\n');
+    const TextStyle baseStyle = TextStyle(
+      fontSize: 12,
+      height: 1.25,
+      fontWeight: FontWeight.w700,
+    );
+
+    return Semantics(
+      label: '录像水印',
+      child: SizedBox(
+        key: const Key('camera-watermark-preview'),
+        width: 250,
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: <Widget>[
+            Text(
+              text,
+              key: const Key('camera-watermark-outline'),
+              textAlign: TextAlign.right,
+              style: baseStyle.copyWith(
+                foreground: Paint()
+                  ..style = PaintingStyle.stroke
+                  ..strokeWidth = 3
+                  ..strokeJoin = StrokeJoin.round
+                  ..color = Colors.black,
+              ),
+            ),
+            Text(
+              text,
+              key: const Key('camera-watermark-fill'),
+              textAlign: TextAlign.right,
+              style: baseStyle.copyWith(color: Colors.white),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1116,4 +1180,10 @@ String _duration(Duration value) {
   return hours > 0
       ? '${two(hours)}:${two(minutes)}:${two(seconds)}'
       : '${two(minutes)}:${two(seconds)}';
+}
+
+String _watermarkTimestamp(DateTime value) {
+  String two(int number) => number.toString().padLeft(2, '0');
+  return '${value.year}/${two(value.month)}/${two(value.day)} '
+      '${two(value.hour)}:${two(value.minute)}:${two(value.second)}';
 }

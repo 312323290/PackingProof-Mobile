@@ -235,6 +235,33 @@ void main() {
     expect(find.text('770017871213193'), findsOneWidget);
     expect(find.text('结束工作'), findsOneWidget);
     expect(find.byKey(const Key('recording-button-shimmer')), findsOneWidget);
+    expect(find.byKey(const Key('camera-watermark-preview')), findsOneWidget);
+    expect(find.textContaining('Order:770017871213193'), findsNWidgets(2));
+
+    final Positioned watermarkPosition = tester.widget<Positioned>(
+      find.byKey(const Key('camera-watermark-position')),
+    );
+    expect(watermarkPosition.top, 22);
+    expect(watermarkPosition.right, 18);
+
+    final Text watermarkOutline = tester.widget<Text>(
+      find.byKey(const Key('camera-watermark-outline')),
+    );
+    final Text watermarkFill = tester.widget<Text>(
+      find.byKey(const Key('camera-watermark-fill')),
+    );
+    expect(watermarkOutline.textAlign, TextAlign.right);
+    expect(watermarkOutline.style?.foreground?.style, PaintingStyle.stroke);
+    expect(watermarkOutline.style?.foreground?.color, Colors.black);
+    expect(watermarkFill.textAlign, TextAlign.right);
+    expect(watermarkFill.style?.color, Colors.white);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('camera-watermark-preview')),
+        matching: find.byType(DecoratedBox),
+      ),
+      findsNothing,
+    );
 
     final Rect previewViewport = tester.getRect(
       find.byKey(const Key('camera-preview-viewport')),

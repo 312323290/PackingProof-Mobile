@@ -1,23 +1,21 @@
 package app.packingproof.mobile
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
-import android.text.SpannableString
-import android.text.Spanned
-import android.text.style.AbsoluteSizeSpan
-import android.text.style.BackgroundColorSpan
-import android.text.style.ForegroundColorSpan
-import android.text.style.StyleSpan
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.OverlaySettings
+import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.StaticOverlaySettings
-import androidx.media3.effect.TextOverlay
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
@@ -74,44 +72,81 @@ class VideoWatermarkPlugin(
         output.delete()
 
         val settings = StaticOverlaySettings.Builder()
-            .setOverlayFrameAnchor(1f, -1f)
-            .setBackgroundFrameAnchor(0.96f, -0.92f)
+            .setOverlayFrameAnchor(1f, 1f)
+            .setBackgroundFrameAnchor(0.96f, 0.92f)
             .build()
-        val overlay = object : TextOverlay() {
+        val overlay = object : BitmapOverlay() {
             private val formatter = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.ROOT)
+            private var videoSize = Size(1080, 1920)
+            private var cachedSecond = Long.MIN_VALUE
+            private var cachedBitmap: Bitmap? = null
 
-            override fun getText(presentationTimeUs: Long): SpannableString {
+            override fun configure(videoSize: Size) {
+                super.configure(videoSize)
+                this.videoSize = videoSize
+                clearCache()
+            }
+
+            override fun getBitmap(presentationTimeUs: Long): Bitmap {
+                val second = presentationTimeUs / 1_000_000L
+                cachedBitmap?.takeIf { cachedSecond == second }?.let { return it }
                 val timestamp = formatter.format(Date(startedAtMs + presentationTimeUs / 1_000L))
-                val text = if (trackingNumber.isBlank()) timestamp else "$timestamp\nOrder:$trackingNumber"
-                return SpannableString(text).apply {
-                    setSpan(
-                        ForegroundColorSpan(Color.WHITE),
-                        0,
-                        length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-                    )
-                    setSpan(
-                        BackgroundColorSpan(Color.argb(150, 0, 0, 0)),
-                        0,
-                        length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-                    )
-                    setSpan(
-                        AbsoluteSizeSpan(32, true),
-                        0,
-                        length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-                    )
-                    setSpan(
-                        StyleSpan(Typeface.BOLD),
-                        0,
-                        length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-                    )
+                val lines = if (trackingNumber.isBlank()) {
+                    listOf(timestamp)
+                } else {
+                    listOf(timestamp, "Order:$trackingNumber")
                 }
+                val bitmap = renderOutlinedText(lines)
+                cachedBitmap?.recycle()
+                cachedSecond = second
+                cachedBitmap = bitmap
+                return bitmap
             }
 
             override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings = settings
+
+            override fun release() {
+                clearCache()
+                super.release()
+            }
+
+            private fun renderOutlinedText(lines: List<String>): Bitmap {
+                val textSize = (videoSize.height * 0.026f).coerceIn(28f, 56f)
+                val strokeWidth = (textSize / 10f).coerceAtLeast(3f)
+                val padding = strokeWidth + 3f
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    this.textSize = textSize
+                    textAlign = Paint.Align.RIGHT
+                    strokeJoin = Paint.Join.ROUND
+                }
+                val lineHeight = (paint.fontMetrics.bottom - paint.fontMetrics.top) * 1.08f
+                val contentWidth = lines.maxOf { paint.measureText(it) }
+                val width = (contentWidth + padding * 2).toInt().coerceAtLeast(1)
+                val height = (lineHeight * lines.size + padding * 2).toInt().coerceAtLeast(1)
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                bitmap.density = Bitmap.DENSITY_NONE
+                val canvas = Canvas(bitmap)
+                val right = width - padding
+                var baseline = padding - paint.fontMetrics.top
+                for (line in lines) {
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = strokeWidth
+                    paint.color = Color.BLACK
+                    canvas.drawText(line, right, baseline, paint)
+                    paint.style = Paint.Style.FILL
+                    paint.color = Color.WHITE
+                    canvas.drawText(line, right, baseline, paint)
+                    baseline += lineHeight
+                }
+                return bitmap
+            }
+
+            private fun clearCache() {
+                cachedBitmap?.recycle()
+                cachedBitmap = null
+                cachedSecond = Long.MIN_VALUE
+            }
         }
         val editedMediaItem = EditedMediaItem.Builder(
             MediaItem.fromUri(Uri.fromFile(input)),

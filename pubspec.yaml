@@ -68,7 +68,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+    - assets/images/app-icon.png
     - assets/images/packing-preview.png
     - assets/design/selected-option.png
     - assets/audio/tts/

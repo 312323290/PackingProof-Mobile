@@ -150,7 +150,7 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
             children: <Widget>[
               Center(
                 child: Image.asset(
-                  'android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png',
+                  'assets/images/app-icon.png',
                   key: const Key('standalone-notice-app-icon'),
                   width: 72,
                   height: 72,
@@ -159,13 +159,15 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
               ),
               const SizedBox(height: 24),
               const Text(
-                '单机版说明',
+                '说明',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 16),
               const Text(
-                '本版本仅在本机运行，不会将录像、面单号或其他数据上传到互联网。只有在你主动连接电脑后，才会通过局域网备份录像。',
+                '录像和面单号始终仅保存在本机\n不会上传到互联网\n\n'
+                '普通版仅通过联网生成语音提示\n单机版不使用互联网服务\n\n'
+                '用户连接电脑后，局域网仅用于备份视频',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 15, height: 1.65),
               ),

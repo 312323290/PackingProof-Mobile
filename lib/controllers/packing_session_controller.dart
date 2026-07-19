@@ -29,6 +29,7 @@ import '../services/speech_prompt_service.dart';
 enum PackingSessionPhase {
   initializing,
   ready,
+  waitingForBarcode,
   starting,
   recording,
   saving,
@@ -98,6 +99,7 @@ class PackingSessionController extends ChangeNotifier {
   String? _activeSegmentId;
   int _segmentIndex = 1;
   bool _torchEnabled = false;
+  bool _workActive = false;
 
   CameraController? get cameraController => _cameraController;
   int? get nativeTextureId => _nativeInitialization?.textureId;
@@ -132,6 +134,7 @@ class PackingSessionController extends ChangeNotifier {
   String? get historyScanResult => _historyScanResult;
   String? get errorMessage => _errorMessage;
   bool get isRecording => _phase == PackingSessionPhase.recording;
+  bool get isWorking => _workActive;
   bool get isBusy =>
       _phase == PackingSessionPhase.initializing ||
       _phase == PackingSessionPhase.starting ||
@@ -252,7 +255,7 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> switchCamera() async {
-    if (!cameraSwitchAvailable || isBusy || isRecording) return;
+    if (!cameraSwitchAvailable || isBusy || isWorking) return;
     try {
       if (_torchEnabled) {
         await _nativeCamera!.setTorchEnabled(false);
@@ -277,7 +280,7 @@ class PackingSessionController extends ChangeNotifier {
     final bool cameraUnavailable = Platform.isAndroid
         ? _nativeInitialization == null
         : camera == null || !camera.value.isInitialized;
-    if (cameraUnavailable || isBusy || isRecording) {
+    if (cameraUnavailable || isBusy || isWorking) {
       return;
     }
 
@@ -293,15 +296,19 @@ class PackingSessionController extends ChangeNotifier {
 
     try {
       await WakelockPlus.enable();
-      await _startRecording();
+      _workActive = true;
+      _elapsed = Duration.zero;
+      _setPhase(PackingSessionPhase.waitingForBarcode);
       _scheduleInitialReadyPrompt();
     } on CameraException catch (error) {
       _cancelInitialPromptFlow();
+      _workActive = false;
       _timeline.reset();
       await WakelockPlus.disable();
       _setCameraError(error);
     } on Object catch (error) {
       _cancelInitialPromptFlow();
+      _workActive = false;
       _timeline.reset();
       await WakelockPlus.disable();
       _errorMessage = '无法开始录像，请重新检查摄像头\n$error';
@@ -311,12 +318,24 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<RecordingSession?> stopWork() async {
+    if (!isWorking) {
+      return null;
+    }
     final CameraController? camera = _cameraController;
     final DateTime? startedAt = _timeline.recordingStartedAt;
     final bool recordingUnavailable = Platform.isAndroid
         ? _nativeCamera == null
         : camera == null || !camera.value.isRecordingVideo;
-    if (recordingUnavailable || startedAt == null) {
+    if (startedAt == null) {
+      _cancelInitialPromptFlow();
+      _workActive = false;
+      _candidateCode = '';
+      _stabilityTracker.reset();
+      await WakelockPlus.disable();
+      _setPhase(PackingSessionPhase.ready);
+      return null;
+    }
+    if (recordingUnavailable) {
       return null;
     }
     _cancelInitialPromptFlow();
@@ -330,6 +349,7 @@ class PackingSessionController extends ChangeNotifier {
           : await _finishRecording();
       _candidateCode = '';
       _stabilityTracker.reset();
+      _workActive = false;
       await WakelockPlus.disable();
       await Future<void>.delayed(transitionSettleDelay);
       _setPhase(PackingSessionPhase.ready);
@@ -338,6 +358,7 @@ class PackingSessionController extends ChangeNotifier {
       return savedSessions.isEmpty ? null : savedSessions.last;
     } on Object catch (error) {
       _timeline.reset();
+      _workActive = false;
       await WakelockPlus.disable();
       _errorMessage = '录像保存失败，请保留应用并重试\n$error';
       _setPhase(PackingSessionPhase.error);
@@ -347,7 +368,7 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> setWorkMode(WorkMode mode) async {
-    if (_workMode == mode || isRecording || isBusy) {
+    if (_workMode == mode || isWorking || isBusy) {
       return;
     }
     _workMode = mode;
@@ -402,7 +423,7 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   void beginComputerPairing() {
-    if (isRecording || isBusy) {
+    if (isWorking || isBusy) {
       return;
     }
     _pairingScanActive = true;
@@ -422,7 +443,7 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   void beginHistoryBarcodeScan() {
-    if (isRecording || isBusy) return;
+    if (isWorking || isBusy) return;
     _historyScanResult = null;
     _historyScanActive = true;
     _stabilityTracker.reset();
@@ -583,7 +604,7 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<void> handleInactive() async {
     _appIsActive = false;
-    if (isRecording) {
+    if (isWorking) {
       await stopWork();
     }
     if (_phase != PackingSessionPhase.saving) {
@@ -682,7 +703,7 @@ class PackingSessionController extends ChangeNotifier {
       }
       return;
     }
-    if (!isRecording || !_timeline.isActive) {
+    if (!isWorking || isBusy || _handlingBarcode) {
       return;
     }
     String? validCode;
@@ -709,7 +730,7 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> _processFrame(CameraImage image) async {
-    if (_processingFrame || !isRecording || !_timeline.isActive) {
+    if (_processingFrame || !isWorking || isBusy || _handlingBarcode) {
       return;
     }
     final DateTime now = DateTime.now();
@@ -848,7 +869,25 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> _handleConfirmedBarcode(String code, DateTime now) async {
-    if (_handlingBarcode || !isRecording || !_timeline.isActive) {
+    if (_handlingBarcode || !isWorking || isBusy) {
+      return;
+    }
+    if (!isRecording || !_timeline.isActive) {
+      _handlingBarcode = true;
+      try {
+        await _startRecording();
+        _bindCurrentCode(code, _timeline.segmentStartedAt ?? now);
+      } on Object catch (error) {
+        _timeline.reset();
+        _errorMessage = '无法开始录像，请重新对准面单\n$error';
+        _setPhase(PackingSessionPhase.waitingForBarcode);
+        _speechService.enqueue(
+          SpeechPrompt.recordingFailed,
+          incidentKey: SpeechPrompt.recordingFailed.name,
+        );
+      } finally {
+        _handlingBarcode = false;
+      }
       return;
     }
     final BarcodeWorkAction action = BarcodeWorkModePolicy.decide(
@@ -867,7 +906,7 @@ class PackingSessionController extends ChangeNotifier {
       case BarcodeWorkAction.stopVideo:
         _handlingBarcode = true;
         try {
-          await stopWork();
+          await _saveCurrentVideoAndWait();
         } finally {
           _handlingBarcode = false;
         }
@@ -905,6 +944,35 @@ class PackingSessionController extends ChangeNotifier {
           _handlingBarcode = false;
         }
         return;
+    }
+  }
+
+  Future<RecordingSession?> _saveCurrentVideoAndWait() async {
+    if (!isWorking || !isRecording || !_timeline.isActive) {
+      return null;
+    }
+    _cancelInitialPromptFlow();
+    _setPhase(PackingSessionPhase.saving);
+    await WidgetsBinding.instance.endOfFrame;
+    try {
+      final List<RecordingSession> savedSessions = Platform.isAndroid
+          ? await _finishNativeRecording()
+          : await _finishRecording();
+      _candidateCode = '';
+      _elapsed = Duration.zero;
+      await Future<void>.delayed(transitionSettleDelay);
+      _setPhase(PackingSessionPhase.waitingForBarcode);
+      _speechService.resetIncidents();
+      _speechService.enqueue(SpeechPrompt.recordingStopped);
+      return savedSessions.isEmpty ? null : savedSessions.last;
+    } on Object catch (error) {
+      _timeline.reset();
+      _workActive = false;
+      await WakelockPlus.disable();
+      _errorMessage = '录像保存失败，请保留应用并重试\n$error';
+      _setPhase(PackingSessionPhase.error);
+      _speakErrorMessage(error.toString());
+      return null;
     }
   }
 
@@ -1122,7 +1190,7 @@ class PackingSessionController extends ChangeNotifier {
     _initialPromptTimer?.cancel();
     _initialPromptTimer = Timer(initialReadyPromptDelay, () {
       _initialPromptTimer = null;
-      if (_disposed || !isRecording) {
+      if (_disposed || !isWorking || isRecording) {
         return;
       }
       final SpeechPrompt? prompt = _initialPromptPolicy.onReadyDelayElapsed();
@@ -1136,9 +1204,7 @@ class PackingSessionController extends ChangeNotifier {
     _initialPromptTimer?.cancel();
     _initialPromptTimer = null;
     final SpeechPrompt? prompt = _initialPromptPolicy.onFirstLabelRecognized();
-    if (prompt != null) {
-      _speechService.enqueue(prompt);
-    }
+    _speechService.enqueue(prompt ?? SpeechPrompt.recordingStarted);
   }
 
   void _cancelInitialPromptFlow() {

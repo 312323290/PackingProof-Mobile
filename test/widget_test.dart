@@ -188,6 +188,27 @@ void main() {
     expect(find.text('正在保存录像'), findsOneWidget);
   });
 
+  testWidgets('开始工作后等待面单且不显示录像计时', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.waitingForBarcode,
+          elapsed: Duration.zero,
+          cameraSwitchAvailable: true,
+          previewOverride: const ColoredBox(color: Colors.black),
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+
+    expect(find.text('等待面单'), findsOneWidget);
+    expect(find.text('识别面单后自动开始录像'), findsOneWidget);
+    expect(find.text('结束工作'), findsOneWidget);
+    expect(find.byKey(const Key('recording-duration-pill')), findsNothing);
+    expect(find.byKey(const Key('switch-camera-button')), findsNothing);
+  });
+
   testWidgets('录像中显示时长胶囊、加粗单号和红色结束按钮', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;

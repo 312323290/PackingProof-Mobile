@@ -72,7 +72,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   }
 
   Future<void> _toggleWork() async {
-    if (_controller.isRecording) {
+    if (_controller.isWorking) {
       await _controller.stopWork();
       return;
     }
@@ -80,7 +80,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   }
 
   void _selectTab(int value) {
-    if ((_controller.isRecording || _controller.isBusy) && value != 1) return;
+    if ((_controller.isWorking || _controller.isBusy) && value != 1) return;
     setState(() => _selectedTab = value);
     if (value == 0) unawaited(_controller.refreshSessions());
   }
@@ -295,6 +295,11 @@ class PackingHomeView extends StatelessWidget {
   final Widget? previewOverride;
 
   bool get _isRecording => phase == PackingSessionPhase.recording;
+  bool get _isWorking =>
+      phase == PackingSessionPhase.waitingForBarcode ||
+      phase == PackingSessionPhase.starting ||
+      phase == PackingSessionPhase.recording ||
+      phase == PackingSessionPhase.saving;
   bool get _isBusy =>
       phase == PackingSessionPhase.initializing ||
       phase == PackingSessionPhase.starting ||
@@ -486,7 +491,7 @@ class _CameraArea extends StatelessWidget {
               ),
             ),
           if (view.cameraSwitchAvailable &&
-              !view._isRecording &&
+              !view._isWorking &&
               !view._isBusy &&
               !view.pairingScanActive &&
               !view.historyScanActive)
@@ -812,9 +817,9 @@ class _ControlPanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              if (view._isRecording) ...<Widget>[
+              if (view._isWorking) ...<Widget>[
                 Text(
-                  view.currentCode.isEmpty ? '等待识别面单' : view.currentCode,
+                  view.currentCode.isEmpty ? '等待面单' : view.currentCode,
                   key: const Key('current-shipping-code'),
                   maxLines: 1,
                   textAlign: TextAlign.center,
@@ -911,13 +916,13 @@ class _PrimaryWorkButtonState extends State<_PrimaryWorkButton>
   @override
   void didUpdateWidget(_PrimaryWorkButton oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.view._isRecording != widget.view._isRecording) {
+    if (oldWidget.view._isWorking != widget.view._isWorking) {
       _syncShimmer();
     }
   }
 
   void _syncShimmer() {
-    if (widget.view._isRecording) {
+    if (widget.view._isWorking) {
       _shimmerController.repeat();
     } else {
       _shimmerController.stop();
@@ -942,7 +947,7 @@ class _PrimaryWorkButtonState extends State<_PrimaryWorkButton>
           : widget.isError
           ? view.onRetryPressed
           : view.onPrimaryPressed,
-      style: view._isRecording
+      style: view._isWorking
           ? FilledButton.styleFrom(
               backgroundColor: const Color(0xFFD92D20),
               foregroundColor: Colors.white,
@@ -955,7 +960,7 @@ class _PrimaryWorkButtonState extends State<_PrimaryWorkButton>
           clipBehavior: Clip.none,
           alignment: Alignment.center,
           children: <Widget>[
-            if (view._isRecording)
+            if (view._isWorking)
               Positioned(
                 key: const Key('recording-button-shimmer'),
                 left: -24,
@@ -993,7 +998,7 @@ class _PrimaryWorkButtonState extends State<_PrimaryWorkButton>
                   Icon(
                     widget.isError
                         ? Icons.refresh_rounded
-                        : view._isRecording
+                        : view._isWorking
                         ? Icons.stop_circle_outlined
                         : Icons.videocam_outlined,
                   ),
@@ -1007,7 +1012,7 @@ class _PrimaryWorkButtonState extends State<_PrimaryWorkButton>
                       ? '正在保存录像'
                       : widget.isError
                       ? '重新检查'
-                      : view._isRecording
+                      : view._isWorking
                       ? '结束工作'
                       : '开始工作',
                 ),
@@ -1051,7 +1056,7 @@ class _RecordingButtonShimmerPainter extends CustomPainter {
 
 String _recordingHint(PackingHomeView view) {
   if (view.currentCode.isEmpty) {
-    return '识别后自动绑定当前录像';
+    return '识别面单后自动开始录像';
   }
   return switch (view.workMode) {
     WorkMode.continuousScan => '扫描下一张面单自动分段',

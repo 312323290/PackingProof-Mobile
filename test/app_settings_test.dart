@@ -32,7 +32,7 @@ void main() {
     expect(settings.workMode, WorkMode.sameCodeStop);
     expect(settings.speechEnabled, isTrue);
     expect(settings.maxVolumeEnabled, isTrue);
-    expect(settings.standaloneNoticeDismissed, isFalse);
+    expect(settings.startupNoticeVersion, 0);
     expect(settings.lanBackupAutoEnabled, isTrue);
     expect(settings.unbackedRetention, UnbackedRetentionPolicy.days30);
     expect(settings.backedRetention, BackedRetentionPolicy.days7);
@@ -62,13 +62,13 @@ void main() {
     expect(settings.speechEnabled, isFalse);
   });
 
-  test('单机提示选择可持久化且不覆盖其他设置', () async {
+  test('首次说明版本在两个编译版本间共享且保留其他设置', () async {
     final SessionRepository repository = SessionRepository(rootDirectory: root);
     await repository.saveSpeechEnabled(false);
-    await repository.saveStandaloneNoticeDismissed(true);
+    await repository.saveStartupNoticeVersion(1);
 
     final settings = await repository.loadSettings();
-    expect(settings.standaloneNoticeDismissed, isTrue);
+    expect(settings.startupNoticeVersion, 1);
     expect(settings.speechEnabled, isFalse);
   });
 

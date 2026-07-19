@@ -270,9 +270,9 @@ class SessionRepository {
     return sessions;
   }
 
-  Future<void> saveStandaloneNoticeDismissed(bool dismissed) async {
+  Future<void> saveStartupNoticeVersion(int version) async {
     final AppSettings settings = await loadSettings();
-    await saveSettings(settings.copyWith(standaloneNoticeDismissed: dismissed));
+    await saveSettings(settings.copyWith(startupNoticeVersion: version));
   }
 
   Future<void> saveLanBackupAutoEnabled(bool enabled) async {

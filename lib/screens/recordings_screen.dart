@@ -10,6 +10,7 @@ import '../models/barcode_marker.dart';
 import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/work_mode.dart';
+import '../widgets/about_settings.dart';
 import 'video_playback_screen.dart';
 
 enum RecordingsScreenMode { history, settings }
@@ -581,6 +582,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               onUnbackedRetentionChanged: _setUnbackedRetention,
               onBackedRetentionChanged: _setBackedRetention,
             ),
+            const SizedBox(height: 12),
+            const AboutSettings(),
           ] else ...<Widget>[
             _HistorySummary(
               total: _sessions.length,

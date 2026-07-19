@@ -85,7 +85,7 @@ class _PackingProofMobileAppState extends State<PackingProofMobileApp> {
               body: Center(child: CircularProgressIndicator()),
             );
           }
-          return _StandaloneStartupGate(
+          return _StartupNoticeGate(
             buildConfig: widget.buildConfig,
             repository: _repository,
             settings: snapshot.data!,
@@ -96,8 +96,8 @@ class _PackingProofMobileAppState extends State<PackingProofMobileApp> {
   }
 }
 
-class _StandaloneStartupGate extends StatefulWidget {
-  const _StandaloneStartupGate({
+class _StartupNoticeGate extends StatefulWidget {
+  const _StartupNoticeGate({
     required this.buildConfig,
     required this.repository,
     required this.settings,
@@ -108,18 +108,17 @@ class _StandaloneStartupGate extends StatefulWidget {
   final AppSettings settings;
 
   @override
-  State<_StandaloneStartupGate> createState() => _StandaloneStartupGateState();
+  State<_StartupNoticeGate> createState() => _StartupNoticeGateState();
 }
 
-class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
+class _StartupNoticeGateState extends State<_StartupNoticeGate> {
+  static const int _noticeVersion = 1;
   bool _continueToCamera = false;
-  bool _doNotShowAgain = false;
 
   @override
   Widget build(BuildContext context) {
     final bool needsNotice =
-        widget.buildConfig.isStandalone &&
-        !widget.settings.standaloneNoticeDismissed &&
+        widget.settings.startupNoticeVersion < _noticeVersion &&
         !_continueToCamera;
     if (!needsNotice) {
       return PackingHomeScreen(
@@ -127,6 +126,28 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
         buildConfig: widget.buildConfig,
       );
     }
+    return StartupNoticeScreen(
+      buildConfig: widget.buildConfig,
+      onConfirm: () async {
+        await widget.repository.saveStartupNoticeVersion(_noticeVersion);
+        if (mounted) setState(() => _continueToCamera = true);
+      },
+    );
+  }
+}
+
+class StartupNoticeScreen extends StatelessWidget {
+  const StartupNoticeScreen({
+    required this.buildConfig,
+    required this.onConfirm,
+    super.key,
+  });
+
+  final AppBuildConfig buildConfig;
+  final Future<void> Function() onConfirm;
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -138,7 +159,7 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
               Center(
                 child: Image.asset(
                   'assets/images/app-icon.png',
-                  key: const Key('standalone-notice-app-icon'),
+                  key: const Key('startup-notice-app-icon'),
                   width: 72,
                   height: 72,
                   filterQuality: FilterQuality.high,
@@ -146,56 +167,40 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
               ),
               const SizedBox(height: 24),
               Container(
-                key: const Key('standalone-notice-card'),
+                key: const Key('startup-notice-card'),
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF2F6F4),
                   border: Border.all(color: const Color(0xFFD5E0DB)),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Column(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    Text(
-                      '单机版说明',
-                      textAlign: TextAlign.center,
+                    const Text(
+                      '欢迎使用包裹留证',
+                      textAlign: TextAlign.right,
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    SizedBox(height: 14),
+                    const SizedBox(height: 14),
                     Text(
-                      '录像和面单号始终仅保存在本机\n不会上传到互联网\n\n'
-                      '普通版仅通过联网生成语音提示\n单机版不使用互联网服务\n\n'
-                      '用户连接电脑后，局域网仅用于备份视频',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 15, height: 1.65),
+                      '本项目名为 PackingProof-Mobile（包裹留证），开源且免费\n\n'
+                      '录像和面单号只保存在你的设备中，不会上传到互联网\n\n'
+                      '如需电脑备份，由你主动连接；备份仅在局域网内进行',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(fontSize: 15, height: 1.65),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 20),
-              CheckboxListTile(
-                key: const Key('standalone-notice-dismiss-checkbox'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('下次不再提示'),
-                value: _doNotShowAgain,
-                onChanged: (bool? value) {
-                  setState(() => _doNotShowAgain = value ?? false);
-                },
-              ),
-              const SizedBox(height: 12),
               FilledButton(
-                key: const Key('standalone-notice-confirm'),
-                onPressed: () async {
-                  if (_doNotShowAgain) {
-                    await widget.repository.saveStandaloneNoticeDismissed(true);
-                  }
-                  if (mounted) {
-                    setState(() => _continueToCamera = true);
-                  }
-                },
-                child: const Text('我知道了'),
+                key: const Key('startup-notice-confirm'),
+                onPressed: onConfirm,
+                child: const Text('开始使用'),
               ),
             ],
           ),

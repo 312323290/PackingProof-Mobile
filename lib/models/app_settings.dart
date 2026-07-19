@@ -6,7 +6,7 @@ class AppSettings {
     this.workMode = WorkMode.continuousScan,
     this.speechEnabled = true,
     this.maxVolumeEnabled = true,
-    this.standaloneNoticeDismissed = false,
+    this.startupNoticeVersion = 0,
     this.lanBackupAutoEnabled = true,
     this.unbackedRetention = UnbackedRetentionPolicy.days30,
     this.backedRetention = BackedRetentionPolicy.days7,
@@ -18,7 +18,7 @@ class AppSettings {
       ..remove('workMode')
       ..remove('speechEnabled')
       ..remove('maxVolumeEnabled')
-      ..remove('standaloneNoticeDismissed')
+      ..remove('startupNoticeVersion')
       ..remove('lanBackupAutoEnabled')
       ..remove('unbackedRetention')
       ..remove('backedRetention');
@@ -30,10 +30,9 @@ class AppSettings {
       maxVolumeEnabled: json['maxVolumeEnabled'] is bool
           ? json['maxVolumeEnabled']! as bool
           : true,
-      standaloneNoticeDismissed:
-          json['standaloneNoticeDismissed'] is bool
-          ? json['standaloneNoticeDismissed']! as bool
-          : false,
+      startupNoticeVersion: json['startupNoticeVersion'] is num
+          ? (json['startupNoticeVersion']! as num).toInt()
+          : 0,
       lanBackupAutoEnabled: json['lanBackupAutoEnabled'] is bool
           ? json['lanBackupAutoEnabled']! as bool
           : true,
@@ -48,7 +47,7 @@ class AppSettings {
   final WorkMode workMode;
   final bool speechEnabled;
   final bool maxVolumeEnabled;
-  final bool standaloneNoticeDismissed;
+  final int startupNoticeVersion;
   final bool lanBackupAutoEnabled;
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
@@ -58,7 +57,7 @@ class AppSettings {
     WorkMode? workMode,
     bool? speechEnabled,
     bool? maxVolumeEnabled,
-    bool? standaloneNoticeDismissed,
+    int? startupNoticeVersion,
     bool? lanBackupAutoEnabled,
     UnbackedRetentionPolicy? unbackedRetention,
     BackedRetentionPolicy? backedRetention,
@@ -67,8 +66,7 @@ class AppSettings {
       workMode: workMode ?? this.workMode,
       speechEnabled: speechEnabled ?? this.speechEnabled,
       maxVolumeEnabled: maxVolumeEnabled ?? this.maxVolumeEnabled,
-      standaloneNoticeDismissed:
-          standaloneNoticeDismissed ?? this.standaloneNoticeDismissed,
+      startupNoticeVersion: startupNoticeVersion ?? this.startupNoticeVersion,
       lanBackupAutoEnabled: lanBackupAutoEnabled ?? this.lanBackupAutoEnabled,
       unbackedRetention: unbackedRetention ?? this.unbackedRetention,
       backedRetention: backedRetention ?? this.backedRetention,
@@ -81,7 +79,7 @@ class AppSettings {
     'workMode': workMode.storageValue,
     'speechEnabled': speechEnabled,
     'maxVolumeEnabled': maxVolumeEnabled,
-    'standaloneNoticeDismissed': standaloneNoticeDismissed,
+    'startupNoticeVersion': startupNoticeVersion,
     'lanBackupAutoEnabled': lanBackupAutoEnabled,
     'unbackedRetention': unbackedRetention.storageValue,
     'backedRetention': backedRetention.storageValue,

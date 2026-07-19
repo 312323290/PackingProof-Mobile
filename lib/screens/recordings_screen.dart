@@ -1759,8 +1759,8 @@ class _RecordingThumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget placeholder() => Container(
-      width: 76,
-      height: 48,
+      width: 68,
+      height: 68,
       decoration: BoxDecoration(
         color: const Color(0xFFDDE3E0),
         borderRadius: BorderRadius.circular(10),
@@ -1776,8 +1776,8 @@ class _RecordingThumbnail extends StatelessWidget {
     Widget image(String path, {bool network = false}) => ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: SizedBox(
-        width: 76,
-        height: 48,
+        width: 68,
+        height: 68,
         child: network
             ? Image.network(
                 path,

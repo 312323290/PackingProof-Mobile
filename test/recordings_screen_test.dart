@@ -517,6 +517,8 @@ void main() {
       400,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.drag(find.byType(ListView), const Offset(0, -160));
+    await tester.pump();
     expect(find.text('1 / 3 页'), findsOneWidget);
     await tester.tap(find.byKey(const Key('recording-page-next')));
     await tester.pump();

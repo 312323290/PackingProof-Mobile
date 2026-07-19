@@ -29,15 +29,21 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["buildRevision"] =
+            System.getenv("PACKING_PROOF_BUILD_REVISION") ?: "development"
+        manifestPlaceholders["buildTimestamp"] =
+            System.getenv("PACKING_PROOF_BUILD_TIMESTAMP") ?: "development"
     }
 
     flavorDimensions += "edition"
     productFlavors {
         create("standard") {
             dimension = "edition"
+            manifestPlaceholders["appEdition"] = "standard"
         }
         create("standalone") {
             dimension = "edition"
+            manifestPlaceholders["appEdition"] = "standalone"
         }
     }
 

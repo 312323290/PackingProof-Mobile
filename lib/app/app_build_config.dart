@@ -7,6 +7,8 @@ class AppBuildConfig {
     required this.edition,
     required this.onlineEdgeTtsEnabled,
     required this.networkPolicy,
+    this.buildRevision = '',
+    this.buildTimestamp = '',
   });
 
   static const AppBuildConfig environment = AppBuildConfig(
@@ -20,11 +22,15 @@ class AppBuildConfig {
     networkPolicy: String.fromEnvironment('NETWORK_POLICY') == 'localOnly'
         ? NetworkPolicy.localOnly
         : NetworkPolicy.publicAllowed,
+    buildRevision: String.fromEnvironment('BUILD_REVISION'),
+    buildTimestamp: String.fromEnvironment('BUILD_TIMESTAMP'),
   );
 
   final AppEdition edition;
   final bool onlineEdgeTtsEnabled;
   final NetworkPolicy networkPolicy;
+  final String buildRevision;
+  final String buildTimestamp;
 
   bool get isStandalone => edition == AppEdition.standalone;
   String get appTitle => isStandalone ? '包裹留证-单机版' : '包裹留证';

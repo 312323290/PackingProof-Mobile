@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:packing_proof_mobile/widgets/about_settings.dart';
+import 'package:packing_proof_mobile/app/app_build_config.dart';
 
 void main() {
   testWidgets('关于页显示版本、源码、Release 和开源项目', (WidgetTester tester) async {
@@ -10,6 +11,13 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: AboutSettings(
+            buildConfig: const AppBuildConfig(
+              edition: AppEdition.standard,
+              onlineEdgeTtsEnabled: true,
+              networkPolicy: NetworkPolicy.publicAllowed,
+              buildRevision: 'abc1234',
+              buildTimestamp: '2026-07-19T14:00:00Z',
+            ),
             packageInfoLoader: () async => PackageInfo(
               appName: '包裹留证',
               packageName: 'app.packingproof.mobile',
@@ -28,6 +36,8 @@ void main() {
     await tester.tap(find.byKey(const Key('about-settings-open')));
     await tester.pumpAndSettle();
     expect(find.text('版本 0.3.1+9002'), findsOneWidget);
+    expect(find.text('构建修订'), findsOneWidget);
+    expect(find.text('abc1234 · 2026-07-19T14:00:00Z'), findsOneWidget);
     expect(find.text('源码仓库'), findsOneWidget);
     expect(find.text('版本发布'), findsOneWidget);
     expect(find.text('Flutter'), findsOneWidget);

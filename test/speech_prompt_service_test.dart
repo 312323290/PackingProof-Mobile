@@ -107,6 +107,25 @@ void main() {
     await service.dispose();
   });
 
+  test('内置音频存在时不调用 Edge 在线生成', () async {
+    final _FakeSpeechOutput output = _FakeSpeechOutput();
+    final _FakeEdgeGenerator generator = _FakeEdgeGenerator(_mp3Bytes(200));
+    final SpeechPromptService service = SpeechPromptService(
+      output: output,
+      edgeGenerator: generator,
+      cache: SpeechPromptCache.inDirectory(root),
+      assetBundle: _PresentAssetBundle(),
+    );
+
+    service.enqueue(SpeechPrompt.recordingStarted);
+    await service.waitUntilIdle();
+    expect(output.assets, <String>[
+      SpeechPrompt.recordingStarted.audioPlayerAssetPath,
+    ]);
+    expect(generator.calls, 0);
+    await service.dispose();
+  });
+
   test('单机模式不调用 Edge 在线生成', () async {
     final _FakeSpeechOutput output = _FakeSpeechOutput();
     final _FakeEdgeGenerator generator = _FakeEdgeGenerator(_mp3Bytes(200));

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../app/app_build_config.dart';
+
 const String packingProofRepositoryUrl =
     'https://github.com/PackingProof/PackingProof-Mobile';
 const String packingProofReleasesUrl =
@@ -13,10 +15,16 @@ typedef PackageInfoLoader = Future<PackageInfo> Function();
 typedef ExternalUriLauncher = Future<bool> Function(Uri uri);
 
 class AboutSettings extends StatelessWidget {
-  const AboutSettings({this.packageInfoLoader, this.uriLauncher, super.key});
+  const AboutSettings({
+    this.packageInfoLoader,
+    this.uriLauncher,
+    this.buildConfig = AppBuildConfig.environment,
+    super.key,
+  });
 
   final PackageInfoLoader? packageInfoLoader;
   final ExternalUriLauncher? uriLauncher;
+  final AppBuildConfig buildConfig;
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +48,7 @@ class AboutSettings extends StatelessWidget {
             builder: (_) => AboutScreen(
               packageInfoLoader: packageInfoLoader,
               uriLauncher: uriLauncher,
+              buildConfig: buildConfig,
             ),
           ),
         ),
@@ -49,10 +58,16 @@ class AboutSettings extends StatelessWidget {
 }
 
 class AboutScreen extends StatefulWidget {
-  const AboutScreen({this.packageInfoLoader, this.uriLauncher, super.key});
+  const AboutScreen({
+    this.packageInfoLoader,
+    this.uriLauncher,
+    this.buildConfig = AppBuildConfig.environment,
+    super.key,
+  });
 
   final PackageInfoLoader? packageInfoLoader;
   final ExternalUriLauncher? uriLauncher;
+  final AppBuildConfig buildConfig;
 
   @override
   State<AboutScreen> createState() => _AboutScreenState();
@@ -130,6 +145,16 @@ class _AboutScreenState extends State<AboutScreen> {
                         },
                   ),
                   const SizedBox(height: 8),
+                  if (widget.buildConfig.buildRevision.isNotEmpty) ...<Widget>[
+                    _InfoRow(
+                      icon: Icons.build_circle_outlined,
+                      title: '构建修订',
+                      subtitle: widget.buildConfig.buildTimestamp.isEmpty
+                          ? widget.buildConfig.buildRevision
+                          : '${widget.buildConfig.buildRevision} · ${widget.buildConfig.buildTimestamp}',
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   _LinkRow(
                     icon: Icons.code_rounded,
                     title: '源码仓库',

@@ -161,22 +161,34 @@ void main() {
 
     expect(find.byKey(const Key('computer-backup-settings')), findsOneWidget);
     expect(find.text('电脑备份'), findsOneWidget);
-    expect(find.text('连接'), findsOneWidget);
+    expect(find.text('连接电脑'), findsOneWidget);
+    expect(find.text('全部完成'), findsOneWidget);
+    expect(find.text('连接电脑后自动备份录像'), findsOneWidget);
+    expect(find.text('总大小'), findsOneWidget);
+    expect(find.text('0 MB'), findsOneWidget);
+    expect(
+      tester.getCenter(find.text('本机今日')).dx,
+      lessThan(tester.getCenter(find.text('本机全部')).dx),
+    );
+    final Text totalSizeText = tester.widget<Text>(find.text('0 MB'));
+    final List<InlineSpan> totalSizeParts =
+        (totalSizeText.textSpan! as TextSpan).children!;
+    expect(
+      (totalSizeParts[1] as TextSpan).style!.fontSize,
+      lessThan((totalSizeParts[0] as TextSpan).style!.fontSize!),
+    );
     expect(tester.getSize(find.text('电脑备份')).height, lessThan(32));
     final Rect connectButtonRect = tester.getRect(
       find.byKey(const Key('connect-computer-button')),
     );
-    final Rect hintRect = tester.getRect(find.text('扫描电脑二维码后自动备份'));
+    final Rect backupCountRect = tester.getRect(find.text('全部完成'));
     expect(connectButtonRect.height, 54);
-    expect(connectButtonRect.width, lessThan(104));
-    expect(connectButtonRect.top, lessThanOrEqualTo(hintRect.top));
-    expect(connectButtonRect.bottom, greaterThanOrEqualTo(hintRect.bottom));
-    expect(
-      connectButtonRect.right,
-      lessThanOrEqualTo(
-        tester.getRect(find.byKey(const Key('computer-backup-settings'))).right,
-      ),
+    expect(connectButtonRect.top, greaterThan(backupCountRect.bottom));
+    final Rect backupCardRect = tester.getRect(
+      find.byKey(const Key('computer-backup-settings')),
     );
+    expect(connectButtonRect.left, backupCardRect.left + 16);
+    expect(connectButtonRect.right, backupCardRect.right - 16);
     expect(
       tester.widget(find.byKey(const Key('connect-computer-button'))),
       isA<FilledButton>(),
@@ -229,7 +241,7 @@ void main() {
   });
 
   testWidgets('本机录像全部备份后按钮显示灰色备份完成', (WidgetTester tester) async {
-    const String videoPath = 'video.mp4';
+    final String videoPath = File('pubspec.yaml').absolute.path;
     final DateTime startedAt = DateTime(2026, 7, 19, 12);
     int backupCount = 0;
 
@@ -280,11 +292,71 @@ void main() {
     );
 
     expect(find.text('备份完成'), findsOneWidget);
+    expect(find.text('全部完成'), findsOneWidget);
     final OutlinedButton button = tester.widget<OutlinedButton>(
       find.byKey(const Key('backup-now-button')),
     );
     expect(button.onPressed, isNull);
     expect(backupCount, 0);
+
+    await tester.drag(find.byType(ListView), const Offset(0, -460));
+    await tester.pump();
+    expect(find.text('已备份'), findsOneWidget);
+    expect(
+      tester.getCenter(find.text('已备份')).dy,
+      greaterThan(tester.getCenter(find.text('本机')).dy),
+    );
+  });
+
+  testWidgets('未连接当前电脑时显示剩余数量并保留已备份标签', (WidgetTester tester) async {
+    final String videoPath = File('pubspec.yaml').absolute.path;
+    final DateTime startedAt = DateTime(2026, 7, 19, 12);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: <RecordingSession>[
+            RecordingSession(
+              id: 'local-1',
+              filePath: videoPath,
+              startedAt: startedAt,
+              endedAt: startedAt.add(const Duration(seconds: 5)),
+              markers: const <BarcodeMarker>[],
+            ),
+          ],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            jobs: <LanBackupJob>[
+              LanBackupJob(
+                id: 'job-1',
+                filePath: videoPath,
+                state: LanBackupJobState.completed,
+                uploadedBytes: 1,
+                totalBytes: 1,
+                destinationComputerId: 'previous-computer',
+                remoteRecordIds: const <int>[1],
+              ),
+            ],
+          ),
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('还差 1 个'), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -460));
+    await tester.pump();
+    expect(find.text('已备份'), findsOneWidget);
+    expect(
+      tester.getCenter(find.text('已备份')).dy,
+      greaterThan(tester.getCenter(find.text('本机')).dy),
+    );
   });
 
   testWidgets('电脑离线时使用中性状态且不请求远程历史', (WidgetTester tester) async {
@@ -322,7 +394,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('电脑离线'), findsWidgets);
+    expect(find.text('离线'), findsOneWidget);
     expect(find.text('电脑离线，备份已暂停'), findsOneWidget);
     expect(loadCount, 0);
     expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -745,6 +817,10 @@ void main() {
     final Offset sourceCenter = tester.getCenter(find.text('本机'));
     expect((codeCenter.dy - sourceCenter.dy).abs(), lessThan(2));
     expect(sourceCenter.dx, greaterThan(codeCenter.dx));
+    expect(
+      tester.getSize(find.byKey(const Key('recording-thumbnail'))),
+      const Size.square(56),
+    );
   });
 
   testWidgets('管理模式可多选并确认删除录像', (WidgetTester tester) async {

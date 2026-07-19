@@ -117,6 +117,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late bool _speechEnabled;
   late bool _maxVolumeEnabled;
   late List<RecordingSession> _sessions;
+  late int _localRecordingBytes;
+  late Set<String> _localRecordingPaths;
   late LanBackupSnapshot _backupSnapshot;
   late UnbackedRetentionPolicy _unbackedRetention;
   late BackedRetentionPolicy _backedRetention;
@@ -166,6 +168,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _speechEnabled = widget.speechEnabled;
     _maxVolumeEnabled = widget.maxVolumeEnabled;
     _sessions = List<RecordingSession>.of(widget.sessions);
+    _refreshLocalRecordingStats();
     _backupSnapshot = widget.backupSnapshot;
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
@@ -184,6 +187,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.sessions, widget.sessions)) {
       _sessions = List<RecordingSession>.of(widget.sessions);
+      _refreshLocalRecordingStats();
     }
     _workMode = widget.workMode;
     _speechEnabled = widget.speechEnabled;
@@ -554,6 +558,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
           (RecordingSession a, RecordingSession b) =>
               b.startedAt.compareTo(a.startedAt),
         );
+        _refreshLocalRecordingStats();
       }
     });
   }
@@ -626,6 +631,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     }
     setState(() {
       _sessions.removeWhere((RecordingSession item) => ids.contains(item.id));
+      _refreshLocalRecordingStats();
       _selectedIds.clear();
       _managing = false;
     });
@@ -794,12 +800,13 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             _HistorySummary(
               total: _sessions.length,
               today: _sessions.where((item) => _isToday(item.startedAt)).length,
-              backedUp: _confirmedBackedUpCount,
+              totalBytes: _localRecordingBytes,
             ),
             const SizedBox(height: 12),
             _ComputerBackupSettings(
               snapshot: _backupSnapshot,
               allBackedUp: _allLocalFilesBackedUp,
+              remainingBackupCount: _remainingBackupCount,
               onConnect:
                   widget.onConnectComputer ??
                   () => Navigator.of(context).pop(true),
@@ -814,7 +821,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               onBackedRetentionChanged: _setBackedRetention,
               showRetention: false,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             SearchBar(
               key: const Key('recording-search'),
               controller: _searchController,
@@ -932,9 +939,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         ? '本机'
                         : '电脑',
                     backedUp:
-                        localAvailable &&
-                        backupJob != null &&
-                        _isJobConfirmedAvailable(backupJob),
+                        backupJob != null && _isJobKnownAvailable(backupJob),
                     localThumbnail: localAvailable
                         ? _localThumbnail(session.filePath)
                         : null,
@@ -990,6 +995,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                             (RecordingSession value) =>
                                 value.id == item.local!.id,
                           );
+                          _refreshLocalRecordingStats();
                         });
                         await widget.onHideRemoteRecordings?.call(hiddenIds);
                       }
@@ -1031,28 +1037,62 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   }
 
   bool get _allLocalFilesBackedUp {
-    final Set<String> localPaths = _sessions
-        .map((RecordingSession session) => session.filePath)
-        .where((String path) => path.isNotEmpty)
-        .toSet();
     final Set<String> completedPaths = _backupSnapshot.jobs
         .where(_isJobConfirmedAvailable)
         .map((LanBackupJob job) => job.filePath)
         .toSet();
-    return localPaths.isNotEmpty && localPaths.every(completedPaths.contains);
+    return _localRecordingPaths.every(completedPaths.contains);
   }
 
-  int get _confirmedBackedUpCount => _backupSnapshot.jobs
-      .where(_isJobConfirmedAvailable)
-      .map((LanBackupJob job) => job.filePath)
-      .toSet()
-      .length;
+  int get _remainingBackupCount {
+    final Set<String> completedPaths = _backupSnapshot.jobs
+        .where(_isJobConfirmedAvailable)
+        .map((LanBackupJob job) => job.filePath)
+        .toSet();
+    return _localRecordingPaths.difference(completedPaths).length;
+  }
+
+  void _refreshLocalRecordingStats() {
+    final ({int bytes, Set<String> paths}) summary =
+        _measureLocalRecordingStats(_sessions);
+    _localRecordingBytes = summary.bytes;
+    _localRecordingPaths = summary.paths;
+  }
+
+  static ({int bytes, Set<String> paths}) _measureLocalRecordingStats(
+    Iterable<RecordingSession> sessions,
+  ) {
+    int total = 0;
+    final Set<String> candidates = sessions
+        .map((RecordingSession session) => session.filePath)
+        .where((String path) => path.isNotEmpty)
+        .toSet();
+    final Set<String> existingPaths = <String>{};
+    for (final String path in candidates) {
+      try {
+        final File file = File(path);
+        if (file.existsSync()) {
+          existingPaths.add(path);
+          total += file.lengthSync();
+        }
+      } on FileSystemException {
+        // A file may be removed by the retention worker while this page opens.
+      }
+    }
+    return (bytes: total, paths: existingPaths);
+  }
 
   bool _isJobConfirmedAvailable(LanBackupJob job) {
     final String currentComputerId = _backupSnapshot.endpoint?.computerId ?? '';
     if (currentComputerId.isEmpty ||
-        job.state != LanBackupJobState.completed ||
-        job.destinationComputerId != currentComputerId ||
+        job.destinationComputerId != currentComputerId) {
+      return false;
+    }
+    return _isJobKnownAvailable(job);
+  }
+
+  bool _isJobKnownAvailable(LanBackupJob job) {
+    if (job.state != LanBackupJobState.completed ||
         job.remoteRecordIds.isEmpty) {
       return false;
     }
@@ -1098,32 +1138,40 @@ class _HistorySummary extends StatelessWidget {
   const _HistorySummary({
     required this.total,
     required this.today,
-    required this.backedUp,
+    required this.totalBytes,
   });
 
   final int total;
   final int today;
-  final int backedUp;
+  final int totalBytes;
 
   @override
   Widget build(BuildContext context) {
+    final ({String value, String unit}) totalSize = _formatStorageSize(
+      totalBytes,
+    );
     return Row(
       children: <Widget>[
-        _SummaryMetric(label: '本机全部', value: total),
+        _SummaryMetric(label: '本机今日', value: '$today'),
         const SizedBox(width: 10),
-        _SummaryMetric(label: '本机今日', value: today),
+        _SummaryMetric(label: '本机全部', value: '$total'),
         const SizedBox(width: 10),
-        _SummaryMetric(label: '已备份', value: backedUp),
+        _SummaryMetric(
+          label: '总大小',
+          value: totalSize.value,
+          unit: totalSize.unit,
+        ),
       ],
     );
   }
 }
 
 class _SummaryMetric extends StatelessWidget {
-  const _SummaryMetric({required this.label, required this.value});
+  const _SummaryMetric({required this.label, required this.value, this.unit});
 
   final String label;
-  final int value;
+  final String value;
+  final String? unit;
 
   @override
   Widget build(BuildContext context) {
@@ -1136,9 +1184,28 @@ class _SummaryMetric extends StatelessWidget {
         ),
         child: Column(
           children: <Widget>[
-            Text(
-              '$value',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            Text.rich(
+              TextSpan(
+                children: <InlineSpan>[
+                  TextSpan(
+                    text: value,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (unit != null)
+                    TextSpan(
+                      text: ' $unit',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF69716E),
+                      ),
+                    ),
+                ],
+              ),
+              maxLines: 1,
             ),
             const SizedBox(height: 2),
             Text(label, style: const TextStyle(color: Color(0xFF69716E))),
@@ -1275,6 +1342,7 @@ class _ComputerBackupSettings extends StatelessWidget {
   const _ComputerBackupSettings({
     required this.snapshot,
     required this.allBackedUp,
+    required this.remainingBackupCount,
     required this.onConnect,
     this.onAutoChanged,
     this.onBackupNow,
@@ -1290,6 +1358,7 @@ class _ComputerBackupSettings extends StatelessWidget {
 
   final LanBackupSnapshot snapshot;
   final bool allBackedUp;
+  final int remainingBackupCount;
   final VoidCallback onConnect;
   final Future<void> Function(bool enabled)? onAutoChanged;
   final Future<void> Function()? onBackupNow;
@@ -1321,17 +1390,22 @@ class _ComputerBackupSettings extends StatelessWidget {
         .length;
     final int progress = ((active?.progress ?? 0) * 100).round();
     final bool paired = snapshot.endpoint != null;
+    final String remainingLabel = remainingBackupCount == 0
+        ? '全部完成'
+        : '还差 $remainingBackupCount 个';
     final bool online =
         snapshot.connectionStatus == LanConnectionStatus.connected;
     final bool needsRepair =
         snapshot.connectionStatus == LanConnectionStatus.rePair;
     final bool connecting =
         snapshot.connectionStatus == LanConnectionStatus.connecting;
-    final String stateLabel = online
-        ? '电脑在线'
+    final String stateLabel = connecting
+        ? '连接中'
+        : online
+        ? '在线'
         : needsRepair
-        ? '需重新连接'
-        : '电脑离线';
+        ? '需重连'
+        : '离线';
     final Color stateForeground = online
         ? PackingProofMobileApp.forest
         : needsRepair
@@ -1372,58 +1446,81 @@ class _ComputerBackupSettings extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const Text(
-                      '电脑备份',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
+          if (!paired) ...<Widget>[
+            const Text(
+              '电脑备份',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 7),
+            Row(
+              children: <Widget>[
+                Text(
+                  remainingLabel,
+                  style: const TextStyle(
+                    color: PackingProofMobileApp.forest,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    '连接电脑后自动备份录像',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Color(0xFF69716E), fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: FilledButton.icon(
+                key: const Key('connect-computer-button'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: PackingProofMobileApp.forest,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(54),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: onConnect,
+                icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                label: const Text('连接电脑'),
+              ),
+            ),
+          ] else ...<Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Text(
+                        '电脑备份',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    ),
-                    if (!paired && status != null) ...<Widget>[
                       const SizedBox(height: 6),
                       Text(
-                        status,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        remainingLabel,
                         style: const TextStyle(
                           color: Color(0xFF69716E),
                           fontSize: 13,
-                          height: 1.4,
                         ),
                       ),
                     ],
-                  ],
-                ),
-              ),
-              if (!paired) const SizedBox(width: 12),
-              if (!paired)
-                SizedBox(
-                  height: 54,
-                  child: Theme(
-                    data: Theme.of(context).copyWith(
-                      filledButtonTheme: const FilledButtonThemeData(),
-                    ),
-                    child: FilledButton.icon(
-                      key: const Key('connect-computer-button'),
-                      onPressed: onConnect,
-                      icon: const Icon(Icons.qr_code_scanner_rounded),
-                      label: const Text('连接'),
-                    ),
                   ),
                 ),
-              if (paired) ...<Widget>[
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 4,
+                    horizontal: 7,
+                    vertical: 3,
                   ),
                   decoration: BoxDecoration(
                     color: stateBackground,
@@ -1433,7 +1530,7 @@ class _ComputerBackupSettings extends StatelessWidget {
                     stateLabel,
                     style: TextStyle(
                       color: stateForeground,
-                      fontSize: 11,
+                      fontSize: 10,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -1444,8 +1541,8 @@ class _ComputerBackupSettings extends StatelessWidget {
                   onChanged: onAutoChanged,
                 ),
               ],
-            ],
-          ),
+            ),
+          ],
           const SizedBox(height: 4),
           if (snapshot.endpoint != null) ...<Widget>[
             Row(
@@ -1810,11 +1907,12 @@ class _RecordingThumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget placeholder() => Container(
-      width: 68,
-      height: 68,
+      key: const Key('recording-thumbnail'),
+      width: 56,
+      height: 56,
       decoration: BoxDecoration(
         color: const Color(0xFFDDE3E0),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(9),
       ),
       child: Icon(
         unavailable ? Icons.videocam_off_rounded : Icons.play_arrow_rounded,
@@ -1825,10 +1923,11 @@ class _RecordingThumbnail extends StatelessWidget {
     );
 
     Widget image(String path, {bool network = false}) => ClipRRect(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(9),
       child: SizedBox(
-        width: 68,
-        height: 68,
+        key: const Key('recording-thumbnail'),
+        width: 56,
+        height: 56,
         child: network
             ? Image.network(
                 path,
@@ -1896,7 +1995,7 @@ class _RecordingTile extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(18),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             child: Row(
               children: <Widget>[
                 if (managing) ...<Widget>[
@@ -1909,7 +2008,7 @@ class _RecordingTile extends StatelessWidget {
                   remoteHeaders: remoteHeaders,
                   unavailable: unavailable,
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1928,20 +2027,21 @@ class _RecordingTile extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          _StatusChip(
-                            label: sourceLabel,
-                            tone: sourceLabel == '电脑'
-                                ? _StatusChipTone.computer
-                                : _StatusChipTone.local,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: <Widget>[
+                              _StatusChip(
+                                label: sourceLabel,
+                                tone: sourceLabel == '电脑'
+                                    ? _StatusChipTone.computer
+                                    : _StatusChipTone.local,
+                              ),
+                              if (backedUp) ...<Widget>[
+                                const SizedBox(height: 4),
+                                const _StatusChip(label: '已备份'),
+                              ],
+                            ],
                           ),
-                          if (backedUp) ...<Widget>[
-                            const SizedBox(width: 5),
-                            const Icon(
-                              Icons.cloud_done_rounded,
-                              size: 17,
-                              color: PackingProofMobileApp.forest,
-                            ),
-                          ],
                         ],
                       ),
                       const SizedBox(height: 7),
@@ -2118,6 +2218,19 @@ String _dateTime(DateTime value) {
 String _duration(Duration value) {
   String two(int number) => number.toString().padLeft(2, '0');
   return '${two(value.inMinutes)}:${two(value.inSeconds.remainder(60))}';
+}
+
+({String value, String unit}) _formatStorageSize(int bytes) {
+  const int mebibyte = 1024 * 1024;
+  const int gibibyte = 1024 * mebibyte;
+  if (bytes <= 0) return (value: '0', unit: 'MB');
+  if (bytes < mebibyte) return (value: '<1', unit: 'MB');
+  if (bytes < gibibyte) {
+    final double value = bytes / mebibyte;
+    return (value: value.toStringAsFixed(value < 10 ? 1 : 0), unit: 'MB');
+  }
+  final double value = bytes / gibibyte;
+  return (value: value.toStringAsFixed(value < 10 ? 1 : 0), unit: 'GB');
 }
 
 String _two(int number) => number.toString().padLeft(2, '0');

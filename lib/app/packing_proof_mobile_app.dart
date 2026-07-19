@@ -155,13 +155,13 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
               ),
               const SizedBox(height: 24),
               const Text(
-                '單機版說明',
+                '单机版说明',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 16),
               const Text(
-                '呢個版本只會喺本機運行，唔會將錄像、面單號或其他資料上傳到互聯網。只有你主動連接電腦後，先會喺局域網內備份錄像。',
+                '本版本仅在本机运行，不会将录像、面单号或其他数据上传到互联网。只有在你主动连接电脑后，才会通过局域网备份录像。',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 15, height: 1.65),
               ),
@@ -169,7 +169,7 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
               CheckboxListTile(
                 key: const Key('standalone-notice-dismiss-checkbox'),
                 contentPadding: EdgeInsets.zero,
-                title: const Text('下次唔再提示'),
+                title: const Text('下次不再提示'),
                 value: _doNotShowAgain,
                 onChanged: (bool? value) {
                   setState(() => _doNotShowAgain = value ?? false);
@@ -186,7 +186,7 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
                     setState(() => _continueToCamera = true);
                   }
                 },
-                child: const Text('我知道喇'),
+                child: const Text('我知道了'),
               ),
             ],
           ),

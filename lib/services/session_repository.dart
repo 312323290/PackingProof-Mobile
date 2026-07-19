@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/app_settings.dart';
+import '../models/backup_retention_policy.dart';
 import '../models/recording_session.dart';
 import '../models/work_mode.dart';
 
@@ -33,7 +34,9 @@ class SessionRepository {
     _initialized = true;
   }
 
-  Future<List<RecordingSession>> loadSessions() async {
+  Future<List<RecordingSession>> loadSessions({
+    bool includeMissingFiles = false,
+  }) async {
     await initialize();
     if (!await _indexFile.exists()) {
       return <RecordingSession>[];
@@ -49,7 +52,8 @@ class SessionRepository {
             ),
           )
           .where(
-            (RecordingSession session) => File(session.filePath).existsSync(),
+            (RecordingSession session) =>
+                includeMissingFiles || File(session.filePath).existsSync(),
           )
           .toList();
       sessions.sort(
@@ -100,7 +104,9 @@ class SessionRepository {
   Future<List<RecordingSession>> addSessions(
     List<RecordingSession> newSessions,
   ) async {
-    final List<RecordingSession> sessions = await loadSessions();
+    final List<RecordingSession> sessions = await loadSessions(
+      includeMissingFiles: true,
+    );
     sessions.addAll(newSessions);
     sessions.sort(
       (RecordingSession a, RecordingSession b) =>
@@ -113,7 +119,9 @@ class SessionRepository {
   Future<List<RecordingSession>> updateSession(
     RecordingSession updatedSession,
   ) async {
-    final List<RecordingSession> sessions = await loadSessions();
+    final List<RecordingSession> sessions = await loadSessions(
+      includeMissingFiles: true,
+    );
     final int index = sessions.indexWhere(
       (RecordingSession item) => item.id == updatedSession.id,
     );
@@ -131,9 +139,11 @@ class SessionRepository {
 
   Future<List<RecordingSession>> deleteSessions(Set<String> sessionIds) async {
     if (sessionIds.isEmpty) {
-      return loadSessions();
+      return loadSessions(includeMissingFiles: true);
     }
-    final List<RecordingSession> sessions = await loadSessions();
+    final List<RecordingSession> sessions = await loadSessions(
+      includeMissingFiles: true,
+    );
     final List<RecordingSession> removed = sessions
         .where((RecordingSession item) => sessionIds.contains(item.id))
         .toList(growable: false);
@@ -200,16 +210,38 @@ class SessionRepository {
     await saveSettings(settings.copyWith(maxVolumeEnabled: enabled));
   }
 
+  Future<List<RecordingSession>> pruneMissingSessions({
+    Set<String> retainedMissingPaths = const <String>{},
+  }) async {
+    final List<RecordingSession> sessions =
+        (await loadSessions(includeMissingFiles: true))
+            .where((RecordingSession session) {
+              return File(session.filePath).existsSync() ||
+                  retainedMissingPaths.contains(p.normalize(session.filePath));
+            })
+            .toList(growable: false);
+    await _writeSessions(sessions);
+    return sessions;
+  }
+
   Future<void> saveStandaloneNoticeDismissed(bool dismissed) async {
     final AppSettings settings = await loadSettings();
-    await saveSettings(
-      settings.copyWith(standaloneNoticeDismissed: dismissed),
-    );
+    await saveSettings(settings.copyWith(standaloneNoticeDismissed: dismissed));
   }
 
   Future<void> saveLanBackupAutoEnabled(bool enabled) async {
     final AppSettings settings = await loadSettings();
     await saveSettings(settings.copyWith(lanBackupAutoEnabled: enabled));
+  }
+
+  Future<void> saveBackupRetention({
+    required UnbackedRetentionPolicy unbacked,
+    required BackedRetentionPolicy backed,
+  }) async {
+    final AppSettings settings = await loadSettings();
+    await saveSettings(
+      settings.copyWith(unbackedRetention: unbacked, backedRetention: backed),
+    );
   }
 
   Future<void> saveSettings(AppSettings settings) async {

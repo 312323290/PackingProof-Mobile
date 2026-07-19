@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:packing_proof_mobile/models/backup_retention_policy.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/services/session_repository.dart';
 
@@ -33,6 +34,8 @@ void main() {
     expect(settings.maxVolumeEnabled, isTrue);
     expect(settings.standaloneNoticeDismissed, isFalse);
     expect(settings.lanBackupAutoEnabled, isTrue);
+    expect(settings.unbackedRetention, UnbackedRetentionPolicy.days30);
+    expect(settings.backedRetention, BackedRetentionPolicy.days7);
 
     await repository.saveSpeechEnabled(false);
     final Map<String, Object?> persisted = Map<String, Object?>.from(
@@ -43,6 +46,20 @@ void main() {
     expect(persisted['speechEnabled'], isFalse);
     expect(persisted['maxVolumeEnabled'], isTrue);
     expect(persisted['futureOption'], <String, Object>{'enabled': true});
+  });
+
+  test('双重保留策略相互独立并保留未知字段', () async {
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    await repository.saveBackupRetention(
+      unbacked: UnbackedRetentionPolicy.days90,
+      backed: BackedRetentionPolicy.immediately,
+    );
+    await repository.saveSpeechEnabled(false);
+
+    final settings = await repository.loadSettings();
+    expect(settings.unbackedRetention, UnbackedRetentionPolicy.days90);
+    expect(settings.backedRetention, BackedRetentionPolicy.immediately);
+    expect(settings.speechEnabled, isFalse);
   });
 
   test('单机提示选择可持久化且不覆盖其他设置', () async {

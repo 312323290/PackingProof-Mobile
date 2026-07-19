@@ -1,3 +1,4 @@
+import 'backup_retention_policy.dart';
 import 'work_mode.dart';
 
 class AppSettings {
@@ -7,6 +8,8 @@ class AppSettings {
     this.maxVolumeEnabled = true,
     this.standaloneNoticeDismissed = false,
     this.lanBackupAutoEnabled = true,
+    this.unbackedRetention = UnbackedRetentionPolicy.days30,
+    this.backedRetention = BackedRetentionPolicy.days7,
     this.extraValues = const <String, Object?>{},
   });
 
@@ -16,7 +19,9 @@ class AppSettings {
       ..remove('speechEnabled')
       ..remove('maxVolumeEnabled')
       ..remove('standaloneNoticeDismissed')
-      ..remove('lanBackupAutoEnabled');
+      ..remove('lanBackupAutoEnabled')
+      ..remove('unbackedRetention')
+      ..remove('backedRetention');
     return AppSettings(
       workMode: workModeFromStorage(json['workMode']),
       speechEnabled: json['speechEnabled'] is bool
@@ -32,6 +37,10 @@ class AppSettings {
       lanBackupAutoEnabled: json['lanBackupAutoEnabled'] is bool
           ? json['lanBackupAutoEnabled']! as bool
           : true,
+      unbackedRetention: unbackedRetentionFromStorage(
+        json['unbackedRetention'],
+      ),
+      backedRetention: backedRetentionFromStorage(json['backedRetention']),
       extraValues: extraValues,
     );
   }
@@ -41,6 +50,8 @@ class AppSettings {
   final bool maxVolumeEnabled;
   final bool standaloneNoticeDismissed;
   final bool lanBackupAutoEnabled;
+  final UnbackedRetentionPolicy unbackedRetention;
+  final BackedRetentionPolicy backedRetention;
   final Map<String, Object?> extraValues;
 
   AppSettings copyWith({
@@ -49,6 +60,8 @@ class AppSettings {
     bool? maxVolumeEnabled,
     bool? standaloneNoticeDismissed,
     bool? lanBackupAutoEnabled,
+    UnbackedRetentionPolicy? unbackedRetention,
+    BackedRetentionPolicy? backedRetention,
   }) {
     return AppSettings(
       workMode: workMode ?? this.workMode,
@@ -57,6 +70,8 @@ class AppSettings {
       standaloneNoticeDismissed:
           standaloneNoticeDismissed ?? this.standaloneNoticeDismissed,
       lanBackupAutoEnabled: lanBackupAutoEnabled ?? this.lanBackupAutoEnabled,
+      unbackedRetention: unbackedRetention ?? this.unbackedRetention,
+      backedRetention: backedRetention ?? this.backedRetention,
       extraValues: extraValues,
     );
   }
@@ -68,5 +83,7 @@ class AppSettings {
     'maxVolumeEnabled': maxVolumeEnabled,
     'standaloneNoticeDismissed': standaloneNoticeDismissed,
     'lanBackupAutoEnabled': lanBackupAutoEnabled,
+    'unbackedRetention': unbackedRetention.storageValue,
+    'backedRetention': backedRetention.storageValue,
   };
 }

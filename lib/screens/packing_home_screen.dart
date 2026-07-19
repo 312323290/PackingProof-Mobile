@@ -399,7 +399,10 @@ class _CameraArea extends StatelessWidget {
         mirrored: view.frontCameraActive,
       );
     } else if (camera?.value.isInitialized == true) {
-      preview = CameraPreviewCover(controller: camera!);
+      preview = CameraPreviewCover(
+        controller: camera!,
+        mirrored: view.frontCameraActive,
+      );
     } else {
       preview = Image.asset(
         'assets/images/packing-preview.png',
@@ -668,15 +671,24 @@ class _ScanGuidePainter extends CustomPainter {
 }
 
 class CameraPreviewCover extends StatelessWidget {
-  const CameraPreviewCover({required this.controller, super.key});
+  const CameraPreviewCover({
+    required this.controller,
+    this.mirrored = false,
+    super.key,
+  });
 
   final CameraController controller;
+  final bool mirrored;
 
   @override
   Widget build(BuildContext context) {
     return CameraPreviewCoverLayout(
       cameraValue: controller,
-      preview: controller.buildPreview(),
+      preview: Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(mirrored ? -1 : 1, 1, 1),
+        child: controller.buildPreview(),
+      ),
     );
   }
 }

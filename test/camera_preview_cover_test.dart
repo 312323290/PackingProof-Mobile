@@ -99,6 +99,23 @@ void main() {
     );
   });
 
+  testWidgets('前置原生预览默认水平镜像', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: NativeCameraPreviewCover(
+          textureId: 8,
+          sourceSize: Size(1080, 1920),
+          mirrored: true,
+        ),
+      ),
+    );
+
+    final Transform transform = tester.widget<Transform>(find.byType(Transform));
+    expect(transform.transform.storage[0], -1);
+    expect(transform.transform.storage[5], 1);
+  });
+
   test('完整显示模式保留全部源画面', () {
     final PreviewCoverTransform transform = PreviewCoverTransform.contain(
       sourceSize: const Size(1080, 1440),

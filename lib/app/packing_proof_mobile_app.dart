@@ -185,9 +185,10 @@ class StartupNoticeScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
                     Text(
-                      '本项目名为 PackingProof-Mobile（包裹留证），开源且免费\n\n'
-                      '录像和面单号只保存在你的设备中，不会上传到互联网\n\n'
-                      '如需电脑备份，由你主动连接；备份仅在局域网内进行',
+                      'PackingProof-Mobile（包裹留证）\n'
+                      '是一款开源且免费的包裹录像留证工具\n\n'
+                      '录像和面单号仅保存在本机，不会上传到互联网\n\n'
+                      '只有你主动连接电脑后，才会通过局域网备份录像',
                       textAlign: TextAlign.left,
                       style: const TextStyle(fontSize: 15, height: 1.65),
                     ),

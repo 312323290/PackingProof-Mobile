@@ -33,7 +33,7 @@ void main() {
     final Text body = tester.widget<Text>(find.textContaining('开源且免费'));
     expect(body.textAlign, TextAlign.left);
     expect(find.textContaining('开源且免费'), findsOneWidget);
-    expect(find.textContaining('备份仅在局域网内进行'), findsOneWidget);
+    expect(find.textContaining('才会通过局域网备份录像'), findsOneWidget);
   });
 
   testWidgets('单机版首次打开显示相同说明', (WidgetTester tester) async {
@@ -50,7 +50,7 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('备份仅在局域网内进行'), findsOneWidget);
+    expect(find.textContaining('才会通过局域网备份录像'), findsOneWidget);
     expect(find.byKey(const Key('startup-notice-confirm')), findsOneWidget);
   });
 }

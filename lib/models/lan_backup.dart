@@ -12,6 +12,17 @@ enum LanConnectionStatus {
   rePair,
 }
 
+String lanBackupFileIdentity(String path) {
+  final String normalized = path.replaceAll('\\', '/');
+  return normalized.replaceFirst(
+    RegExp(r'^/data/(?:user/0|data)/([^/]+)/'),
+    r'/data/app-private/$1/',
+  );
+}
+
+bool isSameLanBackupFile(String left, String right) =>
+    lanBackupFileIdentity(left) == lanBackupFileIdentity(right);
+
 enum RemoteRecordingStatus { available, deleted, missing }
 
 class LanBackupEndpoint {

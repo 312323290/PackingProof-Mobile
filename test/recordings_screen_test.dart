@@ -269,6 +269,14 @@ void main() {
             ),
             jobs: <LanBackupJob>[
               LanBackupJob(
+                id: 'job-pending',
+                filePath: videoPath,
+                state: LanBackupJobState.pending,
+                uploadedBytes: 0,
+                totalBytes: 1,
+                destinationComputerId: 'computer-1',
+              ),
+              LanBackupJob(
                 id: 'job-1',
                 filePath: videoPath,
                 state: LanBackupJobState.completed,
@@ -303,8 +311,11 @@ void main() {
     await tester.pump();
     expect(find.text('已备份'), findsOneWidget);
     expect(
-      tester.getCenter(find.text('已备份')).dy,
-      greaterThan(tester.getCenter(find.text('本机')).dy),
+      tester.getCenter(find.byKey(const Key('recording-backed-up-chip'))).dy,
+      closeTo(
+        tester.getCenter(find.byKey(const Key('recording-date-duration'))).dy,
+        1,
+      ),
     );
   });
 
@@ -354,13 +365,17 @@ void main() {
     await tester.pump();
     expect(find.text('已备份'), findsOneWidget);
     expect(
-      tester.getCenter(find.text('已备份')).dy,
-      greaterThan(tester.getCenter(find.text('本机')).dy),
+      tester.getCenter(find.byKey(const Key('recording-backed-up-chip'))).dy,
+      closeTo(
+        tester.getCenter(find.byKey(const Key('recording-date-duration'))).dy,
+        1,
+      ),
     );
   });
 
   testWidgets('电脑离线时使用中性状态且不请求远程历史', (WidgetTester tester) async {
     int loadCount = 0;
+    bool? autoBackupEnabled;
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
@@ -385,7 +400,9 @@ void main() {
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
           onMaxVolumeEnabledChanged: (_) async {},
-          onAutoBackupChanged: (_) async {},
+          onAutoBackupChanged: (bool enabled) async {
+            autoBackupEnabled = enabled;
+          },
           onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (_) async {},
@@ -398,13 +415,21 @@ void main() {
     expect(find.text('电脑离线，备份已暂停'), findsOneWidget);
     expect(loadCount, 0);
     expect(find.byType(CircularProgressIndicator), findsNothing);
-    final Switch autoBackupSwitch = tester.widget<Switch>(
-      find.byKey(const Key('auto-backup-switch')),
+    final OutlinedButton autoBackupButton = tester.widget<OutlinedButton>(
+      find.byKey(const Key('auto-backup-button')),
     );
-    expect(autoBackupSwitch.value, isTrue);
-    expect(autoBackupSwitch.onChanged, isNotNull);
-    expect(autoBackupSwitch.thumbColor, isNull);
-    expect(autoBackupSwitch.trackColor, isNull);
+    expect(autoBackupButton.onPressed, isNotNull);
+    expect(find.text('暂停备份'), findsOneWidget);
+    expect(find.byType(Switch), findsNothing);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('delete-computer-button')))
+          .tooltip,
+      '删除电脑',
+    );
+    await tester.tap(find.byKey(const Key('auto-backup-button')));
+    await tester.pump();
+    expect(autoBackupEnabled, isFalse);
   });
 
   testWidgets('删除电脑需要两次确认并显示名称与地址', (WidgetTester tester) async {
@@ -821,6 +846,97 @@ void main() {
       tester.getSize(find.byKey(const Key('recording-thumbnail'))),
       const Size.square(56),
     );
+  });
+
+  testWidgets('已备份标签只匹配当前手机设备', (WidgetTester tester) async {
+    final DateTime startedAt = DateTime(2026, 7, 18, 12);
+    final String videoPath = File('pubspec.yaml').absolute.path;
+    RemoteRecording remote({
+      required int id,
+      required String deviceId,
+      required String code,
+    }) => RemoteRecording(
+      id: id,
+      trackingNumber: code,
+      startedAt: startedAt,
+      duration: const Duration(seconds: 8),
+      sourceType: 'external',
+      sourceDeviceId: deviceId,
+      sourceDeviceName: '手机',
+      sourceSessionId: 'session-1',
+      contentSha256: 'sha-$id',
+      playUri: Uri.parse('http://192.168.1.20/api/videos/$id/play'),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: <RecordingSession>[
+            RecordingSession(
+              id: 'session-1',
+              filePath: videoPath,
+              startedAt: startedAt,
+              endedAt: startedAt.add(const Duration(seconds: 8)),
+              markers: <BarcodeMarker>[
+                BarcodeMarker(
+                  code: 'THIS-PHONE',
+                  occurredAt: startedAt,
+                  offset: Duration.zero,
+                ),
+              ],
+            ),
+          ],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            deviceId: 'this-phone',
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '电脑',
+            ),
+            connectionStatus: LanConnectionStatus.connected,
+          ),
+          onLoadRemoteRecordings:
+              ({required page, required pageSize, keyword = ''}) async =>
+                  RemoteRecordingPage(
+                    data: page == 1
+                        ? <RemoteRecording>[
+                            remote(
+                              id: 1,
+                              deviceId: 'another-phone',
+                              code: 'OTHER-PHONE',
+                            ),
+                            remote(
+                              id: 2,
+                              deviceId: 'this-phone',
+                              code: 'THIS-PHONE',
+                            ),
+                          ]
+                        : const <RemoteRecording>[],
+                    page: page,
+                    pageSize: pageSize,
+                    total: 2,
+                    deviceTotal: 1,
+                  ),
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -460));
+    await tester.pump();
+
+    expect(find.text('THIS-PHONE'), findsOneWidget);
+    expect(find.text('OTHER-PHONE'), findsOneWidget);
+    expect(find.text('已备份'), findsOneWidget);
   });
 
   testWidgets('管理模式可多选并确认删除录像', (WidgetTester tester) async {

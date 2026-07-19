@@ -10,6 +10,23 @@ import 'package:packing_proof_mobile/services/lan_backup_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('Android 私有目录别名会识别为同一个备份文件', () {
+    expect(
+      isSameLanBackupFile(
+        '/data/user/0/app.packingproof.mobile/app_flutter/recordings/a.mp4',
+        '/data/data/app.packingproof.mobile/app_flutter/recordings/a.mp4',
+      ),
+      isTrue,
+    );
+    expect(
+      isSameLanBackupFile(
+        '/data/user/0/app.packingproof.mobile/app_flutter/recordings/a.mp4',
+        '/data/data/app.packingproof.mobile/app_flutter/recordings/b.mp4',
+      ),
+      isFalse,
+    );
+  });
+
   test('接受带访问密钥的局域网电脑二维码', () {
     final LanBackupEndpoint endpoint = LanBackupService.parsePairingQr(
       'http://192.168.1.20:5280/?key=0123456789abcdef',

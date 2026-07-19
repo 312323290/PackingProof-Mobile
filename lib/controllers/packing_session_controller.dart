@@ -1236,13 +1236,21 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> _pruneDeletedBackupSessions({bool notify = true}) async {
-    final Set<String> backedPaths = _lanBackupService.snapshot.jobs
+    final List<LanBackupJob> deletedBackupJobs = _lanBackupService.snapshot.jobs
         .where(
           (LanBackupJob job) =>
               job.state == LanBackupJobState.completed &&
               job.localDeletedAt != null,
         )
-        .map((LanBackupJob job) => job.filePath)
+        .toList(growable: false);
+    final Set<String> backedPaths = _sessions
+        .where(
+          (RecordingSession session) => deletedBackupJobs.any(
+            (LanBackupJob job) =>
+                isSameLanBackupFile(job.filePath, session.filePath),
+          ),
+        )
+        .map((RecordingSession session) => session.filePath)
         .toSet();
     _sessions = await _repository.pruneMissingSessions(
       retainedMissingPaths: backedPaths,

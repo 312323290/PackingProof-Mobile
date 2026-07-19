@@ -69,6 +69,7 @@ internal class LanBackupStateStore(private val context: Context) {
             existing.optLong("lastModified") == file.lastModified() &&
             existing.optString("destinationComputerId") == destinationComputerId
         ) {
+            existing.put("filePath", file.absolutePath)
             existing.put("sessions", sessions)
             if (!existing.has("fileCreatedAt")) {
                 existing.put("fileCreatedAt", Instant.ofEpochMilli(file.lastModified()).toString())
@@ -83,7 +84,7 @@ internal class LanBackupStateStore(private val context: Context) {
         }
         val job = JSONObject()
             .put("id", id)
-            .put("filePath", file.canonicalPath)
+            .put("filePath", file.absolutePath)
             .put("fileName", file.name)
             .put("destinationComputerId", destinationComputerId)
             .put("state", "pending")

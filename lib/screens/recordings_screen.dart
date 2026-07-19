@@ -272,7 +272,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     final Map<String, RemoteRecording> remoteBySession =
         <String, RemoteRecording>{
           for (final RemoteRecording remote in _remoteRecordings)
-            if (remote.sourceSessionId.isNotEmpty)
+            if (remote.sourceSessionId.isNotEmpty &&
+                _isRemoteFromThisDevice(remote))
               remote.sourceSessionId: remote,
         };
     final List<_RecordingListItem> values = _filteredSessions
@@ -300,12 +301,16 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               item.local != null && File(item.local!.filePath).existsSync();
           final bool backedUp =
               (item.remote != null &&
+                  _isRemoteFromThisDevice(item.remote!) &&
                   item.remote!.status == RemoteRecordingStatus.available &&
                   item.remote!.exists) ||
               (item.local != null &&
                   _backupSnapshot.jobs.any(
                     (job) =>
-                        job.filePath == item.local!.filePath &&
+                        isSameLanBackupFile(
+                          job.filePath,
+                          item.local!.filePath,
+                        ) &&
                         _isJobConfirmedAvailable(job),
                   ));
           return switch (_sourceFilter) {
@@ -911,18 +916,25 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                 final bool localAvailable =
                     item.local != null &&
                     File(item.local!.filePath).existsSync();
-                final LanBackupJob? backupJob = item.local == null
-                    ? null
+                final List<LanBackupJob> matchingBackupJobs = item.local == null
+                    ? const <LanBackupJob>[]
                     : _backupSnapshot.jobs
                           .where(
-                            (LanBackupJob job) =>
-                                job.filePath == item.local!.filePath,
+                            (LanBackupJob job) => isSameLanBackupFile(
+                              job.filePath,
+                              item.local!.filePath,
+                            ),
                           )
-                          .firstOrNull;
+                          .toList(growable: false);
                 final bool remoteAvailable =
                     item.remote != null &&
                     item.remote!.status == RemoteRecordingStatus.available &&
                     item.remote!.exists;
+                final LanBackupJob? completedBackupJob = matchingBackupJobs
+                    .where(_isJobKnownAvailable)
+                    .firstOrNull;
+                final LanBackupJob? backupJob =
+                    completedBackupJob ?? matchingBackupJobs.firstOrNull;
                 final bool unavailable = !localAvailable && !remoteAvailable;
                 return Padding(
                   padding: EdgeInsets.only(
@@ -939,7 +951,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         ? '本机'
                         : '电脑',
                     backedUp:
-                        backupJob != null && _isJobKnownAvailable(backupJob),
+                        (remoteAvailable &&
+                            _isRemoteFromThisDevice(item.remote!)) ||
+                        completedBackupJob != null,
                     localThumbnail: localAvailable
                         ? _localThumbnail(session.filePath)
                         : null,
@@ -1039,17 +1053,22 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   bool get _allLocalFilesBackedUp {
     final Set<String> completedPaths = _backupSnapshot.jobs
         .where(_isJobConfirmedAvailable)
-        .map((LanBackupJob job) => job.filePath)
+        .map((LanBackupJob job) => lanBackupFileIdentity(job.filePath))
         .toSet();
-    return _localRecordingPaths.every(completedPaths.contains);
+    return _localRecordingPaths
+        .map(lanBackupFileIdentity)
+        .every(completedPaths.contains);
   }
 
   int get _remainingBackupCount {
     final Set<String> completedPaths = _backupSnapshot.jobs
         .where(_isJobConfirmedAvailable)
-        .map((LanBackupJob job) => job.filePath)
+        .map((LanBackupJob job) => lanBackupFileIdentity(job.filePath))
         .toSet();
-    return _localRecordingPaths.difference(completedPaths).length;
+    return _localRecordingPaths
+        .map(lanBackupFileIdentity)
+        .where((String path) => !completedPaths.contains(path))
+        .length;
   }
 
   void _refreshLocalRecordingStats() {
@@ -1089,6 +1108,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       return false;
     }
     return _isJobKnownAvailable(job);
+  }
+
+  bool _isRemoteFromThisDevice(RemoteRecording recording) {
+    final String deviceId = _backupSnapshot.deviceId.trim();
+    return deviceId.isNotEmpty && recording.sourceDeviceId == deviceId;
   }
 
   bool _isJobKnownAvailable(LanBackupJob job) {
@@ -1535,10 +1559,16 @@ class _ComputerBackupSettings extends StatelessWidget {
                     ),
                   ),
                 ),
-                Switch(
-                  key: const Key('auto-backup-switch'),
-                  value: snapshot.autoEnabled,
-                  onChanged: onAutoChanged,
+                const SizedBox(width: 8),
+                IconButton.outlined(
+                  key: const Key('delete-computer-button'),
+                  tooltip: '删除电脑',
+                  style: IconButton.styleFrom(
+                    foregroundColor: const Color(0xFFC43D32),
+                    side: const BorderSide(color: Color(0xFFC43D32)),
+                  ),
+                  onPressed: onDisconnect,
+                  icon: const Icon(Icons.delete_outline_rounded),
                 ),
               ],
             ),
@@ -1635,13 +1665,16 @@ class _ComputerBackupSettings extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
-                    key: const Key('delete-computer-button'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFFC43D32),
+                    key: const Key('auto-backup-button'),
+                    onPressed: onAutoChanged == null
+                        ? null
+                        : () => onAutoChanged!(!snapshot.autoEnabled),
+                    icon: Icon(
+                      snapshot.autoEnabled
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
                     ),
-                    onPressed: onDisconnect,
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    label: const Text('删除电脑'),
+                    label: Text(snapshot.autoEnabled ? '暂停备份' : '继续备份'),
                   ),
                 ),
               ],
@@ -2027,20 +2060,12 @@ class _RecordingTile extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: <Widget>[
-                              _StatusChip(
-                                label: sourceLabel,
-                                tone: sourceLabel == '电脑'
-                                    ? _StatusChipTone.computer
-                                    : _StatusChipTone.local,
-                              ),
-                              if (backedUp) ...<Widget>[
-                                const SizedBox(height: 4),
-                                const _StatusChip(label: '已备份'),
-                              ],
-                            ],
+                          _StatusChip(
+                            key: const Key('recording-source-chip'),
+                            label: sourceLabel,
+                            tone: sourceLabel == '电脑'
+                                ? _StatusChipTone.computer
+                                : _StatusChipTone.local,
                           ),
                         ],
                       ),
@@ -2049,6 +2074,7 @@ class _RecordingTile extends StatelessWidget {
                         children: <Widget>[
                           Expanded(
                             child: Text(
+                              key: const Key('recording-date-duration'),
                               '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -2058,7 +2084,13 @@ class _RecordingTile extends StatelessWidget {
                               ),
                             ),
                           ),
-                          if (backupJob != null &&
+                          if (backedUp) ...<Widget>[
+                            const SizedBox(width: 8),
+                            const _StatusChip(
+                              key: Key('recording-backed-up-chip'),
+                              label: '已备份',
+                            ),
+                          ] else if (backupJob != null &&
                               backupJob!.state !=
                                   LanBackupJobState.completed) ...[
                             const SizedBox(width: 8),
@@ -2156,6 +2188,7 @@ class _StatusChip extends StatelessWidget {
     required this.label,
     this.error = false,
     this.tone = _StatusChipTone.neutral,
+    super.key,
   });
 
   final String label;

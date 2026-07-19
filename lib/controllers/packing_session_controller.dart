@@ -51,7 +51,7 @@ class PackingSessionController extends ChangeNotifier {
 
   static const Duration analysisInterval = Duration(milliseconds: 200);
   static const Duration transitionSettleDelay = Duration(milliseconds: 120);
-  static const Duration initialReadyPromptDelay = Duration(milliseconds: 700);
+  static const Duration initialReadyPromptDelay = Duration(milliseconds: 250);
   static const int recordingFps = 30;
 
   final SessionRepository _repository;
@@ -847,13 +847,22 @@ class PackingSessionController extends ChangeNotifier {
       case BarcodeWorkAction.startNextVideo:
         _handlingBarcode = true;
         try {
-          final BarcodeMarker? marker = Platform.isAndroid
-              ? await _splitNativeRecording(code)
-              : _startNextTimelineSegment(code, now);
-          if (marker != null) {
+          bool announced = false;
+          void announceSegmentStarted(BarcodeMarker marker) {
+            announced = true;
             _speechService.resolveIncident(SpeechPrompt.segmentSaveFailed.name);
             _speechService.enqueue(SpeechPrompt.recordingStarted);
             _showMarkerFeedback(marker);
+          }
+
+          final BarcodeMarker? marker = Platform.isAndroid
+              ? await _splitNativeRecording(
+                  code,
+                  onSegmentStarted: announceSegmentStarted,
+                )
+              : _startNextTimelineSegment(code, now);
+          if (marker != null && !announced) {
+            announceSegmentStarted(marker);
           }
         } on Object catch (error) {
           _errorMessage = '录像分段保存失败\n$error';
@@ -871,7 +880,10 @@ class PackingSessionController extends ChangeNotifier {
     }
   }
 
-  Future<BarcodeMarker?> _splitNativeRecording(String code) async {
+  Future<BarcodeMarker?> _splitNativeRecording(
+    String code, {
+    required void Function(BarcodeMarker marker) onSegmentStarted,
+  }) async {
     final ContinuousCameraService? camera = _nativeCamera;
     final String? recordingId = _recordingId;
     final String? completedId = _activeSegmentId;
@@ -891,6 +903,7 @@ class PackingSessionController extends ChangeNotifier {
       throw StateError('录像时间线无法开始下一段');
     }
     _resetSegmentElapsed();
+    onSegmentStarted(transition.marker);
     final String savedPath = await _repository.finalizeVideo(
       sourcePath: split.completedPath,
       sessionId: completedId,

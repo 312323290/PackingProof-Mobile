@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -146,6 +147,30 @@ void main() {
     expect(output.assets, hasLength(2));
     await service.dispose();
   });
+
+  test('开始录制会打断仍在播放的准备就绪', () async {
+    final _InterruptibleSpeechOutput output = _InterruptibleSpeechOutput();
+    final SpeechPromptService service = SpeechPromptService(
+      output: output,
+      edgeGenerator: _FakeEdgeGenerator(null),
+      cache: SpeechPromptCache.inDirectory(root),
+      assetBundle: _PresentAssetBundle(),
+    );
+
+    service.enqueue(SpeechPrompt.ready);
+    while (output.assets.isEmpty) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    service.enqueue(SpeechPrompt.recordingStarted);
+    await service.waitUntilIdle();
+
+    expect(output.assets, <String>[
+      SpeechPrompt.ready.audioPlayerAssetPath,
+      SpeechPrompt.recordingStarted.audioPlayerAssetPath,
+    ]);
+    expect(output.stopCount, greaterThanOrEqualTo(1));
+    await service.dispose();
+  });
 }
 
 Uint8List _mp3Bytes(int payloadLength) => Uint8List.fromList(<int>[
@@ -178,6 +203,25 @@ class _FakeSpeechOutput implements SpeechOutput {
 
   @override
   Future<void> dispose() async {}
+}
+
+class _InterruptibleSpeechOutput extends _FakeSpeechOutput {
+  final Completer<void> _readyPlayback = Completer<void>();
+  int stopCount = 0;
+
+  @override
+  Future<void> playAsset(String assetPath) async {
+    assets.add(assetPath);
+    if (assetPath == SpeechPrompt.ready.audioPlayerAssetPath) {
+      await _readyPlayback.future;
+    }
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCount++;
+    if (!_readyPlayback.isCompleted) _readyPlayback.complete();
+  }
 }
 
 class _FakeEdgeGenerator implements EdgeSpeechGenerator {

@@ -69,6 +69,7 @@ class SpeechPromptService implements SpeechPromptSink {
   bool _enabled = true;
   bool _draining = false;
   bool _disposed = false;
+  SpeechPrompt? _activePrompt;
 
   @override
   bool get enabled => _enabled;
@@ -100,6 +101,21 @@ class SpeechPromptService implements SpeechPromptSink {
         (SpeechPrompt queued) => queued.priority == SpeechPromptPriority.normal,
       );
       unawaited(_output.stop());
+    } else if (prompt == SpeechPrompt.recordingStarted) {
+      _queue.removeWhere((SpeechPrompt queued) => queued == SpeechPrompt.ready);
+      if (_activePrompt == SpeechPrompt.ready) {
+        unawaited(_output.stop());
+      }
+    } else if (prompt == SpeechPrompt.recordingStopped) {
+      _queue.removeWhere(
+        (SpeechPrompt queued) =>
+            queued == SpeechPrompt.ready ||
+            queued == SpeechPrompt.recordingStarted,
+      );
+      if (_activePrompt == SpeechPrompt.ready ||
+          _activePrompt == SpeechPrompt.recordingStarted) {
+        unawaited(_output.stop());
+      }
     }
     _queue.add(prompt);
     unawaited(_drain());
@@ -138,7 +154,12 @@ class SpeechPromptService implements SpeechPromptSink {
     try {
       while (_queue.isNotEmpty && !_disposed && _enabled) {
         final SpeechPrompt prompt = _queue.removeFirst();
-        await _playWithFallback(prompt);
+        _activePrompt = prompt;
+        try {
+          await _playWithFallback(prompt);
+        } finally {
+          if (_activePrompt == prompt) _activePrompt = null;
+        }
       }
     } finally {
       _draining = false;
@@ -182,10 +203,7 @@ class SpeechPromptService implements SpeechPromptSink {
     }
 
     try {
-      await _output.speakSystem(
-        prompt.text,
-        offlineOnly: offlineSystemTtsOnly,
-      );
+      await _output.speakSystem(prompt.text, offlineOnly: offlineSystemTtsOnly);
     } on Object {
       // Speech must never interrupt or fail the recording workflow.
     }
@@ -330,8 +348,8 @@ class DeviceSpeechOutput implements SpeechOutput {
         }
         final String locale = '${value['locale'] ?? ''}'.toLowerCase();
         final Object? networkValue = value['network_required'];
-        final bool requiresNetwork = networkValue == true ||
-            '$networkValue'.toLowerCase() == 'true';
+        final bool requiresNetwork =
+            networkValue == true || '$networkValue'.toLowerCase() == 'true';
         if (locale.startsWith('zh') && !requiresNetwork) {
           selected = value;
           break;

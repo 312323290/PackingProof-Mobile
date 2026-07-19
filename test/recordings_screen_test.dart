@@ -135,6 +135,13 @@ void main() {
     });
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(58),
+            ),
+          ),
+        ),
         home: RecordingsScreen(
           sessions: const [],
           workMode: WorkMode.continuousScan,
@@ -155,6 +162,21 @@ void main() {
     expect(find.byKey(const Key('computer-backup-settings')), findsOneWidget);
     expect(find.text('电脑备份'), findsOneWidget);
     expect(find.text('连接'), findsOneWidget);
+    expect(tester.getSize(find.text('电脑备份')).height, lessThan(32));
+    final Rect connectButtonRect = tester.getRect(
+      find.byKey(const Key('connect-computer-button')),
+    );
+    final Rect hintRect = tester.getRect(find.text('扫描电脑二维码后自动备份'));
+    expect(connectButtonRect.height, 54);
+    expect(connectButtonRect.width, lessThan(104));
+    expect(connectButtonRect.top, lessThanOrEqualTo(hintRect.top));
+    expect(connectButtonRect.bottom, greaterThanOrEqualTo(hintRect.bottom));
+    expect(
+      connectButtonRect.right,
+      lessThanOrEqualTo(
+        tester.getRect(find.byKey(const Key('computer-backup-settings'))).right,
+      ),
+    );
     expect(
       tester.widget(find.byKey(const Key('connect-computer-button'))),
       isA<FilledButton>(),

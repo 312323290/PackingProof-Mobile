@@ -1375,20 +1375,49 @@ class _ComputerBackupSettings extends StatelessWidget {
           Row(
             children: <Widget>[
               Expanded(
-                child: Text(
-                  '电脑备份',
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Text(
+                      '电脑备份',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (!paired && status != null) ...<Widget>[
+                      const SizedBox(height: 6),
+                      Text(
+                        status,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF69716E),
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
+              if (!paired) const SizedBox(width: 12),
               if (!paired)
-                FilledButton.icon(
-                  key: const Key('connect-computer-button'),
-                  onPressed: onConnect,
-                  icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
-                  label: const Text('连接'),
+                SizedBox(
+                  height: 54,
+                  child: Theme(
+                    data: Theme.of(context).copyWith(
+                      filledButtonTheme: const FilledButtonThemeData(),
+                    ),
+                    child: FilledButton.icon(
+                      key: const Key('connect-computer-button'),
+                      onPressed: onConnect,
+                      icon: const Icon(Icons.qr_code_scanner_rounded),
+                      label: const Text('连接'),
+                    ),
+                  ),
                 ),
               if (paired) ...<Widget>[
                 Container(
@@ -1442,7 +1471,7 @@ class _ComputerBackupSettings extends StatelessWidget {
             ),
             const SizedBox(height: 5),
           ],
-          if (status != null)
+          if (status != null && paired)
             Text(
               status,
               maxLines: 2,

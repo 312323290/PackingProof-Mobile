@@ -85,22 +85,32 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     if (!mounted) {
       return;
     }
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
+    final bool? connectComputer = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
         builder: (BuildContext context) => RecordingsScreen(
           sessions: _controller.sessions,
           workMode: _controller.workMode,
           speechEnabled: _controller.speechEnabled,
           maxVolumeEnabled: _controller.maxVolumeEnabled,
+          backupSnapshot: _controller.backupSnapshot,
+          backupListenable: _controller,
+          backupSnapshotProvider: () => _controller.backupSnapshot,
           onWorkModeChanged: _controller.setWorkMode,
           onSpeechEnabledChanged: _controller.setSpeechEnabled,
           onMaxVolumeEnabledChanged: _controller.setMaxVolumeEnabled,
+          onAutoBackupChanged: _controller.setLanBackupAutoEnabled,
+          onBackupNow: _controller.backupAllSessions,
+          onDisconnectBackup: _controller.disconnectBackup,
+          onRetryBackup: _controller.retryBackup,
           onSpeechPreview: _controller.previewSpeech,
           onSessionUpdated: _controller.updateSession,
           onDeleteSessions: _controller.deleteSessions,
         ),
       ),
     );
+    if (connectComputer == true && mounted) {
+      _controller.beginComputerPairing();
+    }
   }
 
   @override
@@ -119,6 +129,9 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
           currentCode: _controller.currentCode,
           workMode: _controller.workMode,
           errorMessage: _controller.errorMessage,
+          pairingScanActive: _controller.pairingScanActive,
+          pairingMessage: _controller.pairingMessage,
+          onPairingCancel: _controller.cancelComputerPairing,
           onPrimaryPressed: _toggleWork,
           onRetryPressed: _controller.retryInitialize,
           onRecordingsPressed: _openRecordings,
@@ -143,6 +156,9 @@ class PackingHomeView extends StatelessWidget {
     this.currentCode = '',
     this.workMode = WorkMode.continuousScan,
     this.errorMessage,
+    this.pairingScanActive = false,
+    this.pairingMessage,
+    this.onPairingCancel,
     this.previewOverride,
     super.key,
   });
@@ -157,6 +173,9 @@ class PackingHomeView extends StatelessWidget {
   final String currentCode;
   final WorkMode workMode;
   final String? errorMessage;
+  final bool pairingScanActive;
+  final String? pairingMessage;
+  final VoidCallback? onPairingCancel;
   final VoidCallback onPrimaryPressed;
   final VoidCallback onRetryPressed;
   final VoidCallback onRecordingsPressed;
@@ -311,7 +330,55 @@ class _CameraArea extends StatelessWidget {
                 ),
               ),
             ),
+          if (view.pairingScanActive)
+            Positioned(
+              left: 20,
+              right: 20,
+              top: 24,
+              child: _ComputerPairingBanner(
+                message: view.pairingMessage ?? '扫描电脑二维码',
+                onCancel: view.onPairingCancel,
+              ),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+class _ComputerPairingBanner extends StatelessWidget {
+  const _ComputerPairingBanner({required this.message, this.onCancel});
+
+  final String message;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xE6000000),
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+        child: Row(
+          children: <Widget>[
+            const Icon(Icons.qr_code_scanner_rounded, color: Colors.white),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: onCancel,
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: const Text('取消'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -602,7 +669,11 @@ class _ControlPanel extends StatelessWidget {
             const SizedBox(height: 5),
           ] else ...<Widget>[
             Text(
-              isError ? (view.errorMessage ?? '请重新检查摄像头权限') : '对准面单条码',
+              view.pairingScanActive
+                  ? '正在连接电脑'
+                  : isError
+                  ? (view.errorMessage ?? '请重新检查摄像头权限')
+                  : '对准面单条码',
               maxLines: 1,
               textAlign: TextAlign.center,
               overflow: TextOverflow.ellipsis,
@@ -617,7 +688,8 @@ class _ControlPanel extends StatelessWidget {
           _PrimaryWorkButton(view: view, isError: isError),
           const SizedBox(height: 1),
           TextButton(
-            onPressed: view._isRecording || view._isBusy
+            onPressed:
+                view._isRecording || view._isBusy || view.pairingScanActive
                 ? null
                 : view.onRecordingsPressed,
             style: TextButton.styleFrom(
@@ -695,7 +767,7 @@ class _PrimaryWorkButtonState extends State<_PrimaryWorkButton>
     final PackingHomeView view = widget.view;
     return FilledButton(
       key: const Key('primary-work-button'),
-      onPressed: view._isBusy
+      onPressed: view._isBusy || view.pairingScanActive
           ? null
           : widget.isError
           ? view.onRetryPressed

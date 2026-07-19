@@ -10,6 +10,7 @@ class MainActivity : FlutterActivity() {
     private var continuousCameraPlugin: ContinuousCameraPlugin? = null
     private var maxVolumeController: MaxVolumeController? = null
     private var maxVolumeChannel: MethodChannel? = null
+    private var lanBackupPlugin: LanBackupPlugin? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -22,6 +23,10 @@ class MainActivity : FlutterActivity() {
             activity = this,
             messenger = flutterEngine.dartExecutor.binaryMessenger,
             textures = flutterEngine.renderer,
+        )
+        lanBackupPlugin = LanBackupPlugin(
+            this,
+            flutterEngine.dartExecutor.binaryMessenger,
         )
         maxVolumeController = MaxVolumeController(this)
         maxVolumeChannel = MethodChannel(
@@ -70,6 +75,8 @@ class MainActivity : FlutterActivity() {
         maxVolumeChannel = null
         maxVolumeController?.dispose()
         maxVolumeController = null
+        lanBackupPlugin?.dispose()
+        lanBackupPlugin = null
         super.onDestroy()
     }
 

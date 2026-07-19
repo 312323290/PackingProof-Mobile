@@ -153,6 +153,12 @@ class ContinuousCameraService {
     return NativeRecordingStop.fromMap(values);
   }
 
+  Future<void> setPairingScanEnabled(bool enabled) async {
+    await _channel.invokeMethod<void>('setPairingScanEnabled', <String, Object>{
+      'enabled': enabled,
+    });
+  }
+
   Future<void> dispose() async {
     onBarcodeFrame = null;
     onError = null;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app/packing_proof_mobile_app.dart';
+import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/work_mode.dart';
 import 'video_playback_screen.dart';
@@ -17,6 +18,13 @@ class RecordingsScreen extends StatefulWidget {
     required this.onSpeechPreview,
     required this.onSessionUpdated,
     required this.onDeleteSessions,
+    this.backupSnapshot = const LanBackupSnapshot(),
+    this.backupListenable,
+    this.backupSnapshotProvider,
+    this.onAutoBackupChanged,
+    this.onBackupNow,
+    this.onDisconnectBackup,
+    this.onRetryBackup,
     super.key,
   });
 
@@ -30,6 +38,13 @@ class RecordingsScreen extends StatefulWidget {
   final Future<void> Function() onSpeechPreview;
   final Future<void> Function(RecordingSession session) onSessionUpdated;
   final Future<void> Function(Set<String> sessionIds) onDeleteSessions;
+  final LanBackupSnapshot backupSnapshot;
+  final Listenable? backupListenable;
+  final LanBackupSnapshot Function()? backupSnapshotProvider;
+  final Future<void> Function(bool enabled)? onAutoBackupChanged;
+  final Future<void> Function()? onBackupNow;
+  final Future<void> Function()? onDisconnectBackup;
+  final Future<void> Function(String jobId)? onRetryBackup;
 
   @override
   State<RecordingsScreen> createState() => _RecordingsScreenState();
@@ -40,6 +55,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late bool _speechEnabled;
   late bool _maxVolumeEnabled;
   late List<RecordingSession> _sessions;
+  late LanBackupSnapshot _backupSnapshot;
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
   String _query = '';
@@ -70,12 +86,25 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _speechEnabled = widget.speechEnabled;
     _maxVolumeEnabled = widget.maxVolumeEnabled;
     _sessions = List<RecordingSession>.of(widget.sessions);
+    _backupSnapshot = widget.backupSnapshot;
+    widget.backupListenable?.addListener(_refreshBackupSnapshot);
   }
 
   @override
   void dispose() {
+    widget.backupListenable?.removeListener(_refreshBackupSnapshot);
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _refreshBackupSnapshot() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _backupSnapshot =
+          widget.backupSnapshotProvider?.call() ?? widget.backupSnapshot;
+    });
   }
 
   Future<void> _setWorkMode(WorkMode mode) async {
@@ -224,6 +253,15 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             enabled: _maxVolumeEnabled,
             onChanged: _setMaxVolumeEnabled,
           ),
+          const SizedBox(height: 12),
+          _ComputerBackupSettings(
+            snapshot: _backupSnapshot,
+            onConnect: () => Navigator.of(context).pop(true),
+            onAutoChanged: widget.onAutoBackupChanged,
+            onBackupNow: widget.onBackupNow,
+            onDisconnect: widget.onDisconnectBackup,
+            onRetry: widget.onRetryBackup,
+          ),
           const SizedBox(height: 20),
           SearchBar(
             key: const Key('recording-search'),
@@ -282,6 +320,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                 ),
                 child: _RecordingTile(
                   session: session,
+                  backupJob: _backupSnapshot.jobs
+                      .where(
+                        (LanBackupJob job) => job.filePath == session.filePath,
+                      )
+                      .firstOrNull,
                   managing: _managing,
                   selected: _selectedIds.contains(session.id),
                   onTap: () {
@@ -314,6 +357,115 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               ),
             )
           : null,
+    );
+  }
+}
+
+class _ComputerBackupSettings extends StatelessWidget {
+  const _ComputerBackupSettings({
+    required this.snapshot,
+    required this.onConnect,
+    this.onAutoChanged,
+    this.onBackupNow,
+    this.onDisconnect,
+    this.onRetry,
+  });
+
+  final LanBackupSnapshot snapshot;
+  final VoidCallback onConnect;
+  final Future<void> Function(bool enabled)? onAutoChanged;
+  final Future<void> Function()? onBackupNow;
+  final Future<void> Function()? onDisconnect;
+  final Future<void> Function(String jobId)? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final LanBackupJob? active = snapshot.jobs.cast<LanBackupJob?>().firstWhere(
+      (LanBackupJob? job) => job?.state == LanBackupJobState.uploading,
+      orElse: () => null,
+    );
+    final LanBackupJob? failed = snapshot.jobs.cast<LanBackupJob?>().firstWhere(
+      (LanBackupJob? job) => job?.state == LanBackupJobState.failed,
+      orElse: () => null,
+    );
+    final String status = !snapshot.connected
+        ? '扫描电脑二维码后自动备份'
+        : active != null
+        ? '正在备份 ${(active.progress * 100).round()}%'
+        : failed != null
+        ? (failed.errorMessage ?? '备份失败')
+        : snapshot.pendingCount > 0
+        ? '还有 ${snapshot.pendingCount} 个录像待备份'
+        : '已连接 ${snapshot.endpoint!.computerName}';
+
+    return Container(
+      key: const Key('computer-backup-settings'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F6F4),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Expanded(
+                child: Text(
+                  '电脑备份',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+              ),
+              if (snapshot.connected)
+                Switch(
+                  key: const Key('auto-backup-switch'),
+                  value: snapshot.autoEnabled,
+                  onChanged: onAutoChanged,
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            status,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF69716E),
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          if (active != null) ...<Widget>[
+            const SizedBox(height: 10),
+            LinearProgressIndicator(value: active.progress),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: <Widget>[
+              if (!snapshot.connected)
+                FilledButton.tonalIcon(
+                  key: const Key('connect-computer-button'),
+                  onPressed: onConnect,
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
+                  label: const Text('连接电脑'),
+                )
+              else ...<Widget>[
+                TextButton(onPressed: onBackupNow, child: const Text('立即备份')),
+                if (failed != null)
+                  TextButton(
+                    onPressed: onRetry == null
+                        ? null
+                        : () => onRetry!(failed.id),
+                    child: const Text('重试'),
+                  ),
+                TextButton(onPressed: onDisconnect, child: const Text('断开')),
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -549,12 +701,14 @@ class _RecordingTile extends StatelessWidget {
     required this.managing,
     required this.selected,
     required this.onTap,
+    this.backupJob,
   });
 
   final RecordingSession session;
   final bool managing;
   final bool selected;
   final VoidCallback onTap;
+  final LanBackupJob? backupJob;
 
   @override
   Widget build(BuildContext context) {
@@ -597,6 +751,19 @@ class _RecordingTile extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
+                    if (backupJob != null) ...<Widget>[
+                      const SizedBox(height: 5),
+                      Text(
+                        _backupLabel(backupJob!),
+                        style: TextStyle(
+                          color: backupJob!.state == LanBackupJobState.failed
+                              ? const Color(0xFFD92D20)
+                              : PackingProofMobileApp.forest,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 5),
                     Text(
                       '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
@@ -620,6 +787,14 @@ class _RecordingTile extends StatelessWidget {
     );
   }
 }
+
+String _backupLabel(LanBackupJob job) => switch (job.state) {
+  LanBackupJobState.pending => '待备份',
+  LanBackupJobState.uploading => '备份中 ${(job.progress * 100).round()}%',
+  LanBackupJobState.paused => '等待续传',
+  LanBackupJobState.completed => '已备份',
+  LanBackupJobState.failed => '备份失败',
+};
 
 String _dateTime(DateTime value) {
   return '${value.month}月${value.day}日 ${_two(value.hour)}:${_two(value.minute)}';

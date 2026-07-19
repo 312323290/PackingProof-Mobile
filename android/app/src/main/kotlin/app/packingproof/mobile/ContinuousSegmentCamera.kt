@@ -123,6 +123,7 @@ class ContinuousSegmentCamera(
     private var audioToVideoPtsOffsetUs: Long? = null
 
     private var scannerBusy = false
+    private var pairingScanEnabled = false
     private var lastAnalysisElapsedMs = 0L
 
     fun initialize(result: MethodChannel.Result) {
@@ -584,7 +585,7 @@ class ContinuousSegmentCamera(
 
     private fun analyzeImage(reader: ImageReader) {
         val image = reader.acquireLatestImage() ?: return
-        if (!recordingActive || scannerBusy || SystemClock.elapsedRealtime() - lastAnalysisElapsedMs < ANALYSIS_INTERVAL_MS) {
+        if ((!recordingActive && !pairingScanEnabled) || scannerBusy || SystemClock.elapsedRealtime() - lastAnalysisElapsedMs < ANALYSIS_INTERVAL_MS) {
             image.close()
             return
         }
@@ -612,6 +613,10 @@ class ContinuousSegmentCamera(
             image.close()
             scannerBusy = false
         }
+    }
+
+    fun setPairingScanEnabled(enabled: Boolean) {
+        pairingScanEnabled = enabled
     }
 
     private fun startAudioPipeline() {

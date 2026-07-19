@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/models/barcode_marker.dart';
+import 'package:packing_proof_mobile/models/lan_backup.dart';
 import 'package:packing_proof_mobile/models/recording_session.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/screens/recordings_screen.dart';
@@ -107,6 +108,30 @@ void main() {
     expect(enabled, isFalse);
   });
 
+  testWidgets('电脑备份未连接时提供扫码入口', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: const LanBackupSnapshot(),
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('computer-backup-settings')), findsOneWidget);
+    expect(find.text('电脑备份'), findsOneWidget);
+    expect(find.text('连接电脑'), findsOneWidget);
+  });
+
   testWidgets('录像卡片不重复显示内部识别标记数量', (WidgetTester tester) async {
     final DateTime startedAt = DateTime(2026, 7, 18, 12);
     await tester.pumpWidget(
@@ -140,6 +165,8 @@ void main() {
       ),
     );
 
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pump();
     expect(find.text('CODE-001'), findsOneWidget);
     expect(find.textContaining('00:08'), findsOneWidget);
     expect(find.textContaining('个标记'), findsNothing);
@@ -174,6 +201,8 @@ void main() {
       ),
       'SF9876',
     );
+    await tester.pump();
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
     await tester.pump();
 
     expect(find.text('SF9876543210'), findsOneWidget);

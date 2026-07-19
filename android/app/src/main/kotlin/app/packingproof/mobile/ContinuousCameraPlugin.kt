@@ -48,6 +48,10 @@ class ContinuousCameraPlugin(
                 }
             }
             "stopWork" -> engine.stopWork(result)
+            "setPairingScanEnabled" -> {
+                engine.setPairingScanEnabled(call.argument<Boolean>("enabled") == true)
+                result.success(null)
+            }
             "dispose" -> {
                 engine.dispose()
                 engine = createEngine()

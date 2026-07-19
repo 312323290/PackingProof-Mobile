@@ -9,6 +9,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/barcode_marker.dart';
 import '../models/app_settings.dart';
+import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/speech_prompt.dart';
 import '../models/work_mode.dart';
@@ -17,6 +18,7 @@ import '../services/barcode_stability_tracker.dart';
 import '../services/barcode_work_mode_policy.dart';
 import '../services/continuous_camera_service.dart';
 import '../services/initial_recording_prompt_policy.dart';
+import '../services/lan_backup_service.dart';
 import '../services/max_volume_service.dart';
 import '../services/nv21_center_crop.dart';
 import '../services/recording_timeline.dart';
@@ -37,9 +39,11 @@ class PackingSessionController extends ChangeNotifier {
     SessionRepository? repository,
     SpeechPromptSink? speechService,
     MaxVolumeSink? maxVolumeService,
+    LanBackupSink? lanBackupService,
   }) : _repository = repository ?? SessionRepository(),
        _speechService = speechService ?? SpeechPromptService(),
        _maxVolumeService = maxVolumeService ?? MaxVolumeService(),
+       _lanBackupService = lanBackupService ?? LanBackupService(),
        _barcodeScanner = BarcodeScanner(
          formats: const <BarcodeFormat>[BarcodeFormat.all],
        );
@@ -52,6 +56,7 @@ class PackingSessionController extends ChangeNotifier {
   final SessionRepository _repository;
   final SpeechPromptSink _speechService;
   final MaxVolumeSink _maxVolumeService;
+  final LanBackupSink _lanBackupService;
   final BarcodeScanner _barcodeScanner;
   final BarcodeStabilityTracker _stabilityTracker = BarcodeStabilityTracker();
   final RecordingTimeline _timeline = RecordingTimeline();
@@ -78,6 +83,10 @@ class PackingSessionController extends ChangeNotifier {
   bool _processingFrame = false;
   bool _handlingBarcode = false;
   bool _disposed = false;
+  bool _pairingScanActive = false;
+  bool _pairingBusy = false;
+  bool _backupListenerAttached = false;
+  String? _pairingMessage;
   String? _recordingId;
   String? _activeSegmentId;
   int _segmentIndex = 1;
@@ -95,6 +104,9 @@ class PackingSessionController extends ChangeNotifier {
   WorkMode get workMode => _workMode;
   bool get speechEnabled => _speechEnabled;
   bool get maxVolumeEnabled => _maxVolumeEnabled;
+  LanBackupSnapshot get backupSnapshot => _lanBackupService.snapshot;
+  bool get pairingScanActive => _pairingScanActive;
+  String? get pairingMessage => _pairingMessage;
   String? get errorMessage => _errorMessage;
   bool get isRecording => _phase == PackingSessionPhase.recording;
   bool get isBusy =>
@@ -121,6 +133,16 @@ class PackingSessionController extends ChangeNotifier {
       _workMode = settings.workMode;
       _speechEnabled = settings.speechEnabled;
       _maxVolumeEnabled = settings.maxVolumeEnabled;
+      if (!_backupListenerAttached) {
+        _lanBackupService.addListener(_handleBackupChanged);
+        _backupListenerAttached = true;
+      }
+      await _lanBackupService.initialize(
+        autoEnabled: settings.lanBackupAutoEnabled,
+      );
+      if (_lanBackupService.snapshot.autoEnabled) {
+        unawaited(_lanBackupService.backupAll(_sessions));
+      }
       await _speechService.setEnabled(_speechEnabled);
       await _beginMaxVolumeIfNeeded();
       if (Platform.isAndroid) {
@@ -287,6 +309,36 @@ class PackingSessionController extends ChangeNotifier {
     await _repository.saveMaxVolumeEnabled(enabled);
   }
 
+  Future<void> setLanBackupAutoEnabled(bool enabled) async {
+    await _lanBackupService.setAutoEnabled(enabled);
+    await _repository.saveLanBackupAutoEnabled(enabled);
+  }
+
+  void beginComputerPairing() {
+    if (isRecording || isBusy) {
+      return;
+    }
+    _pairingScanActive = true;
+    _pairingMessage = '将电脑上的二维码放入框内';
+    _stabilityTracker.reset();
+    unawaited(_nativeCamera?.setPairingScanEnabled(true));
+    notifyListeners();
+  }
+
+  void cancelComputerPairing() {
+    _pairingScanActive = false;
+    _pairingBusy = false;
+    _pairingMessage = null;
+    unawaited(_nativeCamera?.setPairingScanEnabled(false));
+    notifyListeners();
+  }
+
+  Future<void> backupAllSessions() => _lanBackupService.backupAll(_sessions);
+
+  Future<void> disconnectBackup() => _lanBackupService.disconnect();
+
+  Future<void> retryBackup(String jobId) => _lanBackupService.retry(jobId);
+
   Future<void> previewSpeech() => _speechService.preview();
 
   Future<void> _startRecording() async {
@@ -358,6 +410,7 @@ class PackingSessionController extends ChangeNotifier {
       recordingId: sessionId,
     );
     _sessions = await _repository.addSessions(sessions);
+    await _enqueueBackupIfNeeded(savedPath, sessions);
     _elapsed = endedAt.difference(startedAt);
     _timeline.reset();
     return sessions;
@@ -379,6 +432,9 @@ class PackingSessionController extends ChangeNotifier {
       draft: draft,
     );
     _sessions = await _repository.addSession(session);
+    if (_lanBackupService.snapshot.autoEnabled) {
+      await _lanBackupService.backupAll(_sessions);
+    }
     _elapsed = stopped.endedAt.difference(_timeline.recordingStartedAt!);
     _timeline.reset();
     _recordingId = null;
@@ -474,6 +530,15 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   void _processNativeBarcodeFrame(List<NativeBarcodeCandidate> candidates) {
+    if (_pairingScanActive) {
+      if (!_pairingBusy) {
+        for (final NativeBarcodeCandidate candidate in candidates) {
+          unawaited(_tryPairComputer(candidate.value));
+          break;
+        }
+      }
+      return;
+    }
     if (!isRecording || !_timeline.isActive) {
       return;
     }
@@ -761,6 +826,50 @@ class PackingSessionController extends ChangeNotifier {
     _showMarkerFeedback(marker);
   }
 
+  Future<void> _tryPairComputer(String value) async {
+    if (_pairingBusy || !_pairingScanActive) {
+      return;
+    }
+    _pairingBusy = true;
+    try {
+      await _lanBackupService.pair(value);
+      _pairingScanActive = false;
+      await _nativeCamera?.setPairingScanEnabled(false);
+      _pairingMessage = '电脑已连接';
+      await _lanBackupService.backupAll(_sessions);
+      notifyListeners();
+    } on FormatException {
+      // Ignore ordinary waybill barcodes while waiting for a computer QR code.
+    } on Object catch (error) {
+      _pairingScanActive = false;
+      await _nativeCamera?.setPairingScanEnabled(false);
+      _pairingMessage = error.toString().replaceFirst('Exception: ', '');
+      notifyListeners();
+    } finally {
+      _pairingBusy = false;
+    }
+  }
+
+  Future<void> _enqueueBackupIfNeeded(
+    String filePath,
+    List<RecordingSession> sessions,
+  ) async {
+    if (!_lanBackupService.snapshot.autoEnabled) {
+      return;
+    }
+    try {
+      await _lanBackupService.enqueueFinalizedFile(filePath, sessions);
+    } on Object {
+      // A saved local recording must never fail because its backup is offline.
+    }
+  }
+
+  void _handleBackupChanged() {
+    if (!_disposed) {
+      notifyListeners();
+    }
+  }
+
   void _beginInitialPromptFlow() {
     _initialPromptTimer?.cancel();
     _initialPromptTimer = null;
@@ -918,6 +1027,10 @@ class PackingSessionController extends ChangeNotifier {
     unawaited(_barcodeScanner.close());
     unawaited(_speechService.dispose());
     unawaited(_maxVolumeService.dispose());
+    if (_backupListenerAttached) {
+      _lanBackupService.removeListener(_handleBackupChanged);
+    }
+    unawaited(_lanBackupService.dispose());
     super.dispose();
   }
 }

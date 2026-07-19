@@ -11,6 +11,7 @@ import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/work_mode.dart';
 import '../widgets/about_settings.dart';
+import '../widgets/two_button_confirm_dialog.dart';
 import 'video_playback_screen.dart';
 
 enum RecordingsScreenMode { history, settings }
@@ -416,19 +417,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     if (endpoint == null || widget.onDisconnectBackup == null) return;
     final bool? continueDelete = await showDialog<bool>(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: const Text('删除这台电脑？'),
-        content: const Text('将删除电脑地址和连接密钥，并停止当前备份。手机中的录像不会被删除。'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('继续'),
-          ),
-        ],
+      builder: (BuildContext context) => const TwoButtonConfirmDialog(
+        title: '删除这台电脑？',
+        message: '将删除电脑地址和连接密钥，并停止当前备份。手机中的录像不会被删除。',
+        confirmLabel: '继续',
       ),
     );
     if (continueDelete != true || !mounted) return;
@@ -437,22 +429,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         : '${endpoint.computerName}\n${endpoint.displayAddress}';
     final bool? confirmed = await showDialog<bool>(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: const Text('再次确认删除'),
-        content: Text('确定删除以下电脑？\n\n$identity'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFC43D32),
-            ),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('确认删除'),
-          ),
-        ],
+      builder: (BuildContext context) => TwoButtonConfirmDialog(
+        title: '再次确认删除',
+        message: '确定删除以下电脑？\n\n$identity',
+        confirmLabel: '确认删除',
+        dangerous: true,
       ),
     );
     if (confirmed != true || !mounted) return;
@@ -519,21 +500,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     if (value == BackedRetentionPolicy.immediately) {
       final bool? confirmed = await showDialog<bool>(
         context: context,
-        builder: (BuildContext context) => AlertDialog(
-          title: const Text('备份后立即清除？'),
-          content: const Text(
-            '录像成功备份到电脑后，将自动删除手机中的本机文件。电脑离线时仍可查看录像记录，但无法播放远程视频。',
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('确认'),
-            ),
-          ],
+        builder: (BuildContext context) => const TwoButtonConfirmDialog(
+          title: '备份后立即清除？',
+          message: '录像成功备份到电脑后，将自动删除手机中的本机文件。电脑离线时仍可查看录像记录，但无法播放远程视频。',
+          confirmLabel: '确认',
+          dangerous: true,
         ),
       );
       if (confirmed != true || !mounted) return;
@@ -599,19 +570,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     }
     final bool? confirmed = await showDialog<bool>(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: Text('删除 ${_selectedIds.length} 段录像？'),
-        content: const Text('删除后无法恢复；共用同一母视频的其他片段不会受影响'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
+      builder: (BuildContext context) => TwoButtonConfirmDialog(
+        title: '删除 ${_selectedIds.length} 段录像？',
+        message: '删除后无法恢复；共用同一母视频的其他片段不会受影响',
+        confirmLabel: '删除',
+        dangerous: true,
       ),
     );
     if (confirmed != true || !mounted) {

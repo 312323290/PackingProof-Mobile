@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 
 import '../models/recording_session.dart';
 import '../services/video_share_service.dart';
+import '../widgets/two_button_confirm_dialog.dart';
 import 'video_trim_screen.dart';
 
 class VideoPlaybackScreen extends StatefulWidget {
@@ -261,31 +262,11 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   Future<void> _deleteLocalRecording() async {
     final bool? confirmed = await showDialog<bool>(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: const Text('删除这段录像？'),
-        content: const Text('将删除手机中的录像和记录，电脑中的备份不会受到影响'),
-        actions: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('取消'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFD92D20),
-                  ),
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('删除'),
-                ),
-              ),
-            ],
-          ),
-        ],
+      builder: (BuildContext context) => const TwoButtonConfirmDialog(
+        title: '删除这段录像？',
+        message: '将删除手机中的录像和记录，电脑中的备份不会受到影响',
+        confirmLabel: '删除',
+        dangerous: true,
       ),
     );
     if (confirmed != true || !mounted) return;

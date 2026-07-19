@@ -67,7 +67,7 @@ void main() {
     );
 
     expect(find.byKey(const Key('speech-prompt-settings')), findsOneWidget);
-    expect(find.text('Edge 音色，离线自动使用系统语音'), findsOneWidget);
+    expect(find.text('离线自动使用系统语音'), findsOneWidget);
     await tester.tap(find.text('试听'));
     await tester.pump();
     expect(previewCount, 1);

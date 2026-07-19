@@ -1552,7 +1552,7 @@ class _SpeechPromptSettings extends StatelessWidget {
                 ),
                 SizedBox(height: 5),
                 Text(
-                  'Edge 音色，离线自动使用系统语音',
+                  '离线自动使用系统语音',
                   style: TextStyle(
                     color: Color(0xFF69716E),
                     fontSize: 13,

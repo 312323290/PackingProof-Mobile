@@ -194,7 +194,7 @@ class RemoteRecording {
       sourceSessionId: '${json['sourceSessionId'] ?? ''}',
       contentSha256: '${json['contentSha256'] ?? ''}',
       playUri: baseUri.resolve(
-        '${json['playUrl'] ?? '/api/videos/${json['id']}/play?compat=1'}',
+        '${json['playUrl'] ?? '/api/videos/${json['id']}/play?compat=0'}',
       ),
       thumbnailUri: json['thumbnailUrl'] == null
           ? null

@@ -1159,7 +1159,7 @@ class _ComputerBackupSettings extends StatelessWidget {
         : snapshot.connectionStatus == LanConnectionStatus.rePair
         ? '需要重新配对'
         : snapshot.connectionStatus == LanConnectionStatus.offline
-        ? '电脑离线，恢复网络后自动续传'
+        ? '电脑离线，备份已暂停'
         : active != null
         ? '正在备份 · $progress%'
         : failed != null
@@ -1211,12 +1211,6 @@ class _ComputerBackupSettings extends StatelessWidget {
                   key: const Key('auto-backup-switch'),
                   value: snapshot.autoEnabled,
                   onChanged: onAutoChanged,
-                  thumbColor: online
-                      ? null
-                      : const WidgetStatePropertyAll(Color(0xFF7D8581)),
-                  trackColor: online
-                      ? null
-                      : const WidgetStatePropertyAll(Color(0xFFD7DBD9)),
                 ),
               ],
             ],

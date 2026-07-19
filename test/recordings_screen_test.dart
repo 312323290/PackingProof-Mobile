@@ -284,6 +284,7 @@ void main() {
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
           onMaxVolumeEnabledChanged: (_) async {},
+          onAutoBackupChanged: (_) async {},
           onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (_) async {},
@@ -293,8 +294,16 @@ void main() {
     await tester.pump();
 
     expect(find.text('电脑离线'), findsWidgets);
+    expect(find.text('电脑离线，备份已暂停'), findsOneWidget);
     expect(loadCount, 0);
     expect(find.byType(CircularProgressIndicator), findsNothing);
+    final Switch autoBackupSwitch = tester.widget<Switch>(
+      find.byKey(const Key('auto-backup-switch')),
+    );
+    expect(autoBackupSwitch.value, isTrue);
+    expect(autoBackupSwitch.onChanged, isNotNull);
+    expect(autoBackupSwitch.thumbColor, isNull);
+    expect(autoBackupSwitch.trackColor, isNull);
   });
 
   testWidgets('删除电脑需要两次确认并显示名称与地址', (WidgetTester tester) async {

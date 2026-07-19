@@ -49,7 +49,6 @@ internal class LanBackupWorker(
 
         return try {
             Log.i(TAG, "Backup started id=${id.take(8)} file=${file.name} bytes=${file.length()}")
-            setForeground(foreground(job, 0))
             job.put("state", "uploading").put("errorMessage", JSONObject.NULL)
             store.writeJob(job)
 
@@ -64,6 +63,7 @@ internal class LanBackupWorker(
                     .put("mimeType", "video/mp4"),
             )
             Log.i(TAG, "Upload session ready id=${id.take(8)}")
+            setForeground(foreground(job, 0))
             val uploadId = createResponse.getString("uploadId")
             val encodedUploadId = URLEncoder.encode(uploadId, Charsets.UTF_8.name())
             var offset = createResponse.optLong("offset", 0L).coerceIn(0L, file.length())
@@ -75,6 +75,7 @@ internal class LanBackupWorker(
                     if (isStopped) {
                         job.put("state", "paused")
                         store.writeJob(job)
+                        clearBackupNotification(job)
                         return Result.failure()
                     }
                     val size = min(chunkSize.toLong(), file.length() - offset).toInt()
@@ -115,11 +116,11 @@ internal class LanBackupWorker(
             if (error.statusCode == 401 || error.statusCode == 403 || error.statusCode == 404) {
                 fail(job, error.message ?: "电脑拒绝备份")
             } else {
-                pauseForRetry(job, error.message ?: "电脑暂时不可用")
+                pause(job, error.message ?: "电脑暂时不可用")
             }
         } catch (error: IOException) {
             Log.w(TAG, "Backup network failure id=${id.take(8)}", error)
-            pauseForRetry(job, "网络中断，等待自动续传")
+            pause(job, "电脑离线，备份已暂停")
         } catch (error: Throwable) {
             Log.e(TAG, "Backup failed id=${id.take(8)}", error)
             fail(job, error.message ?: "备份失败")
@@ -133,6 +134,7 @@ internal class LanBackupWorker(
             .put("remoteRecordIds", recordIds)
             .put("errorMessage", JSONObject.NULL)
         store.writeJob(job)
+        clearBackupNotification(job)
         LanBackupCleanupScheduler.reschedule(applicationContext, store, job)
         return Result.success()
     }
@@ -163,13 +165,20 @@ internal class LanBackupWorker(
     private fun fail(job: JSONObject, message: String): Result {
         job.put("state", "failed").put("errorMessage", message)
         store.writeJob(job)
+        clearBackupNotification(job)
         return Result.failure()
     }
 
-    private fun pauseForRetry(job: JSONObject, message: String): Result {
+    private fun pause(job: JSONObject, message: String): Result {
         job.put("state", "paused").put("errorMessage", message)
         store.writeJob(job)
-        return Result.retry()
+        clearBackupNotification(job)
+        return Result.success()
+    }
+
+    private fun clearBackupNotification(job: JSONObject) {
+        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(notificationId(job))
     }
 
     private fun postJson(url: String, key: String, body: JSONObject): JSONObject {
@@ -232,14 +241,17 @@ internal class LanBackupWorker(
             .build()
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ForegroundInfo(
-                job.getString("id").take(8).hashCode(),
+                notificationId(job),
                 notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
             )
         } else {
-            ForegroundInfo(job.getString("id").take(8).hashCode(), notification)
+            ForegroundInfo(notificationId(job), notification)
         }
     }
+
+    private fun notificationId(job: JSONObject): Int =
+        job.getString("id").take(8).hashCode()
 }
 
 private class BackupHttpException(val statusCode: Int, message: String) : IOException(message)

@@ -2,7 +2,6 @@ package app.packingproof.mobile
 
 import android.app.Activity
 import android.content.Context
-import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -15,7 +14,6 @@ import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 internal class LanBackupPlugin(
     private val activity: Activity,
@@ -136,7 +134,6 @@ internal class LanBackupPlugin(
             .setConstraints(
                 Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
             )
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
             .addTag("lan-backup")
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(

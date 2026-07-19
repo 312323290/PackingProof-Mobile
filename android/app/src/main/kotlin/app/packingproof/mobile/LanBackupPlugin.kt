@@ -82,9 +82,14 @@ internal class LanBackupPlugin(
                             ?: emptyList<Map<String, Any?>>(),
                     )
                     val job = store.upsertJob(path, sessions)
+                    val forceRestart = call.argument<Boolean>("forceRestart") == true
+                    if (forceRestart && job.optString("state") != "completed") {
+                        job.put("state", "pending").put("errorMessage", JSONObject.NULL)
+                        store.writeJob(job)
+                    }
                     LanBackupCleanupScheduler.reschedule(context, store, job)
                     if (call.argument<Boolean>("startUpload") != false) {
-                        schedule(job.getString("id"), replace = false)
+                        schedule(job.getString("id"), replace = forceRestart)
                     }
                     result.success(null)
                 }

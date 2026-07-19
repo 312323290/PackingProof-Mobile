@@ -73,11 +73,6 @@ flutter:
     - assets/design/selected-option.png
     - assets/audio/tts/
 
-  fonts:
-    - family: NotoSansSC
-      fonts:
-        - asset: assets/fonts/NotoSansSC-Subset.ttf
-
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

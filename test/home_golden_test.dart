@@ -34,8 +34,16 @@ void main() {
         'cache${Platform.pathSeparator}artifacts${Platform.pathSeparator}'
         'material_fonts${Platform.pathSeparator}MaterialIcons-Regular.otf',
       ).readAsBytes();
+      final Uint8List robotoFont = await File(
+        '${flutterRoot.path}${Platform.pathSeparator}bin${Platform.pathSeparator}'
+        'cache${Platform.pathSeparator}artifacts${Platform.pathSeparator}'
+        'material_fonts${Platform.pathSeparator}roboto-regular.ttf',
+      ).readAsBytes();
       await (FontLoader('NotoSansSC')
             ..addFont(Future<ByteData>.value(ByteData.sublistView(textFont))))
+          .load();
+      await (FontLoader('Roboto')
+            ..addFont(Future<ByteData>.value(ByteData.sublistView(robotoFont))))
           .load();
       await (FontLoader('MaterialIcons')
             ..addFont(Future<ByteData>.value(ByteData.sublistView(iconFont))))
@@ -52,9 +60,11 @@ void main() {
         surface: Colors.white,
       ),
       scaffoldBackgroundColor: Colors.white,
-      fontFamily: 'NotoSansSC',
+      fontFamily: 'Roboto',
+      fontFamilyFallback: const <String>['NotoSansSC'],
       textTheme: ThemeData.light().textTheme.apply(
-        fontFamily: 'NotoSansSC',
+        fontFamily: 'Roboto',
+        fontFamilyFallback: const <String>['NotoSansSC'],
         bodyColor: PackingProofMobileApp.ink,
         displayColor: PackingProofMobileApp.ink,
       ),
@@ -66,16 +76,7 @@ void main() {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          textStyle: const TextStyle(
-            fontFamily: 'NotoSansSC',
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          textStyle: const TextStyle(fontFamily: 'NotoSansSC'),
+          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
         ),
       ),
     );
@@ -91,7 +92,6 @@ void main() {
           previewOverride: Image(image: preview, fit: BoxFit.cover),
           onPrimaryPressed: () {},
           onRetryPressed: () {},
-          onRecordingsPressed: () {},
         ),
       ),
     );

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.ServiceInfo
 import android.media.MediaExtractor
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
@@ -28,6 +29,7 @@ internal class LanBackupWorker(
     companion object {
         private const val CHANNEL_ID = "packing_proof_backup"
         private const val DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
+        private const val TAG = "PackingProofBackup"
     }
 
     private val store = LanBackupStateStore(appContext)
@@ -43,6 +45,7 @@ internal class LanBackupWorker(
         if (connection == null || accessKey.isNullOrBlank()) return fail(job, "请重新连接电脑")
 
         return try {
+            Log.i(TAG, "Backup started id=${id.take(8)} file=${file.name} bytes=${file.length()}")
             setForeground(foreground(job, 0))
             job.put("state", "uploading").put("errorMessage", JSONObject.NULL)
             store.writeJob(job)
@@ -57,6 +60,7 @@ internal class LanBackupWorker(
                     .put("totalBytes", file.length())
                     .put("mimeType", "video/mp4"),
             )
+            Log.i(TAG, "Upload session ready id=${id.take(8)}")
             val uploadId = createResponse.getString("uploadId")
             val encodedUploadId = URLEncoder.encode(uploadId, Charsets.UTF_8.name())
             var offset = createResponse.optLong("offset", 0L).coerceIn(0L, file.length())
@@ -82,6 +86,7 @@ internal class LanBackupWorker(
                         file.length(),
                     )
                     offset = nextOffset.coerceIn(offset + size, file.length())
+                    Log.d(TAG, "Chunk accepted id=${id.take(8)} offset=$offset total=${file.length()}")
                     job.put("uploadedBytes", offset)
                     store.writeJob(job)
                     setForeground(foreground(job, ((offset * 100) / file.length()).toInt()))
@@ -103,14 +108,17 @@ internal class LanBackupWorker(
             }
             complete(job, file.length(), completion.optJSONArray("recordIds") ?: JSONArray())
         } catch (error: BackupHttpException) {
+            Log.w(TAG, "Backup HTTP failure id=${id.take(8)} status=${error.statusCode}", error)
             if (error.statusCode == 401 || error.statusCode == 403 || error.statusCode == 404) {
                 fail(job, error.message ?: "电脑拒绝备份")
             } else {
                 pauseForRetry(job, error.message ?: "电脑暂时不可用")
             }
         } catch (error: IOException) {
+            Log.w(TAG, "Backup network failure id=${id.take(8)}", error)
             pauseForRetry(job, "网络中断，等待自动续传")
         } catch (error: Throwable) {
+            Log.e(TAG, "Backup failed id=${id.take(8)}", error)
             fail(job, error.message ?: "备份失败")
         }
     }
@@ -198,7 +206,7 @@ internal class LanBackupWorker(
         connection.setFixedLengthStreamingMode(bytes.size)
         connection.doOutput = true
         connection.outputStream.use { it.write(bytes) }
-        return readJson(connection).getLong("nextOffset")
+        return readJson(connection).getLong("offset")
     }
 
     private fun open(url: String, method: String, key: String): HttpURLConnection =

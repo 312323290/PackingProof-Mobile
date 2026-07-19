@@ -78,10 +78,11 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       return;
     }
     final Map<Object?, Object?> values =
-        (await _channel.invokeMapMethod<Object?, Object?>('initialize', <String, Object?>{
-          'unbackedRetentionDays': unbackedRetention.days,
-          'backedRetentionDays': backedRetention.days,
-        })) ??
+        (await _channel
+            .invokeMapMethod<Object?, Object?>('initialize', <String, Object?>{
+              'unbackedRetentionDays': unbackedRetention.days,
+              'backedRetentionDays': backedRetention.days,
+            })) ??
         <Object?, Object?>{};
     _accessKey = (await _channel.invokeMethod<String>('loadAccessKey')) ?? '';
     _applyNativeSnapshot(values);
@@ -120,7 +121,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   @override
   Future<void> pair(String qrValue) async {
     final LanBackupEndpoint candidate = parsePairingQr(qrValue);
-    _snapshot = _snapshot.copyWith(connectionStatus: LanConnectionStatus.connecting);
+    _snapshot = _snapshot.copyWith(
+      connectionStatus: LanConnectionStatus.connecting,
+    );
     notifyListeners();
     try {
       final Uri capabilityUri = candidate.baseUri.replace(
@@ -174,11 +177,15 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       notifyListeners();
       unawaited(refresh());
     } on FormatException {
-      _snapshot = _snapshot.copyWith(connectionStatus: LanConnectionStatus.rePair);
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.rePair,
+      );
       notifyListeners();
       rethrow;
     } on Object {
-      _snapshot = _snapshot.copyWith(connectionStatus: LanConnectionStatus.offline);
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.offline,
+      );
       notifyListeners();
       rethrow;
     }
@@ -223,6 +230,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     String filePath,
     List<RecordingSession> sessions, {
     required bool startUpload,
+    bool forceRestart = false,
   }) async {
     if (!File(filePath).existsSync()) {
       return;
@@ -233,6 +241,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           .map(recordingSessionBackupMap)
           .toList(growable: false),
       'startUpload': startUpload,
+      'forceRestart': forceRestart,
     });
     await refresh();
   }
@@ -248,7 +257,12 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     }
     for (final MapEntry<String, List<RecordingSession>> entry
         in grouped.entries) {
-      await _enqueue(entry.key, entry.value, startUpload: true);
+      await _enqueue(
+        entry.key,
+        entry.value,
+        startUpload: true,
+        forceRestart: true,
+      );
     }
   }
 
@@ -286,7 +300,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     String keyword = '',
   }) async {
     final LanBackupEndpoint? endpoint = _snapshot.endpoint;
-    if (endpoint == null || _accessKey.isEmpty) return const <RemoteRecording>[];
+    if (endpoint == null || _accessKey.isEmpty) {
+      return const <RemoteRecording>[];
+    }
     final Uri uri = endpoint.baseUri.replace(
       path: '/api/videos',
       queryParameters: <String, String>{
@@ -296,9 +312,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       },
     );
     try {
-      final HttpClientRequest request = await _httpClient.getUrl(uri).timeout(
-        const Duration(seconds: 5),
-      );
+      final HttpClientRequest request = await _httpClient
+          .getUrl(uri)
+          .timeout(const Duration(seconds: 5));
       request.headers.set('X-EPM-Access-Key', _accessKey);
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 10),
@@ -306,7 +322,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       final String body = await utf8.decoder.bind(response).join();
       if (response.statusCode == HttpStatus.unauthorized ||
           response.statusCode == HttpStatus.forbidden) {
-        _snapshot = _snapshot.copyWith(connectionStatus: LanConnectionStatus.rePair);
+        _snapshot = _snapshot.copyWith(
+          connectionStatus: LanConnectionStatus.rePair,
+        );
         notifyListeners();
         return const <RemoteRecording>[];
       }
@@ -325,11 +343,15 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
                 ),
               )
               .toList(growable: false);
-      _snapshot = _snapshot.copyWith(connectionStatus: LanConnectionStatus.connected);
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.connected,
+      );
       notifyListeners();
       return recordings;
     } on Object {
-      _snapshot = _snapshot.copyWith(connectionStatus: LanConnectionStatus.offline);
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.offline,
+      );
       notifyListeners();
       return const <RemoteRecording>[];
     }

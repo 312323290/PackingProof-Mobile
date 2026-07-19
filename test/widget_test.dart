@@ -30,13 +30,12 @@ void main() {
           previewOverride: const ColoredBox(color: Color(0xFF313A36)),
           onPrimaryPressed: () {},
           onRetryPressed: () {},
-          onRecordingsPressed: () {},
         ),
       ),
     );
 
     expect(find.text('开始工作'), findsOneWidget);
-    expect(find.text('查看历史'), findsOneWidget);
+    expect(find.text('查看历史'), findsNothing);
     expect(find.text('对准面单条码'), findsOneWidget);
     expect(find.text('摄像头已就绪'), findsNothing);
     expect(find.text('连续录像 · 面单自动标记 · 仅存本机'), findsNothing);
@@ -59,7 +58,6 @@ void main() {
           pairingMessage: '电脑连接成功 · 仓库电脑 · 192.168.1.20:5280',
           onPrimaryPressed: () {},
           onRetryPressed: () {},
-          onRecordingsPressed: () {},
         ),
       ),
     );
@@ -85,7 +83,6 @@ void main() {
           previewOverride: const ColoredBox(color: Colors.red),
           onPrimaryPressed: () {},
           onRetryPressed: () {},
-          onRecordingsPressed: () {},
         ),
       ),
     );
@@ -95,10 +92,6 @@ void main() {
     expect(find.text('正在启动录像'), findsOneWidget);
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-      isNull,
-    );
-    expect(
-      tester.widget<TextButton>(find.byType(TextButton)).onPressed,
       isNull,
     );
   });
@@ -112,7 +105,6 @@ void main() {
           previewOverride: const ColoredBox(color: Colors.red),
           onPrimaryPressed: () {},
           onRetryPressed: () {},
-          onRecordingsPressed: () {},
         ),
       ),
     );
@@ -139,7 +131,6 @@ void main() {
           previewOverride: const ColoredBox(color: Colors.black),
           onPrimaryPressed: () {},
           onRetryPressed: () {},
-          onRecordingsPressed: () {},
         ),
       ),
     );

@@ -134,7 +134,6 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
                 onHistoryScanCancel: _controller.cancelHistoryBarcodeScan,
                 onPrimaryPressed: _toggleWork,
                 onRetryPressed: _controller.retryInitialize,
-                onRecordingsPressed: () => _selectTab(0),
               ),
               _buildRecordingsScreen(RecordingsScreenMode.settings),
             ],
@@ -238,7 +237,6 @@ class PackingHomeView extends StatelessWidget {
     required this.elapsed,
     required this.onPrimaryPressed,
     required this.onRetryPressed,
-    required this.onRecordingsPressed,
     this.cameraController,
     this.nativeTextureId,
     this.nativePreviewSize,
@@ -273,7 +271,6 @@ class PackingHomeView extends StatelessWidget {
   final VoidCallback? onHistoryScanCancel;
   final VoidCallback onPrimaryPressed;
   final VoidCallback onRetryPressed;
-  final VoidCallback onRecordingsPressed;
   final Widget? previewOverride;
 
   bool get _isRecording => phase == PackingSessionPhase.recording;
@@ -796,31 +793,7 @@ class _ControlPanel extends StatelessWidget {
             const SizedBox(height: 10),
           ],
           _PrimaryWorkButton(view: view, isError: isError),
-          const SizedBox(height: 1),
-          TextButton(
-            onPressed:
-                view._isRecording ||
-                    view._isBusy ||
-                    view.pairingScanActive ||
-                    view.historyScanActive
-                ? null
-                : view.onRecordingsPressed,
-            style: TextButton.styleFrom(
-              foregroundColor: PackingProofMobileApp.ink,
-              textStyle: const TextStyle(
-                fontFamily: 'NotoSansSC',
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text('查看历史'),
-                SizedBox(width: 5),
-                Icon(Icons.chevron_right_rounded, size: 20),
-              ],
-            ),
-          ),
+          const SizedBox(height: 12),
           const Spacer(),
         ],
       ),

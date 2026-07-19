@@ -200,6 +200,48 @@ void main() {
     expect(find.text('仓库电脑 · 192.168.1.20:5280'), findsOneWidget);
   });
 
+  testWidgets('等待续传不会误显示为正在备份', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '仓库电脑',
+            ),
+            jobs: const <LanBackupJob>[
+              LanBackupJob(
+                id: 'job-1',
+                filePath: 'video.mp4',
+                state: LanBackupJobState.paused,
+                uploadedBytes: 0,
+                totalBytes: 1024,
+                errorMessage: '网络中断，等待自动续传',
+              ),
+            ],
+            connectionStatus: LanConnectionStatus.connected,
+          ),
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('网络中断，等待自动续传'), findsOneWidget);
+    expect(find.textContaining('正在备份'), findsNothing);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
   testWidgets('录像卡片不重复显示内部识别标记数量', (WidgetTester tester) async {
     final DateTime startedAt = DateTime(2026, 7, 18, 12);
     await tester.pumpWidget(
@@ -277,6 +319,86 @@ void main() {
 
     expect(find.text('SF9876543210'), findsOneWidget);
     expect(find.text('JT1234567890'), findsNothing);
+  });
+
+  testWidgets('录像记录每页显示十条并可翻页', (WidgetTester tester) async {
+    final DateTime startedAt = DateTime(2026, 7, 18, 12);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: List<RecordingSession>.generate(
+            11,
+            (int index) => _session(
+              'clip-$index',
+              'CODE-${index.toString().padLeft(2, '0')}',
+              startedAt.subtract(Duration(minutes: index)),
+            ),
+          ),
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('CODE-00'), findsOneWidget);
+    expect(find.text('CODE-10'), findsNothing);
+
+    await tester.scrollUntilVisible(
+      find.text('CODE-09'),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('CODE-09'), findsOneWidget);
+    expect(find.text('CODE-10'), findsNothing);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('recording-page-next')),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('1 / 2 页'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('recording-page-next')));
+    await tester.pump();
+
+    expect(find.text('CODE-00'), findsNothing);
+    expect(find.text('CODE-10'), findsOneWidget);
+    expect(find.text('2 / 2 页'), findsOneWidget);
+  });
+
+  testWidgets('录像来源标签显示在快递单号右侧', (WidgetTester tester) async {
+    final DateTime startedAt = DateTime(2026, 7, 18, 12);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: <RecordingSession>[
+            _session('clip-1', 'TRACKING-001', startedAt),
+          ],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    await tester.drag(find.byType(ListView), const Offset(0, -420));
+    await tester.pump();
+    final Offset codeCenter = tester.getCenter(find.text('TRACKING-001'));
+    final Offset sourceCenter = tester.getCenter(find.text('已备份 · 电脑离线'));
+    expect((codeCenter.dy - sourceCenter.dy).abs(), lessThan(2));
+    expect(sourceCenter.dx, greaterThan(codeCenter.dx));
   });
 
   testWidgets('管理模式可多选并确认删除录像', (WidgetTester tester) async {

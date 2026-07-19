@@ -50,14 +50,7 @@ class _PackingProofMobileAppState extends State<PackingProofMobileApp> {
         useMaterial3: true,
         colorScheme: colors,
         scaffoldBackgroundColor: Colors.white,
-        fontFamily: 'NotoSansSC',
-        fontFamilyFallback: const <String>[
-          'Noto Sans CJK SC',
-          'Microsoft YaHei',
-          'PingFang SC',
-        ],
         textTheme: ThemeData.light().textTheme.apply(
-          fontFamily: 'NotoSansSC',
           bodyColor: PackingProofMobileApp.ink,
           displayColor: PackingProofMobileApp.ink,
         ),
@@ -77,16 +70,10 @@ class _PackingProofMobileAppState extends State<PackingProofMobileApp> {
               borderRadius: BorderRadius.circular(14),
             ),
             textStyle: const TextStyle(
-              fontFamily: 'NotoSansSC',
               fontSize: 18,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.2,
             ),
-          ),
-        ),
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            textStyle: const TextStyle(fontFamily: 'NotoSansSC'),
           ),
         ),
       ),
@@ -121,8 +108,7 @@ class _StandaloneStartupGate extends StatefulWidget {
   final AppSettings settings;
 
   @override
-  State<_StandaloneStartupGate> createState() =>
-      _StandaloneStartupGateState();
+  State<_StandaloneStartupGate> createState() => _StandaloneStartupGateState();
 }
 
 class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
@@ -131,7 +117,8 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
 
   @override
   Widget build(BuildContext context) {
-    final bool needsNotice = widget.buildConfig.isStandalone &&
+    final bool needsNotice =
+        widget.buildConfig.isStandalone &&
         !widget.settings.standaloneNoticeDismissed &&
         !_continueToCamera;
     if (!needsNotice) {
@@ -158,18 +145,34 @@ class _StandaloneStartupGateState extends State<_StandaloneStartupGate> {
                 ),
               ),
               const SizedBox(height: 24),
-              const Text(
-                '说明',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                '录像和面单号始终仅保存在本机\n不会上传到互联网\n\n'
-                '普通版仅通过联网生成语音提示\n单机版不使用互联网服务\n\n'
-                '用户连接电脑后，局域网仅用于备份视频',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, height: 1.65),
+              Container(
+                key: const Key('standalone-notice-card'),
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF2F6F4),
+                  border: Border.all(color: const Color(0xFFD5E0DB)),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Column(
+                  children: <Widget>[
+                    Text(
+                      '单机版说明',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(height: 14),
+                    Text(
+                      '录像和面单号始终仅保存在本机\n不会上传到互联网\n\n'
+                      '普通版仅通过联网生成语音提示\n单机版不使用互联网服务\n\n'
+                      '用户连接电脑后，局域网仅用于备份视频',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 15, height: 1.65),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 20),
               CheckboxListTile(

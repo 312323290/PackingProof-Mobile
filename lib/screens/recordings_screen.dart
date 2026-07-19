@@ -90,6 +90,8 @@ class RecordingsScreen extends StatefulWidget {
 }
 
 class _RecordingsScreenState extends State<RecordingsScreen> {
+  static const int _historyPageSize = 10;
+
   late WorkMode _workMode;
   late bool _speechEnabled;
   late bool _maxVolumeEnabled;
@@ -107,6 +109,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   final Set<String> _selectedIds = <String>{};
   String _query = '';
   bool _managing = false;
+  int _historyPage = 0;
   RecordingSourceFilter _sourceFilter = RecordingSourceFilter.all;
 
   List<RecordingSession> get _filteredSessions {
@@ -266,6 +269,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     if (reset) {
       _remotePage = 0;
       _remoteHasMore = true;
+      _historyPage = 0;
     }
     final int nextPage = _remotePage + 1;
     final List<RemoteRecording> values = await widget.onLoadRemoteRecordings!(
@@ -284,7 +288,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   }
 
   void _onSearchChanged(String value) {
-    setState(() => _query = value);
+    setState(() {
+      _query = value;
+      _historyPage = 0;
+    });
     _remoteSearchTimer?.cancel();
     _remoteSearchTimer = Timer(
       const Duration(milliseconds: 300),
@@ -493,13 +500,45 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             ),
           ),
         );
-    if (value != null && mounted) setState(() => _sourceFilter = value);
+    if (value != null && mounted) {
+      setState(() {
+        _sourceFilter = value;
+        _historyPage = 0;
+      });
+    }
+  }
+
+  Future<void> _showNextHistoryPage(int pageCount) async {
+    if (_historyPage + 1 < pageCount) {
+      setState(() => _historyPage++);
+      return;
+    }
+    if (!_remoteHasMore || !_backupSnapshot.connected) return;
+    await _loadRemote();
+    if (!mounted) return;
+    final int updatedPageCount = (_visibleItems.length / _historyPageSize)
+        .ceil();
+    if (_historyPage + 1 < updatedPageCount) {
+      setState(() => _historyPage++);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final List<RecordingSession> visibleSessions = _filteredSessions;
     final List<_RecordingListItem> visibleItems = _visibleItems;
+    final int historyPageCount = visibleItems.isEmpty
+        ? 0
+        : (visibleItems.length / _historyPageSize).ceil();
+    final int historyPage = historyPageCount == 0
+        ? 0
+        : _historyPage >= historyPageCount
+        ? historyPageCount - 1
+        : _historyPage;
+    final List<_RecordingListItem> pageItems = visibleItems
+        .skip(historyPage * _historyPageSize)
+        .take(_historyPageSize)
+        .toList(growable: false);
     final bool historyMode = widget.mode == RecordingsScreenMode.history;
     return Scaffold(
       appBar: AppBar(
@@ -589,7 +628,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                     tooltip: '清除搜索',
                     onPressed: () {
                       _searchController.clear();
-                      setState(() => _query = '');
+                      setState(() {
+                        _query = '';
+                        _historyPage = 0;
+                      });
                       unawaited(_loadRemote(reset: true));
                     },
                     icon: const Icon(Icons.close_rounded),
@@ -597,19 +639,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               ],
               onChanged: _onSearchChanged,
             ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FilterChip(
-                key: const Key('recording-source-filter'),
-                avatar: const Icon(Icons.filter_list_rounded, size: 18),
-                label: Text(_sourceFilterLabel(_sourceFilter)),
-                selected: _sourceFilter != RecordingSourceFilter.all,
-                onSelected: (_) => _showSourceFilter(),
-              ),
-            ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(2, 22, 2, 12),
+              padding: const EdgeInsets.fromLTRB(2, 18, 2, 12),
               child: Row(
                 children: <Widget>[
                   const Expanded(
@@ -634,6 +665,15 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                             : '全选',
                       ),
                     ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    key: const Key('recording-source-filter'),
+                    avatar: const Icon(Icons.filter_alt_rounded, size: 18),
+                    label: Text(_sourceFilterLabel(_sourceFilter)),
+                    selected: _sourceFilter != RecordingSourceFilter.all,
+                    showCheckmark: false,
+                    onSelected: (_) => _showSourceFilter(),
+                  ),
                 ],
               ),
             ),
@@ -642,15 +682,15 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             else if (visibleItems.isEmpty)
               const SizedBox(height: 220, child: _NoSearchResults())
             else
-              ...List<Widget>.generate(visibleItems.length, (int index) {
-                final _RecordingListItem item = visibleItems[index];
+              ...List<Widget>.generate(pageItems.length, (int index) {
+                final _RecordingListItem item = pageItems[index];
                 final RecordingSession session = item.session;
                 final bool localAvailable =
                     item.local != null &&
                     File(item.local!.filePath).existsSync();
                 return Padding(
                   padding: EdgeInsets.only(
-                    bottom: index == visibleItems.length - 1 ? 0 : 10,
+                    bottom: index == pageItems.length - 1 ? 0 : 10,
                   ),
                   child: _RecordingTile(
                     session: session,
@@ -694,6 +734,22 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                   ),
                 );
               }),
+            if (historyPageCount > 1 ||
+                (_remoteHasMore && _backupSnapshot.connected))
+              _HistoryPagination(
+                currentPage: historyPage,
+                pageCount: historyPageCount,
+                loading: _loadingRemote,
+                canLoadMore: _remoteHasMore && _backupSnapshot.connected,
+                onPrevious: historyPage == 0
+                    ? null
+                    : () => setState(() => _historyPage = historyPage - 1),
+                onNext:
+                    historyPage + 1 < historyPageCount ||
+                        (_remoteHasMore && _backupSnapshot.connected)
+                    ? () => _showNextHistoryPage(historyPageCount)
+                    : null,
+              ),
             if (_loadingRemote)
               const Padding(
                 padding: EdgeInsets.all(18),
@@ -960,19 +1016,28 @@ class _ComputerBackupSettings extends StatelessWidget {
       (LanBackupJob? job) => job?.state == LanBackupJobState.failed,
       orElse: () => null,
     );
-    final int progress = (snapshot.aggregateProgress * 100).round();
+    final LanBackupJob? paused = snapshot.jobs.cast<LanBackupJob?>().firstWhere(
+      (LanBackupJob? job) => job?.state == LanBackupJobState.paused,
+      orElse: () => null,
+    );
+    final int pending = snapshot.jobs
+        .where((LanBackupJob job) => job.state == LanBackupJobState.pending)
+        .length;
+    final int progress = ((active?.progress ?? 0) * 100).round();
     final String? status = !snapshot.connected
         ? '扫描电脑二维码后自动备份'
         : snapshot.connectionStatus == LanConnectionStatus.rePair
         ? '需要重新配对'
         : snapshot.connectionStatus == LanConnectionStatus.offline
         ? '电脑离线，恢复网络后自动续传'
-        : active != null || snapshot.activeCount > 0
-        ? '正在备份 ${snapshot.activeCount}/${snapshot.jobs.length} · $progress%'
+        : active != null
+        ? '正在备份 · $progress%'
         : failed != null
         ? (failed.errorMessage ?? '备份失败')
-        : snapshot.pendingCount > 0
-        ? '还有 ${snapshot.pendingCount} 个录像待备份'
+        : paused != null
+        ? (paused.errorMessage ?? '等待自动续传')
+        : pending > 0
+        ? '还有 $pending 个录像等待备份'
         : null;
 
     return Container(
@@ -1060,9 +1125,9 @@ class _ComputerBackupSettings extends StatelessWidget {
                 height: 1.4,
               ),
             ),
-          if (active != null || snapshot.activeCount > 0) ...<Widget>[
+          if (active != null) ...<Widget>[
             const SizedBox(height: 10),
-            LinearProgressIndicator(value: snapshot.aggregateProgress),
+            LinearProgressIndicator(value: active.progress),
           ],
           if (showRetention) ...<Widget>[
             const SizedBox(height: 14),
@@ -1378,35 +1443,47 @@ class _RecordingTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(
-                      session.displayCode,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
+                    Row(
                       children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            session.displayCode,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         _StatusChip(label: sourceLabel),
-                        if (backupJob != null)
+                      ],
+                    ),
+                    const SizedBox(height: 7),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF69716E),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        if (backupJob != null &&
+                            backupJob!.state !=
+                                LanBackupJobState.completed) ...[
+                          const SizedBox(width: 8),
                           _StatusChip(
                             label: _backupLabel(backupJob!),
                             error: backupJob!.state == LanBackupJobState.failed,
                           ),
+                        ],
                       ],
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
-                      style: const TextStyle(
-                        color: Color(0xFF69716E),
-                        fontSize: 12,
-                      ),
                     ),
                   ],
                 ),
@@ -1419,6 +1496,64 @@ class _RecordingTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _HistoryPagination extends StatelessWidget {
+  const _HistoryPagination({
+    required this.currentPage,
+    required this.pageCount,
+    required this.loading,
+    required this.canLoadMore,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int currentPage;
+  final int pageCount;
+  final bool loading;
+  final bool canLoadMore;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final int shownPageCount = pageCount == 0 ? 1 : pageCount;
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          IconButton.outlined(
+            key: const Key('recording-page-previous'),
+            tooltip: '上一页',
+            onPressed: loading ? null : onPrevious,
+            icon: const Icon(Icons.chevron_left_rounded),
+          ),
+          SizedBox(
+            width: 104,
+            child: Text(
+              '${currentPage + 1} / $shownPageCount 页',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          IconButton.outlined(
+            key: const Key('recording-page-next'),
+            tooltip: canLoadMore && currentPage + 1 >= pageCount
+                ? '加载下一页'
+                : '下一页',
+            onPressed: loading ? null : onNext,
+            icon: loading
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.chevron_right_rounded),
+          ),
+        ],
       ),
     );
   }

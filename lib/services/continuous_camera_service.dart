@@ -10,6 +10,7 @@ class ContinuousCameraInitialization {
     required this.sensorOrientation,
     required this.fps,
     required this.videoMime,
+    required this.flashAvailable,
   });
 
   final int textureId;
@@ -18,6 +19,7 @@ class ContinuousCameraInitialization {
   final int sensorOrientation;
   final int fps;
   final String videoMime;
+  final bool flashAvailable;
 
   Size get portraitPreviewSize {
     final bool swapsDimensions =
@@ -35,6 +37,7 @@ class ContinuousCameraInitialization {
       sensorOrientation: (map['sensorOrientation']! as num).toInt(),
       fps: (map['fps']! as num).toInt(),
       videoMime: map['videoMime']! as String,
+      flashAvailable: map['flashAvailable'] == true,
     );
   }
 }
@@ -157,6 +160,14 @@ class ContinuousCameraService {
     await _channel.invokeMethod<void>('setPairingScanEnabled', <String, Object>{
       'enabled': enabled,
     });
+  }
+
+  Future<bool> setTorchEnabled(bool enabled) async {
+    return (await _channel.invokeMethod<bool>(
+          'setTorchEnabled',
+          <String, Object>{'enabled': enabled},
+        )) ??
+        false;
   }
 
   Future<void> dispose() async {

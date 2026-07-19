@@ -97,6 +97,7 @@ class PackingSessionController extends ChangeNotifier {
   String? _recordingId;
   String? _activeSegmentId;
   int _segmentIndex = 1;
+  bool _torchEnabled = false;
 
   CameraController? get cameraController => _cameraController;
   int? get nativeTextureId => _nativeInitialization?.textureId;
@@ -117,6 +118,10 @@ class PackingSessionController extends ChangeNotifier {
   bool get pairingScanActive => _pairingScanActive;
   String? get pairingMessage => _pairingMessage;
   bool get historyScanActive => _historyScanActive;
+  bool get flashAvailable => Platform.isAndroid
+      ? _nativeInitialization?.flashAvailable == true
+      : _cameraController?.value.isInitialized == true;
+  bool get torchEnabled => _torchEnabled;
   String? get historyScanResult => _historyScanResult;
   String? get errorMessage => _errorMessage;
   bool get isRecording => _phase == PackingSessionPhase.recording;
@@ -218,6 +223,25 @@ class PackingSessionController extends ChangeNotifier {
   Future<void> retryInitialize() async {
     await _disposeCamera();
     await initialize();
+  }
+
+  Future<void> toggleTorch() async {
+    if (!flashAvailable || isBusy) return;
+    final bool enabled = !_torchEnabled;
+    try {
+      if (Platform.isAndroid) {
+        _torchEnabled = await _nativeCamera!.setTorchEnabled(enabled);
+      } else {
+        await _cameraController!.setFlashMode(
+          enabled ? FlashMode.torch : FlashMode.off,
+        );
+        _torchEnabled = enabled;
+      }
+      notifyListeners();
+    } on Object {
+      _torchEnabled = false;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   Future<void> startWork() async {
@@ -1160,6 +1184,7 @@ class PackingSessionController extends ChangeNotifier {
       final ContinuousCameraService? nativeCamera = _nativeCamera;
       _nativeCamera = null;
       _nativeInitialization = null;
+      _torchEnabled = false;
       if (nativeCamera != null) {
         await nativeCamera.dispose();
       }
@@ -1171,6 +1196,7 @@ class PackingSessionController extends ChangeNotifier {
     }
     final CameraController? camera = _cameraController;
     _cameraController = null;
+    _torchEnabled = false;
     if (camera != null) {
       await camera.dispose();
     }

@@ -124,6 +124,7 @@ class ContinuousSegmentCamera(
 
     private var scannerBusy = false
     private var pairingScanEnabled = false
+    private var torchEnabled = false
     private var lastAnalysisElapsedMs = 0L
 
     fun initialize(result: MethodChannel.Result) {
@@ -645,6 +646,10 @@ class ContinuousSegmentCamera(
             if (includeRecording) videoInputSurface?.let(::addTarget)
             if (includeAnalysis) analysisReader?.surface?.let(::addTarget)
             applyAutomaticCameraControls(this, characteristics)
+            set(
+                CaptureRequest.FLASH_MODE,
+                if (torchEnabled) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF,
+            )
             chooseFpsRange(characteristics, includeRecording)?.let {
                 set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
             }
@@ -655,6 +660,22 @@ class ContinuousSegmentCamera(
     fun setPairingScanEnabled(enabled: Boolean) {
         pairingScanEnabled = enabled
         refreshCaptureRequest()
+    }
+
+    fun setTorchEnabled(enabled: Boolean, result: MethodChannel.Result) {
+        if (!initialized) {
+            result.error("camera_not_ready", "摄像头尚未准备完成", null)
+            return
+        }
+        val available = selectedCameraCharacteristics
+            ?.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        if (enabled && !available) {
+            result.error("flash_unavailable", "当前摄像头不支持闪光灯", null)
+            return
+        }
+        torchEnabled = enabled && available
+        refreshCaptureRequest()
+        result.success(torchEnabled)
     }
 
     private fun startAudioPipeline() {
@@ -1031,6 +1052,9 @@ class ContinuousSegmentCamera(
         "sensorOrientation" to sensorOrientation,
         "fps" to VIDEO_FPS,
         "videoMime" to selectedVideoMime,
+        "flashAvailable" to (
+            selectedCameraCharacteristics?.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        ),
     )
 
     private fun ensureParent(path: String) {

@@ -74,6 +74,44 @@ void main() {
     expect(banner.color, const Color(0xF0087454));
   });
 
+  testWidgets('支持在预览和录制期间控制闪光灯', (WidgetTester tester) async {
+    int toggleCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.ready,
+          elapsed: Duration.zero,
+          flashAvailable: true,
+          previewOverride: const ColoredBox(color: Colors.black),
+          onTorchPressed: () => toggleCount++,
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('torch-button')), findsOneWidget);
+    expect(find.byIcon(Icons.flash_off_rounded), findsOneWidget);
+    await tester.tap(find.byKey(const Key('torch-button')));
+    expect(toggleCount, 1);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.recording,
+          elapsed: const Duration(seconds: 2),
+          flashAvailable: true,
+          torchEnabled: true,
+          previewOverride: const ColoredBox(color: Colors.black),
+          onTorchPressed: () => toggleCount++,
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+    expect(find.byIcon(Icons.flash_on_rounded), findsOneWidget);
+  });
+
   testWidgets('启动录像时保持摄像头预览可见', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(

@@ -130,8 +130,11 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
                 pairingScanActive: _controller.pairingScanActive,
                 pairingMessage: _controller.pairingMessage,
                 historyScanActive: _controller.historyScanActive,
+                flashAvailable: _controller.flashAvailable,
+                torchEnabled: _controller.torchEnabled,
                 onPairingCancel: _controller.cancelComputerPairing,
                 onHistoryScanCancel: _controller.cancelHistoryBarcodeScan,
+                onTorchPressed: _controller.toggleTorch,
                 onPrimaryPressed: _toggleWork,
                 onRetryPressed: _controller.retryInitialize,
               ),
@@ -251,8 +254,11 @@ class PackingHomeView extends StatelessWidget {
     this.pairingScanActive = false,
     this.pairingMessage,
     this.historyScanActive = false,
+    this.flashAvailable = false,
+    this.torchEnabled = false,
     this.onPairingCancel,
     this.onHistoryScanCancel,
+    this.onTorchPressed,
     this.previewOverride,
     super.key,
   });
@@ -270,8 +276,11 @@ class PackingHomeView extends StatelessWidget {
   final bool pairingScanActive;
   final String? pairingMessage;
   final bool historyScanActive;
+  final bool flashAvailable;
+  final bool torchEnabled;
   final VoidCallback? onPairingCancel;
   final VoidCallback? onHistoryScanCancel;
+  final VoidCallback? onTorchPressed;
   final VoidCallback onPrimaryPressed;
   final VoidCallback onRetryPressed;
   final Widget? previewOverride;
@@ -440,6 +449,30 @@ class _CameraArea extends StatelessWidget {
               child: _ComputerPairingBanner(
                 message: '对准条码，识别后自动筛选历史记录',
                 onCancel: view.onHistoryScanCancel,
+              ),
+            ),
+          if (view.flashAvailable &&
+              !view.pairingScanActive &&
+              !view.historyScanActive)
+            Positioned(
+              right: 18,
+              top: 20,
+              child: Material(
+                color: const Color(0x99000000),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  key: const Key('torch-button'),
+                  tooltip: view.torchEnabled ? '关闭闪光灯' : '打开闪光灯',
+                  onPressed: view.onTorchPressed,
+                  color: view.torchEnabled
+                      ? const Color(0xFFFFD54F)
+                      : Colors.white,
+                  icon: Icon(
+                    view.torchEnabled
+                        ? Icons.flash_on_rounded
+                        : Icons.flash_off_rounded,
+                  ),
+                ),
               ),
             ),
         ],

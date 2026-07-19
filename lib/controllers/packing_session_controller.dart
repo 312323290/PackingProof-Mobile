@@ -25,6 +25,7 @@ import '../services/nv21_center_crop.dart';
 import '../services/recording_timeline.dart';
 import '../services/session_repository.dart';
 import '../services/speech_prompt_service.dart';
+import '../services/video_watermark_service.dart';
 
 enum PackingSessionPhase {
   initializing,
@@ -42,10 +43,13 @@ class PackingSessionController extends ChangeNotifier {
     SpeechPromptSink? speechService,
     MaxVolumeSink? maxVolumeService,
     LanBackupSink? lanBackupService,
+    VideoWatermarkSink? videoWatermarkService,
   }) : _repository = repository ?? SessionRepository(),
        _speechService = speechService ?? SpeechPromptService(),
        _maxVolumeService = maxVolumeService ?? MaxVolumeService(),
        _lanBackupService = lanBackupService ?? LanBackupService(),
+       _videoWatermarkService =
+           videoWatermarkService ?? VideoWatermarkService(),
        _barcodeScanner = BarcodeScanner(
          formats: const <BarcodeFormat>[BarcodeFormat.all],
        );
@@ -59,6 +63,7 @@ class PackingSessionController extends ChangeNotifier {
   final SpeechPromptSink _speechService;
   final MaxVolumeSink _maxVolumeService;
   final LanBackupSink _lanBackupService;
+  final VideoWatermarkSink _videoWatermarkService;
   final BarcodeScanner _barcodeScanner;
   final BarcodeStabilityTracker _stabilityTracker = BarcodeStabilityTracker();
   final RecordingTimeline _timeline = RecordingTimeline();
@@ -597,8 +602,13 @@ class PackingSessionController extends ChangeNotifier {
     if (draft == null) {
       throw StateError('找不到当前录像片段');
     }
+    final String watermarkedPath = await _videoWatermarkService.apply(
+      inputPath: stopped.path,
+      startedAt: draft.startedAt,
+      trackingNumber: draft.markers.isEmpty ? '' : draft.markers.first.code,
+    );
     final String savedPath = await _repository.finalizeVideo(
-      sourcePath: stopped.path,
+      sourcePath: watermarkedPath,
       sessionId: segmentId,
       startedAt: draft.startedAt,
       trackingNumber: draft.markers.isEmpty ? '' : draft.markers.first.code,
@@ -1052,8 +1062,15 @@ class PackingSessionController extends ChangeNotifier {
     }
     _resetSegmentElapsed();
     onSegmentStarted(transition.marker);
+    final String watermarkedPath = await _videoWatermarkService.apply(
+      inputPath: split.completedPath,
+      startedAt: transition.completed.startedAt,
+      trackingNumber: transition.completed.markers.isEmpty
+          ? ''
+          : transition.completed.markers.first.code,
+    );
     final String savedPath = await _repository.finalizeVideo(
-      sourcePath: split.completedPath,
+      sourcePath: watermarkedPath,
       sessionId: completedId,
       startedAt: transition.completed.startedAt,
       trackingNumber: transition.completed.markers.isEmpty

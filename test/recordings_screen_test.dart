@@ -349,7 +349,7 @@ void main() {
       ),
     );
 
-    expect(find.text('还差 1 个'), findsOneWidget);
+    expect(find.text('1 个未备份'), findsOneWidget);
     await tester.drag(find.byType(ListView), const Offset(0, -460));
     await tester.pump();
     expect(find.text('已备份'), findsOneWidget);

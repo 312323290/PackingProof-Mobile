@@ -1392,7 +1392,7 @@ class _ComputerBackupSettings extends StatelessWidget {
     final bool paired = snapshot.endpoint != null;
     final String remainingLabel = remainingBackupCount == 0
         ? '全部完成'
-        : '还差 $remainingBackupCount 个';
+        : '$remainingBackupCount 个未备份';
     final bool online =
         snapshot.connectionStatus == LanConnectionStatus.connected;
     final bool needsRepair =

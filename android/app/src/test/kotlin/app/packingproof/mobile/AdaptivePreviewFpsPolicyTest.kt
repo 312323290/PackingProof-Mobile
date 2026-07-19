@@ -22,7 +22,7 @@ class AdaptivePreviewFpsPolicyTest {
         policy.activate(0L)
         policy.observe(0.01f, 4_000L)
 
-        assertTrue(policy.observe(0.12f, 4_020L))
+        assertTrue(policy.observe(0.15f, 4_020L))
         assertEquals(30, policy.targetFps)
     }
 

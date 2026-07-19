@@ -2,8 +2,8 @@ package app.packingproof.mobile
 
 internal class AdaptivePreviewFpsPolicy(
     private val stableDelayMs: Long = 4_000L,
-    private val stableThreshold: Float = 0.05f,
-    private val motionThreshold: Float = 0.12f,
+    private val stableThreshold: Float = 0.08f,
+    private val motionThreshold: Float = 0.15f,
 ) {
     var targetFps: Int = ACTIVE_FPS
         private set

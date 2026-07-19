@@ -106,6 +106,26 @@ void main() {
     await service.dispose();
   });
 
+  test('单机模式不调用 Edge 在线生成', () async {
+    final _FakeSpeechOutput output = _FakeSpeechOutput();
+    final _FakeEdgeGenerator generator = _FakeEdgeGenerator(_mp3Bytes(200));
+    final SpeechPromptService service = SpeechPromptService(
+      output: output,
+      edgeGenerator: generator,
+      cache: SpeechPromptCache.inDirectory(root),
+      assetBundle: _MissingAssetBundle(),
+      onlineEdgeTtsEnabled: false,
+      offlineSystemTtsOnly: true,
+    );
+
+    service.enqueue(SpeechPrompt.recordingFailed);
+    await service.waitUntilIdle();
+    expect(generator.calls, 0);
+    expect(output.systemTexts, <String>['录制失败']);
+    expect(output.offlineOnlyRequests, <bool>[true]);
+    await service.dispose();
+  });
+
   test('同一故障恢复前只播报一次', () async {
     final _FakeSpeechOutput output = _FakeSpeechOutput();
     final SpeechPromptService service = SpeechPromptService(
@@ -139,6 +159,7 @@ class _FakeSpeechOutput implements SpeechOutput {
   final List<String> assets = <String>[];
   final List<String> files = <String>[];
   final List<String> systemTexts = <String>[];
+  final List<bool> offlineOnlyRequests = <bool>[];
 
   @override
   Future<void> playAsset(String assetPath) async => assets.add(assetPath);
@@ -147,7 +168,10 @@ class _FakeSpeechOutput implements SpeechOutput {
   Future<void> playFile(String filePath) async => files.add(filePath);
 
   @override
-  Future<void> speakSystem(String text) async => systemTexts.add(text);
+  Future<void> speakSystem(String text, {bool offlineOnly = false}) async {
+    systemTexts.add(text);
+    offlineOnlyRequests.add(offlineOnly);
+  }
 
   @override
   Future<void> stop() async {}

@@ -31,6 +31,8 @@ void main() {
     expect(settings.workMode, WorkMode.sameCodeStop);
     expect(settings.speechEnabled, isTrue);
     expect(settings.maxVolumeEnabled, isTrue);
+    expect(settings.standaloneNoticeDismissed, isFalse);
+    expect(settings.lanBackupAutoEnabled, isTrue);
 
     await repository.saveSpeechEnabled(false);
     final Map<String, Object?> persisted = Map<String, Object?>.from(
@@ -41,6 +43,16 @@ void main() {
     expect(persisted['speechEnabled'], isFalse);
     expect(persisted['maxVolumeEnabled'], isTrue);
     expect(persisted['futureOption'], <String, Object>{'enabled': true});
+  });
+
+  test('单机提示选择可持久化且不覆盖其他设置', () async {
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    await repository.saveSpeechEnabled(false);
+    await repository.saveStandaloneNoticeDismissed(true);
+
+    final settings = await repository.loadSettings();
+    expect(settings.standaloneNoticeDismissed, isTrue);
+    expect(settings.speechEnabled, isFalse);
   });
 
   test('音量设置默认开启并保留其他字段', () async {

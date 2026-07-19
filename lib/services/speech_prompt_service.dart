@@ -33,7 +33,7 @@ abstract interface class SpeechOutput {
 
   Future<void> playFile(String filePath);
 
-  Future<void> speakSystem(String text);
+  Future<void> speakSystem(String text, {bool offlineOnly = false});
 
   Future<void> stop();
 
@@ -50,6 +50,8 @@ class SpeechPromptService implements SpeechPromptSink {
     EdgeSpeechGenerator? edgeGenerator,
     SpeechPromptCache? cache,
     AssetBundle? assetBundle,
+    this.onlineEdgeTtsEnabled = true,
+    this.offlineSystemTtsOnly = false,
   }) : _output = output ?? DeviceSpeechOutput(),
        _edgeGenerator = edgeGenerator ?? FlutterEdgeSpeechGenerator(),
        _cache = cache ?? SpeechPromptCache(),
@@ -59,6 +61,8 @@ class SpeechPromptService implements SpeechPromptSink {
   final EdgeSpeechGenerator _edgeGenerator;
   final SpeechPromptCache _cache;
   final AssetBundle _assetBundle;
+  final bool onlineEdgeTtsEnabled;
+  final bool offlineSystemTtsOnly;
   final ListQueue<SpeechPrompt> _queue = ListQueue<SpeechPrompt>();
   final Set<String> _activeIncidents = <String>{};
 
@@ -164,19 +168,24 @@ class SpeechPromptService implements SpeechPromptSink {
       }
     }
 
-    try {
-      final Uint8List bytes = await _edgeGenerator
-          .synthesize(text: prompt.text, voice: prompt.voice)
-          .timeout(const Duration(seconds: 10));
-      final File generated = await _cache.store(prompt, bytes);
-      await _output.playFile(generated.path);
-      return;
-    } on Object {
-      // Edge is best effort; Android system TTS is the final offline fallback.
+    if (onlineEdgeTtsEnabled) {
+      try {
+        final Uint8List bytes = await _edgeGenerator
+            .synthesize(text: prompt.text, voice: prompt.voice)
+            .timeout(const Duration(seconds: 10));
+        final File generated = await _cache.store(prompt, bytes);
+        await _output.playFile(generated.path);
+        return;
+      } on Object {
+        // Edge is best effort; Android system TTS is the final fallback.
+      }
     }
 
     try {
-      await _output.speakSystem(prompt.text);
+      await _output.speakSystem(
+        prompt.text,
+        offlineOnly: offlineSystemTtsOnly,
+      );
     } on Object {
       // Speech must never interrupt or fail the recording workflow.
     }
@@ -304,11 +313,38 @@ class DeviceSpeechOutput implements SpeechOutput {
   }
 
   @override
-  Future<void> speakSystem(String text) async {
+  Future<void> speakSystem(String text, {bool offlineOnly = false}) async {
     await stop();
     final Completer<void> completion = Completer<void>();
     _activePlayback = completion;
     await _systemTts.setLanguage('zh-CN');
+    if (offlineOnly) {
+      final Object? available = await _systemTts.getVoices;
+      final List<Object?> voices = available is List<Object?>
+          ? available
+          : const <Object?>[];
+      Map<Object?, Object?>? selected;
+      for (final Object? value in voices) {
+        if (value is! Map<Object?, Object?>) {
+          continue;
+        }
+        final String locale = '${value['locale'] ?? ''}'.toLowerCase();
+        final Object? networkValue = value['network_required'];
+        final bool requiresNetwork = networkValue == true ||
+            '$networkValue'.toLowerCase() == 'true';
+        if (locale.startsWith('zh') && !requiresNetwork) {
+          selected = value;
+          break;
+        }
+      }
+      if (selected == null) {
+        throw StateError('没有可用的离线系统语音');
+      }
+      await _systemTts.setVoice(<String, String>{
+        'name': '${selected['name']}',
+        'locale': '${selected['locale']}',
+      });
+    }
     await _systemTts.setSpeechRate(0.5);
     await _systemTts.setPitch(1.0);
     await _systemTts.setVolume(1.0);

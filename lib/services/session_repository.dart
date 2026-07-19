@@ -200,6 +200,18 @@ class SessionRepository {
     await saveSettings(settings.copyWith(maxVolumeEnabled: enabled));
   }
 
+  Future<void> saveStandaloneNoticeDismissed(bool dismissed) async {
+    final AppSettings settings = await loadSettings();
+    await saveSettings(
+      settings.copyWith(standaloneNoticeDismissed: dismissed),
+    );
+  }
+
+  Future<void> saveLanBackupAutoEnabled(bool enabled) async {
+    final AppSettings settings = await loadSettings();
+    await saveSettings(settings.copyWith(lanBackupAutoEnabled: enabled));
+  }
+
   Future<void> saveSettings(AppSettings settings) async {
     await initialize();
     final String contents = const JsonEncoder.withIndent(

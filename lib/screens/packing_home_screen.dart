@@ -5,10 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../app/packing_proof_mobile_app.dart';
+import '../app/app_build_config.dart';
 import '../controllers/packing_session_controller.dart';
 import '../models/barcode_marker.dart';
 import '../models/work_mode.dart';
 import '../services/preview_cover_transform.dart';
+import '../services/session_repository.dart';
+import '../services/speech_prompt_service.dart';
 import 'recordings_screen.dart';
 
 @visibleForTesting
@@ -19,7 +22,14 @@ bool shouldSuspendPackingSession(AppLifecycleState state) {
 }
 
 class PackingHomeScreen extends StatefulWidget {
-  const PackingHomeScreen({super.key});
+  const PackingHomeScreen({
+    this.repository,
+    this.buildConfig = AppBuildConfig.environment,
+    super.key,
+  });
+
+  final SessionRepository? repository;
+  final AppBuildConfig buildConfig;
 
   @override
   State<PackingHomeScreen> createState() => _PackingHomeScreenState();
@@ -33,7 +43,13 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _controller = PackingSessionController();
+    _controller = PackingSessionController(
+      repository: widget.repository,
+      speechService: SpeechPromptService(
+        onlineEdgeTtsEnabled: widget.buildConfig.onlineEdgeTtsEnabled,
+        offlineSystemTtsOnly: widget.buildConfig.isStandalone,
+      ),
+    );
     unawaited(_controller.initialize());
   }
 

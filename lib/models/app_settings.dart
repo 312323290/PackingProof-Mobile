@@ -5,6 +5,8 @@ class AppSettings {
     this.workMode = WorkMode.continuousScan,
     this.speechEnabled = true,
     this.maxVolumeEnabled = true,
+    this.standaloneNoticeDismissed = false,
+    this.lanBackupAutoEnabled = true,
     this.extraValues = const <String, Object?>{},
   });
 
@@ -12,7 +14,9 @@ class AppSettings {
     final Map<String, Object?> extraValues = Map<String, Object?>.of(json)
       ..remove('workMode')
       ..remove('speechEnabled')
-      ..remove('maxVolumeEnabled');
+      ..remove('maxVolumeEnabled')
+      ..remove('standaloneNoticeDismissed')
+      ..remove('lanBackupAutoEnabled');
     return AppSettings(
       workMode: workModeFromStorage(json['workMode']),
       speechEnabled: json['speechEnabled'] is bool
@@ -21,6 +25,13 @@ class AppSettings {
       maxVolumeEnabled: json['maxVolumeEnabled'] is bool
           ? json['maxVolumeEnabled']! as bool
           : true,
+      standaloneNoticeDismissed:
+          json['standaloneNoticeDismissed'] is bool
+          ? json['standaloneNoticeDismissed']! as bool
+          : false,
+      lanBackupAutoEnabled: json['lanBackupAutoEnabled'] is bool
+          ? json['lanBackupAutoEnabled']! as bool
+          : true,
       extraValues: extraValues,
     );
   }
@@ -28,17 +39,24 @@ class AppSettings {
   final WorkMode workMode;
   final bool speechEnabled;
   final bool maxVolumeEnabled;
+  final bool standaloneNoticeDismissed;
+  final bool lanBackupAutoEnabled;
   final Map<String, Object?> extraValues;
 
   AppSettings copyWith({
     WorkMode? workMode,
     bool? speechEnabled,
     bool? maxVolumeEnabled,
+    bool? standaloneNoticeDismissed,
+    bool? lanBackupAutoEnabled,
   }) {
     return AppSettings(
       workMode: workMode ?? this.workMode,
       speechEnabled: speechEnabled ?? this.speechEnabled,
       maxVolumeEnabled: maxVolumeEnabled ?? this.maxVolumeEnabled,
+      standaloneNoticeDismissed:
+          standaloneNoticeDismissed ?? this.standaloneNoticeDismissed,
+      lanBackupAutoEnabled: lanBackupAutoEnabled ?? this.lanBackupAutoEnabled,
       extraValues: extraValues,
     );
   }
@@ -48,5 +66,7 @@ class AppSettings {
     'workMode': workMode.storageValue,
     'speechEnabled': speechEnabled,
     'maxVolumeEnabled': maxVolumeEnabled,
+    'standaloneNoticeDismissed': standaloneNoticeDismissed,
+    'lanBackupAutoEnabled': lanBackupAutoEnabled,
   };
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -641,15 +642,17 @@ class NativeCameraPreviewCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Widget viewport = _PreviewCoverViewport(
-      sourceSize: sourceSize,
-      previewKey: const Key('native-camera-preview-natural-size'),
-      child: Texture(textureId: textureId, filterQuality: FilterQuality.low),
+    final Widget viewport = RepaintBoundary(
+      child: _PreviewCoverViewport(
+        sourceSize: sourceSize,
+        previewKey: const Key('native-camera-preview-natural-size'),
+        child: Texture(textureId: textureId, filterQuality: FilterQuality.low),
+      ),
     );
     return Transform(
       key: const Key('native-camera-preview-mirror'),
       alignment: Alignment.center,
-      transform: Matrix4.diagonal3Values(mirrored ? -1 : 1, 1, 1),
+      transform: mirrored ? Matrix4.rotationY(math.pi) : Matrix4.identity(),
       child: viewport,
     );
   }
@@ -702,7 +705,7 @@ class CameraPreviewCover extends StatelessWidget {
     return Transform(
       key: const Key('flutter-camera-preview-mirror'),
       alignment: Alignment.center,
-      transform: Matrix4.diagonal3Values(mirrored ? -1 : 1, 1, 1),
+      transform: mirrored ? Matrix4.rotationY(math.pi) : Matrix4.identity(),
       child: CameraPreviewCoverLayout(
         cameraValue: controller,
         preview: controller.buildPreview(),

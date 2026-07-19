@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$VersionName = '0.4.0',
-    [int]$VersionCode = 10000,
+    [string]$VersionName = '0.4.1',
+    [int]$VersionCode = 10001,
     [string]$OutputDirectory = 'dist/android'
 )
 

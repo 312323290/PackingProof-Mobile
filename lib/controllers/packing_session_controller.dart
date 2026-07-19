@@ -100,6 +100,7 @@ class PackingSessionController extends ChangeNotifier {
   int _segmentIndex = 1;
   bool _torchEnabled = false;
   bool _workActive = false;
+  int _pairingSuccessRevision = 0;
   Set<int> _hiddenRemoteRecordingIds = <int>{};
 
   CameraController? get cameraController => _cameraController;
@@ -119,6 +120,7 @@ class PackingSessionController extends ChangeNotifier {
   BackedRetentionPolicy get backedRetention => _backedRetention;
   LanBackupSnapshot get backupSnapshot => _lanBackupService.snapshot;
   bool get pairingScanActive => _pairingScanActive;
+  int get pairingSuccessRevision => _pairingSuccessRevision;
   String? get pairingMessage => _pairingMessage;
   bool get historyScanActive => _historyScanActive;
   bool get flashAvailable => Platform.isAndroid
@@ -1144,6 +1146,7 @@ class PackingSessionController extends ChangeNotifier {
     try {
       await _lanBackupService.pair(value);
       _pairingScanActive = false;
+      _pairingSuccessRevision++;
       await _nativeCamera?.setPairingScanEnabled(false);
       final LanBackupEndpoint? endpoint = _lanBackupService.snapshot.endpoint;
       _pairingMessage = endpoint == null

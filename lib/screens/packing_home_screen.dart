@@ -40,6 +40,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   late final PackingSessionController _controller;
   int _selectedTab = 1;
   String _historySearchQuery = '';
+  int _handledPairingSuccessRevision = 0;
 
   @override
   void initState() {
@@ -108,6 +109,15 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     return ListenableBuilder(
       listenable: _controller,
       builder: (BuildContext context, Widget? child) {
+        final int pairingSuccessRevision = _controller.pairingSuccessRevision;
+        if (pairingSuccessRevision > _handledPairingSuccessRevision) {
+          _handledPairingSuccessRevision = pairingSuccessRevision;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() => _selectedTab = 0);
+            unawaited(_controller.setPreviewActive(false));
+          });
+        }
         final String? scanned = _controller.historyScanResult;
         if (scanned != null) {
           _controller.clearHistoryScanResult();
@@ -152,10 +162,12 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
               _buildRecordingsScreen(RecordingsScreenMode.settings),
             ],
           ),
-          bottomNavigationBar: _PackingBottomNavigation(
-            selectedIndex: _selectedTab,
-            onSelected: _selectTab,
-          ),
+          bottomNavigationBar: _controller.pairingScanActive
+              ? null
+              : _PackingBottomNavigation(
+                  selectedIndex: _selectedTab,
+                  onSelected: _selectTab,
+                ),
         );
       },
     );
@@ -168,6 +180,9 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       active: mode == RecordingsScreenMode.history
           ? _selectedTab == 0
           : _selectedTab == 2,
+      focusBackupRevision: mode == RecordingsScreenMode.history
+          ? _controller.pairingSuccessRevision
+          : 0,
       externalSearchQuery: mode == RecordingsScreenMode.history
           ? _historySearchQuery
           : '',
@@ -465,7 +480,7 @@ class _CameraArea extends StatelessWidget {
             Positioned(
               left: 20,
               right: 20,
-              top: 24,
+              top: 88,
               child: _ComputerPairingBanner(
                 message: view.pairingMessage ?? '扫描电脑二维码',
                 onCancel: view.pairingScanActive ? view.onPairingCancel : null,
@@ -626,14 +641,16 @@ class NativeCameraPreviewCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _PreviewCoverViewport(
+    final Widget viewport = _PreviewCoverViewport(
       sourceSize: sourceSize,
       previewKey: const Key('native-camera-preview-natural-size'),
-      child: Transform(
-        alignment: Alignment.center,
-        transform: Matrix4.diagonal3Values(mirrored ? -1 : 1, 1, 1),
-        child: Texture(textureId: textureId, filterQuality: FilterQuality.low),
-      ),
+      child: Texture(textureId: textureId, filterQuality: FilterQuality.low),
+    );
+    return Transform(
+      key: const Key('native-camera-preview-mirror'),
+      alignment: Alignment.center,
+      transform: Matrix4.diagonal3Values(mirrored ? -1 : 1, 1, 1),
+      child: viewport,
     );
   }
 }
@@ -682,12 +699,13 @@ class CameraPreviewCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CameraPreviewCoverLayout(
-      cameraValue: controller,
-      preview: Transform(
-        alignment: Alignment.center,
-        transform: Matrix4.diagonal3Values(mirrored ? -1 : 1, 1, 1),
-        child: controller.buildPreview(),
+    return Transform(
+      key: const Key('flutter-camera-preview-mirror'),
+      alignment: Alignment.center,
+      transform: Matrix4.diagonal3Values(mirrored ? -1 : 1, 1, 1),
+      child: CameraPreviewCoverLayout(
+        cameraValue: controller,
+        preview: controller.buildPreview(),
       ),
     );
   }

@@ -152,7 +152,11 @@ void main() {
 
     expect(find.byKey(const Key('computer-backup-settings')), findsOneWidget);
     expect(find.text('电脑备份'), findsOneWidget);
-    expect(find.text('连接电脑'), findsOneWidget);
+    expect(find.text('连接'), findsOneWidget);
+    expect(
+      tester.widget(find.byKey(const Key('connect-computer-button'))),
+      isA<FilledButton>(),
+    );
     expect(find.byKey(const Key('scan-search-button')), findsOneWidget);
     expect(find.byKey(const Key('paste-search-button')), findsOneWidget);
     expect(find.byKey(const Key('recording-source-filter')), findsOneWidget);
@@ -234,8 +238,8 @@ void main() {
                 state: LanBackupJobState.completed,
                 uploadedBytes: 1,
                 totalBytes: 1,
-                 destinationComputerId: 'computer-1',
-                 remoteRecordIds: const <int>[1],
+                destinationComputerId: 'computer-1',
+                remoteRecordIds: const <int>[1],
               ),
             ],
             connectionStatus: LanConnectionStatus.connected,

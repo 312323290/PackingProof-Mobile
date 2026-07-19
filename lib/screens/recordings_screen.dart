@@ -53,6 +53,7 @@ class RecordingsScreen extends StatefulWidget {
     this.onScanSearch,
     this.externalSearchQuery = '',
     this.active = true,
+    this.focusBackupRevision = 0,
     super.key,
   });
 
@@ -101,6 +102,7 @@ class RecordingsScreen extends StatefulWidget {
   final VoidCallback? onScanSearch;
   final String externalSearchQuery;
   final bool active;
+  final int focusBackupRevision;
 
   @override
   State<RecordingsScreen> createState() => _RecordingsScreenState();
@@ -129,6 +131,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   int _remoteTotal = 0;
   int _remoteDeviceTotal = 0;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   final Set<String> _selectedIds = <String>{};
   String _query = '';
   bool _managing = false;
@@ -186,6 +189,18 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
     _hiddenRemoteIds.addAll(widget.hiddenRemoteRecordingIds);
+    if (oldWidget.focusBackupRevision != widget.focusBackupRevision &&
+        widget.focusBackupRevision > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            0,
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+          );
+        }
+      });
+    }
     if (!oldWidget.active && widget.active && _remoteRecordings.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => unawaited(
@@ -216,6 +231,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     widget.backupListenable?.removeListener(_refreshBackupSnapshot);
     _remoteSearchTimer?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -727,6 +743,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         ],
       ),
       body: ListView(
+        controller: _scrollController,
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
         children: <Widget>[
           if (!historyMode) ...<Widget>[
@@ -1335,12 +1352,22 @@ class _ComputerBackupSettings extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              const Expanded(
+              Expanded(
                 child: Text(
                   '电脑备份',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
+              if (!paired)
+                FilledButton.icon(
+                  key: const Key('connect-computer-button'),
+                  onPressed: onConnect,
+                  icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                  label: const Text('连接'),
+                ),
               if (paired) ...<Widget>[
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -1418,58 +1445,48 @@ class _ComputerBackupSettings extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 10),
-          if (!paired)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                key: const Key('connect-computer-button'),
-                onPressed: onConnect,
-                icon: const Icon(Icons.qr_code_scanner_rounded),
-                label: const Text('连接电脑'),
-              ),
-            )
-          else ...<Widget>[
+          if (paired) ...<Widget>[
             Row(
               children: <Widget>[
                 Expanded(
-                   child: OutlinedButton.icon(
-                     key: const Key('backup-now-button'),
-                     onPressed: connecting
-                         ? null
-                         : needsRepair
-                         ? onConnect
-                         : !online
-                         ? onRetryConnection
-                         : !allBackedUp
-                         ? onBackupNow
-                         : null,
-                     icon: Icon(
-                       connecting
-                           ? Icons.sync_rounded
-                           : needsRepair
-                           ? Icons.qr_code_scanner_rounded
-                           : !online
-                           ? Icons.refresh_rounded
-                           : allBackedUp && online
-                           ? Icons.check_circle_rounded
-                           : Icons.backup_rounded,
-                     ),
-                     label: Text(
-                       connecting
-                           ? '连接中'
-                           : needsRepair
-                           ? '重新连接'
-                           : !online
-                           ? '重试连接'
-                           : allBackedUp
-                           ? '备份完成'
-                           : '立即备份',
+                  child: OutlinedButton.icon(
+                    key: const Key('backup-now-button'),
+                    onPressed: connecting
+                        ? null
+                        : needsRepair
+                        ? onConnect
+                        : !online
+                        ? onRetryConnection
+                        : !allBackedUp
+                        ? onBackupNow
+                        : null,
+                    icon: Icon(
+                      connecting
+                          ? Icons.sync_rounded
+                          : needsRepair
+                          ? Icons.qr_code_scanner_rounded
+                          : !online
+                          ? Icons.refresh_rounded
+                          : allBackedUp && online
+                          ? Icons.check_circle_rounded
+                          : Icons.backup_rounded,
+                    ),
+                    label: Text(
+                      connecting
+                          ? '连接中'
+                          : needsRepair
+                          ? '重新连接'
+                          : !online
+                          ? '重试连接'
+                          : allBackedUp
+                          ? '备份完成'
+                          : '立即备份',
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                   child: OutlinedButton.icon(
+                  child: OutlinedButton.icon(
                     key: const Key('delete-computer-button'),
                     style: TextButton.styleFrom(
                       foregroundColor: const Color(0xFFC43D32),
@@ -1485,7 +1502,7 @@ class _ComputerBackupSettings extends StatelessWidget {
               const SizedBox(height: 4),
               SizedBox(
                 width: double.infinity,
-                 child: OutlinedButton.icon(
+                child: OutlinedButton.icon(
                   onPressed: online && onRetry != null
                       ? () => onRetry!(failed.id)
                       : null,

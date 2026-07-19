@@ -11,11 +11,15 @@ class VideoPlaybackScreen extends StatefulWidget {
   const VideoPlaybackScreen({
     required this.session,
     required this.onSessionUpdated,
+    this.remoteUri,
+    this.remoteHeaders = const <String, String>{},
     super.key,
   });
 
   final RecordingSession session;
   final Future<void> Function(RecordingSession session) onSessionUpdated;
+  final Uri? remoteUri;
+  final Map<String, String> remoteHeaders;
 
   @override
   State<VideoPlaybackScreen> createState() => _VideoPlaybackScreenState();
@@ -37,7 +41,12 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
     _session = widget.session;
     _playbackStart = _session.mediaStart;
     _playbackEnd = _session.playbackEnd;
-    _video = VideoPlayerController.file(File(_session.filePath));
+    _video = widget.remoteUri == null
+        ? VideoPlayerController.file(File(_session.filePath))
+        : VideoPlayerController.networkUrl(
+            widget.remoteUri!,
+            httpHeaders: widget.remoteHeaders,
+          );
     _initialized = _video.initialize().then((_) async {
       await _video.setVolume(1);
       final Duration sourceDuration = _video.value.duration;
@@ -201,7 +210,13 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return const Center(child: Text('录像无法播放，请检查文件是否仍在本机'));
+            return Center(
+              child: Text(
+                widget.remoteUri == null
+                    ? '录像无法播放，请检查文件是否仍在本机'
+                    : '电脑录像暂时无法播放，请检查局域网连接',
+              ),
+            );
           }
           return ValueListenableBuilder<VideoPlayerValue>(
             valueListenable: _video,
@@ -341,14 +356,15 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: OutlinedButton.icon(
-                          onPressed: _openTrim,
-                          icon: const Icon(Icons.content_cut_rounded),
-                          label: const Text('剪辑'),
+                      if (widget.remoteUri == null)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: OutlinedButton.icon(
+                            onPressed: _openTrim,
+                            icon: const Icon(Icons.content_cut_rounded),
+                            label: const Text('剪辑'),
+                          ),
                         ),
-                      ),
                     ],
                   );
                 },

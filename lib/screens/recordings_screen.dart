@@ -1,6 +1,11 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../app/packing_proof_mobile_app.dart';
+import '../models/backup_retention_policy.dart';
+import '../models/barcode_marker.dart';
 import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/work_mode.dart';
@@ -25,6 +30,11 @@ class RecordingsScreen extends StatefulWidget {
     this.onBackupNow,
     this.onDisconnectBackup,
     this.onRetryBackup,
+    this.unbackedRetention = UnbackedRetentionPolicy.days30,
+    this.backedRetention = BackedRetentionPolicy.days7,
+    this.onBackupRetentionChanged,
+    this.onLoadRemoteRecordings,
+    this.remotePlaybackHeaders = const <String, String>{},
     super.key,
   });
 
@@ -45,6 +55,20 @@ class RecordingsScreen extends StatefulWidget {
   final Future<void> Function()? onBackupNow;
   final Future<void> Function()? onDisconnectBackup;
   final Future<void> Function(String jobId)? onRetryBackup;
+  final UnbackedRetentionPolicy unbackedRetention;
+  final BackedRetentionPolicy backedRetention;
+  final Future<void> Function({
+    required UnbackedRetentionPolicy unbacked,
+    required BackedRetentionPolicy backed,
+  })?
+  onBackupRetentionChanged;
+  final Future<List<RemoteRecording>> Function({
+    required int page,
+    required int pageSize,
+    String keyword,
+  })?
+  onLoadRemoteRecordings;
+  final Map<String, String> remotePlaybackHeaders;
 
   @override
   State<RecordingsScreen> createState() => _RecordingsScreenState();
@@ -56,6 +80,14 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late bool _maxVolumeEnabled;
   late List<RecordingSession> _sessions;
   late LanBackupSnapshot _backupSnapshot;
+  late UnbackedRetentionPolicy _unbackedRetention;
+  late BackedRetentionPolicy _backedRetention;
+  final List<RemoteRecording> _remoteRecordings = <RemoteRecording>[];
+  final ScrollController _scrollController = ScrollController();
+  Timer? _remoteSearchTimer;
+  bool _loadingRemote = false;
+  bool _remoteHasMore = true;
+  int _remotePage = 0;
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
   String _query = '';
@@ -87,12 +119,20 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _maxVolumeEnabled = widget.maxVolumeEnabled;
     _sessions = List<RecordingSession>.of(widget.sessions);
     _backupSnapshot = widget.backupSnapshot;
+    _unbackedRetention = widget.unbackedRetention;
+    _backedRetention = widget.backedRetention;
     widget.backupListenable?.addListener(_refreshBackupSnapshot);
+    _scrollController.addListener(_handleScroll);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _loadRemote(reset: true),
+    );
   }
 
   @override
   void dispose() {
     widget.backupListenable?.removeListener(_refreshBackupSnapshot);
+    _remoteSearchTimer?.cancel();
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -105,6 +145,84 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       _backupSnapshot =
           widget.backupSnapshotProvider?.call() ?? widget.backupSnapshot;
     });
+    if (_backupSnapshot.connected && _remoteRecordings.isEmpty) {
+      unawaited(_loadRemote(reset: true));
+    }
+  }
+
+  List<_RecordingListItem> get _visibleItems {
+    final Map<String, RemoteRecording> remoteBySession =
+        <String, RemoteRecording>{
+          for (final RemoteRecording remote in _remoteRecordings)
+            if (remote.sourceSessionId.isNotEmpty)
+              remote.sourceSessionId: remote,
+        };
+    final List<_RecordingListItem> values = _filteredSessions
+        .map(
+          (RecordingSession local) => _RecordingListItem(
+            local: local,
+            remote: remoteBySession.remove(local.id),
+          ),
+        )
+        .toList();
+    values.addAll(
+      _remoteRecordings
+          .where(
+            (RemoteRecording remote) =>
+                remote.sourceSessionId.isEmpty ||
+                remoteBySession[remote.sourceSessionId]?.id == remote.id,
+          )
+          .where(
+            (RemoteRecording remote) =>
+                !values.any((item) => item.remote?.id == remote.id),
+          )
+          .map((RemoteRecording remote) => _RecordingListItem(remote: remote)),
+    );
+    values.sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    return values;
+  }
+
+  void _handleScroll() {
+    if (_scrollController.position.extentAfter < 320) {
+      unawaited(_loadRemote());
+    }
+  }
+
+  Future<void> _loadRemote({bool reset = false}) async {
+    if (_loadingRemote ||
+        widget.onLoadRemoteRecordings == null ||
+        !_backupSnapshot.connected ||
+        (!reset && !_remoteHasMore)) {
+      return;
+    }
+    _loadingRemote = true;
+    if (reset) {
+      _remotePage = 0;
+      _remoteHasMore = true;
+    }
+    final int nextPage = _remotePage + 1;
+    final List<RemoteRecording> values = await widget.onLoadRemoteRecordings!(
+      page: nextPage,
+      pageSize: 50,
+      keyword: _query,
+    );
+    if (!mounted) return;
+    setState(() {
+      if (reset) _remoteRecordings.clear();
+      _remoteRecordings.addAll(values);
+      _remotePage = nextPage;
+      _remoteHasMore = values.length == 50;
+      _loadingRemote = false;
+    });
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() => _query = value);
+    _remoteSearchTimer?.cancel();
+    _remoteSearchTimer = Timer(
+      const Duration(milliseconds: 300),
+      () => unawaited(_loadRemote(reset: true)),
+    );
   }
 
   Future<void> _setWorkMode(WorkMode mode) async {
@@ -129,6 +247,44 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     }
     setState(() => _maxVolumeEnabled = enabled);
     await widget.onMaxVolumeEnabledChanged(enabled);
+  }
+
+  Future<void> _setUnbackedRetention(UnbackedRetentionPolicy value) async {
+    setState(() => _unbackedRetention = value);
+    await widget.onBackupRetentionChanged?.call(
+      unbacked: value,
+      backed: _backedRetention,
+    );
+  }
+
+  Future<void> _setBackedRetention(BackedRetentionPolicy value) async {
+    if (value == BackedRetentionPolicy.immediately) {
+      final bool? confirmed = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext context) => AlertDialog(
+          title: const Text('备份后立即清除？'),
+          content: const Text(
+            '录像成功备份到电脑后，将自动删除手机中的本机文件。电脑离线时仍可查看录像记录，但无法播放远程视频。',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('确认'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    setState(() => _backedRetention = value);
+    await widget.onBackupRetentionChanged?.call(
+      unbacked: _unbackedRetention,
+      backed: value,
+    );
   }
 
   Future<void> _updateSession(RecordingSession updated) async {
@@ -227,6 +383,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   @override
   Widget build(BuildContext context) {
     final List<RecordingSession> visibleSessions = _filteredSessions;
+    final List<_RecordingListItem> visibleItems = _visibleItems;
     return Scaffold(
       appBar: AppBar(
         title: Text(_managing ? '已选 ${_selectedIds.length} 项' : '录像与设置'),
@@ -239,6 +396,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         ],
       ),
       body: ListView(
+        controller: _scrollController,
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
         children: <Widget>[
           _WorkModeSettings(workMode: _workMode, onChanged: _setWorkMode),
@@ -261,6 +419,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             onBackupNow: widget.onBackupNow,
             onDisconnect: widget.onDisconnectBackup,
             onRetry: widget.onRetryBackup,
+            unbackedRetention: _unbackedRetention,
+            backedRetention: _backedRetention,
+            onUnbackedRetentionChanged: _setUnbackedRetention,
+            onBackedRetentionChanged: _setBackedRetention,
           ),
           const SizedBox(height: 20),
           SearchBar(
@@ -275,11 +437,12 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                   onPressed: () {
                     _searchController.clear();
                     setState(() => _query = '');
+                    unawaited(_loadRemote(reset: true));
                   },
                   icon: const Icon(Icons.close_rounded),
                 ),
             ],
-            onChanged: (String value) => setState(() => _query = value),
+            onChanged: _onSearchChanged,
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(2, 22, 2, 12),
@@ -307,16 +470,19 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               ],
             ),
           ),
-          if (_sessions.isEmpty)
+          if (_sessions.isEmpty && _remoteRecordings.isEmpty)
             const SizedBox(height: 280, child: _EmptyRecordings())
-          else if (visibleSessions.isEmpty)
+          else if (visibleItems.isEmpty)
             const SizedBox(height: 220, child: _NoSearchResults())
           else
-            ...List<Widget>.generate(visibleSessions.length, (int index) {
-              final RecordingSession session = visibleSessions[index];
+            ...List<Widget>.generate(visibleItems.length, (int index) {
+              final _RecordingListItem item = visibleItems[index];
+              final RecordingSession session = item.session;
+              final bool localAvailable =
+                  item.local != null && File(item.local!.filePath).existsSync();
               return Padding(
                 padding: EdgeInsets.only(
-                  bottom: index == visibleSessions.length - 1 ? 0 : 10,
+                  bottom: index == visibleItems.length - 1 ? 0 : 10,
                 ),
                 child: _RecordingTile(
                   session: session,
@@ -325,19 +491,32 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         (LanBackupJob job) => job.filePath == session.filePath,
                       )
                       .firstOrNull,
-                  managing: _managing,
+                  managing: _managing && item.local != null,
+                  sourceLabel: localAvailable
+                      ? (item.remote == null ? '本机' : '本机 · 已备份')
+                      : (item.remote == null ? '已备份 · 电脑离线' : '电脑录像'),
                   selected: _selectedIds.contains(session.id),
                   onTap: () {
                     if (_managing) {
-                      _toggleSelection(session.id);
+                      if (item.local != null) _toggleSelection(session.id);
                       return;
                     }
                     FocusManager.instance.primaryFocus?.unfocus();
+                    if (!localAvailable && item.remote == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('电脑当前不可用，暂时无法播放这段录像')),
+                      );
+                      return;
+                    }
                     Navigator.of(context).push<void>(
                       MaterialPageRoute<void>(
                         builder: (BuildContext context) => VideoPlaybackScreen(
                           session: session,
                           onSessionUpdated: _updateSession,
+                          remoteUri: localAvailable
+                              ? null
+                              : item.remote?.playUri,
+                          remoteHeaders: widget.remotePlaybackHeaders,
                         ),
                       ),
                     );
@@ -345,6 +524,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                 ),
               );
             }),
+          if (_loadingRemote)
+            const Padding(
+              padding: EdgeInsets.all(18),
+              child: Center(child: CircularProgressIndicator()),
+            ),
         ],
       ),
       bottomNavigationBar: _managing
@@ -361,6 +545,36 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   }
 }
 
+class _RecordingListItem {
+  const _RecordingListItem({this.local, this.remote})
+    : assert(local != null || remote != null);
+
+  final RecordingSession? local;
+  final RemoteRecording? remote;
+
+  DateTime get startedAt => local?.startedAt ?? remote!.startedAt;
+
+  RecordingSession get session {
+    if (local != null) return local!;
+    final RemoteRecording value = remote!;
+    return RecordingSession(
+      id: 'remote-${value.id}',
+      filePath: '',
+      startedAt: value.startedAt,
+      endedAt: value.startedAt.add(value.duration),
+      markers: value.trackingNumber.isEmpty
+          ? const <BarcodeMarker>[]
+          : <BarcodeMarker>[
+              BarcodeMarker(
+                code: value.trackingNumber,
+                occurredAt: value.startedAt,
+                offset: Duration.zero,
+              ),
+            ],
+    );
+  }
+}
+
 class _ComputerBackupSettings extends StatelessWidget {
   const _ComputerBackupSettings({
     required this.snapshot,
@@ -369,6 +583,10 @@ class _ComputerBackupSettings extends StatelessWidget {
     this.onBackupNow,
     this.onDisconnect,
     this.onRetry,
+    required this.unbackedRetention,
+    required this.backedRetention,
+    required this.onUnbackedRetentionChanged,
+    required this.onBackedRetentionChanged,
   });
 
   final LanBackupSnapshot snapshot;
@@ -377,6 +595,10 @@ class _ComputerBackupSettings extends StatelessWidget {
   final Future<void> Function()? onBackupNow;
   final Future<void> Function()? onDisconnect;
   final Future<void> Function(String jobId)? onRetry;
+  final UnbackedRetentionPolicy unbackedRetention;
+  final BackedRetentionPolicy backedRetention;
+  final ValueChanged<UnbackedRetentionPolicy> onUnbackedRetentionChanged;
+  final ValueChanged<BackedRetentionPolicy> onBackedRetentionChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -388,15 +610,20 @@ class _ComputerBackupSettings extends StatelessWidget {
       (LanBackupJob? job) => job?.state == LanBackupJobState.failed,
       orElse: () => null,
     );
+    final int progress = (snapshot.aggregateProgress * 100).round();
     final String status = !snapshot.connected
         ? '扫描电脑二维码后自动备份'
-        : active != null
-        ? '正在备份 ${(active.progress * 100).round()}%'
+        : snapshot.connectionStatus == LanConnectionStatus.rePair
+        ? '需要重新配对'
+        : snapshot.connectionStatus == LanConnectionStatus.offline
+        ? '电脑离线，恢复网络后自动续传'
+        : active != null || snapshot.activeCount > 0
+        ? '正在备份 ${snapshot.activeCount}/${snapshot.jobs.length} · $progress%'
         : failed != null
         ? (failed.errorMessage ?? '备份失败')
         : snapshot.pendingCount > 0
         ? '还有 ${snapshot.pendingCount} 个录像待备份'
-        : '已连接 ${snapshot.endpoint!.computerName}';
+        : '已连接 ${snapshot.endpoint!.computerName} · ${snapshot.endpoint!.displayAddress}';
 
     return Container(
       key: const Key('computer-backup-settings'),
@@ -416,12 +643,31 @@ class _ComputerBackupSettings extends StatelessWidget {
                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
                 ),
               ),
-              if (snapshot.connected)
+              if (snapshot.connected) ...<Widget>[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDDEDE7),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: const Text(
+                    '已连接',
+                    style: TextStyle(
+                      color: PackingProofMobileApp.forest,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
                 Switch(
                   key: const Key('auto-backup-switch'),
                   value: snapshot.autoEnabled,
                   onChanged: onAutoChanged,
                 ),
+              ],
             ],
           ),
           const SizedBox(height: 4),
@@ -435,9 +681,69 @@ class _ComputerBackupSettings extends StatelessWidget {
               height: 1.4,
             ),
           ),
-          if (active != null) ...<Widget>[
+          if (active != null || snapshot.activeCount > 0) ...<Widget>[
             const SizedBox(height: 10),
-            LinearProgressIndicator(value: active.progress),
+            LinearProgressIndicator(value: snapshot.aggregateProgress),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: DropdownButtonFormField<UnbackedRetentionPolicy>(
+                  key: const Key('unbacked-retention-dropdown'),
+                  initialValue: unbackedRetention,
+                  decoration: const InputDecoration(
+                    labelText: '未备份保留',
+                    isDense: true,
+                  ),
+                  items: UnbackedRetentionPolicy.values
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(value.label),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: (value) {
+                    if (value != null) onUnbackedRetentionChanged(value);
+                  },
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButtonFormField<BackedRetentionPolicy>(
+                  key: const Key('backed-retention-dropdown'),
+                  initialValue: backedRetention,
+                  decoration: const InputDecoration(
+                    labelText: '备份后保留',
+                    isDense: true,
+                  ),
+                  items: BackedRetentionPolicy.values
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(value.label),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: (value) {
+                    if (value != null) onBackedRetentionChanged(value);
+                  },
+                ),
+              ),
+            ],
+          ),
+          if (unbackedRetention !=
+              UnbackedRetentionPolicy.keepForever) ...<Widget>[
+            const SizedBox(height: 8),
+            const Text(
+              '超过保留时间且仍未完成电脑备份的录像将从本机永久删除',
+              style: TextStyle(
+                color: Color(0xFFD15B2A),
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
           ],
           const SizedBox(height: 10),
           Wrap(
@@ -701,6 +1007,7 @@ class _RecordingTile extends StatelessWidget {
     required this.managing,
     required this.selected,
     required this.onTap,
+    required this.sourceLabel,
     this.backupJob,
   });
 
@@ -709,6 +1016,7 @@ class _RecordingTile extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   final LanBackupJob? backupJob;
+  final String sourceLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -751,19 +1059,19 @@ class _RecordingTile extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    if (backupJob != null) ...<Widget>[
-                      const SizedBox(height: 5),
-                      Text(
-                        _backupLabel(backupJob!),
-                        style: TextStyle(
-                          color: backupJob!.state == LanBackupJobState.failed
-                              ? const Color(0xFFD92D20)
-                              : PackingProofMobileApp.forest,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: <Widget>[
+                        _StatusChip(label: sourceLabel),
+                        if (backupJob != null)
+                          _StatusChip(
+                            label: _backupLabel(backupJob!),
+                            error: backupJob!.state == LanBackupJobState.failed,
+                          ),
+                      ],
+                    ),
                     const SizedBox(height: 5),
                     Text(
                       '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
@@ -781,6 +1089,36 @@ class _RecordingTile extends StatelessWidget {
                   color: Color(0xFF7B8380),
                 ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.label, this.error = false});
+
+  final String label;
+  final bool error;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: error ? const Color(0xFFFFE5E2) : const Color(0xFFDDEDE7),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: error
+                ? const Color(0xFFD92D20)
+                : PackingProofMobileApp.forest,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
           ),
         ),
       ),

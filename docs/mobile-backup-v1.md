@@ -1,6 +1,6 @@
 # mobile-backup-v1
 
-本文档只约定 PackingProof-Mobile 与 ExpressPackingMonitoring 电脑端之间的录像备份协议。当前移动端仅记录协议，不接入上传代码。
+本文档约定 PackingProof-Mobile 与 ExpressPackingMonitoring 电脑端之间的录像备份和远程录像库协议。协议版本固定为 `1`。
 
 ## 连接与鉴权
 
@@ -17,17 +17,24 @@ X-EPM-Access-Key: <access-key>
 
 ## 最小录像元数据
 
-APP 不上传订单留言、卖家备注、商品、退款信息，也不上传条码时间偏移、识别标记、媒体片段范围或手机本地文件路径。完成上传时仅提交：
+APP 不上传订单留言、卖家备注、商品、退款信息或手机本地文件路径。同一物理文件可以包含多段逻辑录像，完成上传时提交：
 
 ```json
 {
   "fileSha256": "64 位小写十六进制 SHA256",
-  "sessionId": "APP 本地录像持久 ID",
-  "trackingNumber": "面单号，可为空",
-  "startedAt": "2026-07-19T10:00:00+08:00",
-  "durationMilliseconds": 12345,
   "sourceDeviceId": "APP 安装实例持久 ID",
-  "sourceDeviceName": "用户可识别的设备名称"
+  "sourceDeviceName": "用户可识别的设备名称",
+  "sessions": [
+    {
+      "id": "APP 本地录像持久 ID",
+      "trackingNumber": "面单号，可为空",
+      "startedAt": "2026-07-19T10:00:00Z",
+      "endedAt": "2026-07-19T10:00:12Z",
+      "mediaStartMs": 0,
+      "mediaEndMs": 12345,
+      "markers": []
+    }
+  ]
 }
 ```
 
@@ -40,10 +47,16 @@ APP 不上传订单留言、卖家备注、商品、退款信息，也不上传�
 ```json
 {
   "protocol": "mobile-backup-v1",
+  "version": 1,
   "computerId": "stable-computer-id",
   "computerName": "仓库电脑",
   "maxChunkBytes": 4194304,
   "supportedFormats": ["video/mp4"],
+  "features": {
+    "videoLibrary": true,
+    "rangePlayback": true,
+    "multipleSessionsPerFile": true
+  },
   "retryPolicy": {
     "chunkMaxAttempts": 5,
     "chunkBackoffSeconds": [1, 2, 4, 8, 16],
@@ -108,19 +121,27 @@ X-Chunk-SHA256: <当前分块 SHA256>
 
 `POST /api/mobile-backup/uploads/{uploadId}/complete`
 
-请求使用“最小录像元数据”中的 JSON。电脑重新计算完整文件 SHA256，校验通过后原子保存物理文件、写入录像记录并返回：
+请求使用“最小录像元数据”中的 JSON。电脑重新计算完整文件 SHA256，校验通过后原子保存物理文件、为每个逻辑片段写入录像记录并返回：
 
 ```json
 {
   "status": "verified",
   "fileSha256": "...",
   "recordId": 123,
+  "recordIds": [123, 124],
   "alreadyCompleted": false,
   "message": "电脑校验完成，备份成功"
 }
 ```
 
-APP 只有收到 `status=verified` 且 SHA256 与本地一致时，才显示“电脑校验完成，备份成功”。若响应丢失，使用相同 `sourceDeviceId + sessionId` 再次完成会返回同一录像记录，并将 `alreadyCompleted` 设为 `true`。
+APP 只有收到 `status=verified` 且 SHA256 与本地一致时，才显示“电脑校验完成，备份成功”。若响应丢失，使用相同 `sourceDeviceId + sessions[].id` 再次完成会返回相同录像记录，并将 `alreadyCompleted` 设为 `true`。
+
+## 远程录像库与播放
+
+- `GET /api/videos?page=1&pageSize=50&search=<面单号>` 分页查询电脑端全部录像
+- 返回项包含 `sourceDeviceId`、`sourceSessionId`、`contentSha256`、`remote=true` 与 `playUrl`
+- `GET {playUrl}` 支持标准 HTTP Range；所有请求仍需携带访问密钥
+- 手机优先播放本机文件。本机文件按保留策略删除后，若电脑可用则通过 `playUrl` 播放；电脑离线时保留录像记录并明确显示暂不可播放
 
 完整文件校验失败返回：
 

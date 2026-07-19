@@ -130,6 +130,10 @@ void main() {
     expect(find.byKey(const Key('computer-backup-settings')), findsOneWidget);
     expect(find.text('电脑备份'), findsOneWidget);
     expect(find.text('连接电脑'), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pump();
+    expect(find.byKey(const Key('unbacked-retention-dropdown')), findsOneWidget);
+    expect(find.byKey(const Key('backed-retention-dropdown')), findsOneWidget);
   });
 
   testWidgets('录像卡片不重复显示内部识别标记数量', (WidgetTester tester) async {
@@ -194,6 +198,8 @@ void main() {
       ),
     );
 
+    await tester.drag(find.byType(ListView), const Offset(0, -520));
+    await tester.pump();
     await tester.enterText(
       find.descendant(
         of: find.byKey(const Key('recording-search')),

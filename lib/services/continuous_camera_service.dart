@@ -11,6 +11,8 @@ class ContinuousCameraInitialization {
     required this.fps,
     required this.videoMime,
     required this.flashAvailable,
+    required this.lensDirection,
+    required this.canSwitchCamera,
   });
 
   final int textureId;
@@ -20,6 +22,10 @@ class ContinuousCameraInitialization {
   final int fps;
   final String videoMime;
   final bool flashAvailable;
+  final String lensDirection;
+  final bool canSwitchCamera;
+
+  bool get isFrontCamera => lensDirection == 'front';
 
   Size get portraitPreviewSize {
     final bool swapsDimensions =
@@ -38,6 +44,8 @@ class ContinuousCameraInitialization {
       fps: (map['fps']! as num).toInt(),
       videoMime: map['videoMime']! as String,
       flashAvailable: map['flashAvailable'] == true,
+      lensDirection: '${map['lensDirection'] ?? 'back'}',
+      canSwitchCamera: map['canSwitchCamera'] == true,
     );
   }
 }
@@ -168,6 +176,12 @@ class ContinuousCameraService {
           <String, Object>{'enabled': enabled},
         )) ??
         false;
+  }
+
+  Future<ContinuousCameraInitialization> switchCamera() async {
+    final Map<Object?, Object?> values = (await _channel
+        .invokeMethod<Map<Object?, Object?>>('switchCamera'))!;
+    return ContinuousCameraInitialization.fromMap(values);
   }
 
   Future<void> dispose() async {

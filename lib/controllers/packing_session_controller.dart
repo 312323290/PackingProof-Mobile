@@ -122,6 +122,13 @@ class PackingSessionController extends ChangeNotifier {
       ? _nativeInitialization?.flashAvailable == true
       : _cameraController?.value.isInitialized == true;
   bool get torchEnabled => _torchEnabled;
+  bool get cameraSwitchAvailable =>
+      Platform.isAndroid &&
+      _nativeInitialization?.canSwitchCamera == true &&
+      !_pairingScanActive &&
+      !_historyScanActive;
+  bool get frontCameraActive =>
+      Platform.isAndroid && _nativeInitialization?.isFrontCamera == true;
   String? get historyScanResult => _historyScanResult;
   String? get errorMessage => _errorMessage;
   bool get isRecording => _phase == PackingSessionPhase.recording;
@@ -241,6 +248,27 @@ class PackingSessionController extends ChangeNotifier {
     } on Object {
       _torchEnabled = false;
       if (!_disposed) notifyListeners();
+    }
+  }
+
+  Future<void> switchCamera() async {
+    if (!cameraSwitchAvailable || isBusy || isRecording) return;
+    try {
+      if (_torchEnabled) {
+        await _nativeCamera!.setTorchEnabled(false);
+        _torchEnabled = false;
+      }
+      _errorMessage = null;
+      _setPhase(PackingSessionPhase.initializing);
+      _nativeInitialization = await _nativeCamera!.switchCamera();
+      _setPhase(PackingSessionPhase.ready);
+    } on Object {
+      await _disposeCamera();
+      await initialize();
+      if (!_disposed) {
+        _errorMessage = '摄像头切换失败，已恢复后置摄像头';
+        notifyListeners();
+      }
     }
   }
 

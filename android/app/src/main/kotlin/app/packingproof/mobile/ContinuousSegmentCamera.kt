@@ -38,6 +38,7 @@ import io.flutter.view.TextureRegistry
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.max
 
 /**
@@ -48,6 +49,7 @@ import kotlin.math.max
 class ContinuousSegmentCamera(
     private val activity: Activity,
     private val textures: TextureRegistry,
+    private val preferredLensFacing: Int = CameraCharacteristics.LENS_FACING_BACK,
     private val emit: (String, Any?) -> Unit,
 ) {
     companion object {
@@ -86,6 +88,8 @@ class ContinuousSegmentCamera(
     private var captureSession: CameraCaptureSession? = null
     private var analysisReader: ImageReader? = null
     private var sensorOrientation = 90
+    private var selectedLensFacing = CameraCharacteristics.LENS_FACING_BACK
+    private var canSwitchCamera = false
     private var videoSize = Size(VIDEO_WIDTH, VIDEO_HEIGHT)
     private var analysisSize = Size(1280, 720)
     private var initialized = false
@@ -250,8 +254,22 @@ class ContinuousSegmentCamera(
         }
     }
 
-    fun dispose() {
-        if (disposed) return
+    fun canSwitchNow(): Boolean = initialized &&
+        canSwitchCamera &&
+        !recordingRequested &&
+        !recordingActive &&
+        startResult == null &&
+        stopResult == null &&
+        splitResult == null &&
+        !pairingScanEnabled
+
+    fun currentLensFacing(): Int = selectedLensFacing
+
+    fun dispose(onDisposed: (() -> Unit)? = null) {
+        if (disposed) {
+            onDisposed?.let { mainHandler.post(it) }
+            return
+        }
         disposed = true
         initializeResult?.let { replyError(it, "disposed", "摄像头初始化已取消") }
         startResult?.let { replyError(it, "disposed", "录像启动已取消") }
@@ -269,7 +287,13 @@ class ContinuousSegmentCamera(
             audioRecord?.stop()
         } catch (_: Throwable) {
         }
-        muxHandler?.post {
+        val cleanupCount = AtomicInteger(2)
+        fun finishCleanup() {
+            if (cleanupCount.decrementAndGet() == 0) onDisposed?.let { mainHandler.post(it) }
+        }
+        val activeMuxHandler = muxHandler
+        val activeCameraHandler = cameraHandler
+        if (activeMuxHandler != null) activeMuxHandler.post {
             closeMuxer(deleteEmpty = false)
             try {
                 videoEncoder?.stop()
@@ -282,8 +306,9 @@ class ContinuousSegmentCamera(
             videoEncoder = null
             videoInputSurface?.release()
             videoInputSurface = null
-        }
-        cameraHandler?.post {
+            finishCleanup()
+        } else finishCleanup()
+        if (activeCameraHandler != null) activeCameraHandler.post {
             scannerBusy = false
             analysisReader?.close()
             analysisReader = null
@@ -296,8 +321,9 @@ class ContinuousSegmentCamera(
             mainHandler.post {
                 textureEntry?.release()
                 textureEntry = null
+                finishCleanup()
             }
-        }
+        } else finishCleanup()
         barcodeScanner.close()
         cameraThread?.quitSafely()
         muxThread?.quitSafely()
@@ -434,9 +460,16 @@ class ContinuousSegmentCamera(
     }
 
     private fun selectCameraConfiguration() {
+        val availableFacing = cameraManager.cameraIdList.mapNotNull { id ->
+            cameraManager.getCameraCharacteristics(id)
+                .get(CameraCharacteristics.LENS_FACING)
+        }.toSet()
+        canSwitchCamera =
+            CameraCharacteristics.LENS_FACING_BACK in availableFacing &&
+            CameraCharacteristics.LENS_FACING_FRONT in availableFacing
         val cameraId = cameraManager.cameraIdList.firstOrNull { id ->
             cameraManager.getCameraCharacteristics(id)
-                .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+                .get(CameraCharacteristics.LENS_FACING) == preferredLensFacing
         } ?: cameraManager.cameraIdList.firstOrNull()
             ?: throw IllegalStateException("没有检测到可用摄像头")
         val characteristics = cameraManager.getCameraCharacteristics(cameraId)
@@ -444,6 +477,8 @@ class ContinuousSegmentCamera(
             ?: throw IllegalStateException("无法读取摄像头输出能力")
         selectedCameraId = cameraId
         selectedCameraCharacteristics = characteristics
+        selectedLensFacing = characteristics.get(CameraCharacteristics.LENS_FACING)
+            ?: CameraCharacteristics.LENS_FACING_BACK
         sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
         videoSize = chooseVideoSize(configuration)
         analysisSize = chooseAnalysisSize(configuration)
@@ -1050,6 +1085,8 @@ class ContinuousSegmentCamera(
         "previewWidth" to videoSize.width,
         "previewHeight" to videoSize.height,
         "sensorOrientation" to sensorOrientation,
+        "lensDirection" to if (selectedLensFacing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "back",
+        "canSwitchCamera" to canSwitchCamera,
         "fps" to VIDEO_FPS,
         "videoMime" to selectedVideoMime,
         "flashAvailable" to (

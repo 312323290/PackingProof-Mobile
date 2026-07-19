@@ -112,6 +112,42 @@ void main() {
     expect(find.byIcon(Icons.flash_on_rounded), findsOneWidget);
   });
 
+  testWidgets('仅在待机时显示前后摄像头切换按钮', (WidgetTester tester) async {
+    int switchCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.ready,
+          elapsed: Duration.zero,
+          cameraSwitchAvailable: true,
+          previewOverride: const ColoredBox(color: Colors.black),
+          onCameraSwitchPressed: () => switchCount++,
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('switch-camera-button')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('switch-camera-button')));
+    expect(switchCount, 1);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.recording,
+          elapsed: const Duration(seconds: 2),
+          cameraSwitchAvailable: true,
+          previewOverride: const ColoredBox(color: Colors.black),
+          onCameraSwitchPressed: () => switchCount++,
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+    expect(find.byKey(const Key('switch-camera-button')), findsNothing);
+  });
+
   testWidgets('启动录像时保持摄像头预览可见', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(

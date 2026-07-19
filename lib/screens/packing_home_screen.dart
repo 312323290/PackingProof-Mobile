@@ -132,9 +132,12 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
                 historyScanActive: _controller.historyScanActive,
                 flashAvailable: _controller.flashAvailable,
                 torchEnabled: _controller.torchEnabled,
+                cameraSwitchAvailable: _controller.cameraSwitchAvailable,
+                frontCameraActive: _controller.frontCameraActive,
                 onPairingCancel: _controller.cancelComputerPairing,
                 onHistoryScanCancel: _controller.cancelHistoryBarcodeScan,
                 onTorchPressed: _controller.toggleTorch,
+                onCameraSwitchPressed: _controller.switchCamera,
                 onPrimaryPressed: _toggleWork,
                 onRetryPressed: _controller.retryInitialize,
               ),
@@ -256,9 +259,12 @@ class PackingHomeView extends StatelessWidget {
     this.historyScanActive = false,
     this.flashAvailable = false,
     this.torchEnabled = false,
+    this.cameraSwitchAvailable = false,
+    this.frontCameraActive = false,
     this.onPairingCancel,
     this.onHistoryScanCancel,
     this.onTorchPressed,
+    this.onCameraSwitchPressed,
     this.previewOverride,
     super.key,
   });
@@ -278,9 +284,12 @@ class PackingHomeView extends StatelessWidget {
   final bool historyScanActive;
   final bool flashAvailable;
   final bool torchEnabled;
+  final bool cameraSwitchAvailable;
+  final bool frontCameraActive;
   final VoidCallback? onPairingCancel;
   final VoidCallback? onHistoryScanCancel;
   final VoidCallback? onTorchPressed;
+  final VoidCallback? onCameraSwitchPressed;
   final VoidCallback onPrimaryPressed;
   final VoidCallback onRetryPressed;
   final Widget? previewOverride;
@@ -370,6 +379,7 @@ class _CameraArea extends StatelessWidget {
       preview = NativeCameraPreviewCover(
         textureId: view.nativeTextureId!,
         sourceSize: view.nativePreviewSize!,
+        mirrored: view.frontCameraActive,
       );
     } else if (camera?.value.isInitialized == true) {
       preview = CameraPreviewCover(controller: camera!);
@@ -475,6 +485,26 @@ class _CameraArea extends StatelessWidget {
                 ),
               ),
             ),
+          if (view.cameraSwitchAvailable &&
+              !view._isRecording &&
+              !view._isBusy &&
+              !view.pairingScanActive &&
+              !view.historyScanActive)
+            Positioned(
+              left: 18,
+              top: 20,
+              child: Material(
+                color: const Color(0x99000000),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  key: const Key('switch-camera-button'),
+                  tooltip: view.frontCameraActive ? '切换到后置摄像头' : '切换到前置摄像头',
+                  onPressed: view.onCameraSwitchPressed,
+                  color: Colors.white,
+                  icon: const Icon(Icons.cameraswitch_rounded),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -566,18 +596,24 @@ class NativeCameraPreviewCover extends StatelessWidget {
   const NativeCameraPreviewCover({
     required this.textureId,
     required this.sourceSize,
+    this.mirrored = false,
     super.key,
   });
 
   final int textureId;
   final Size sourceSize;
+  final bool mirrored;
 
   @override
   Widget build(BuildContext context) {
     return _PreviewCoverViewport(
       sourceSize: sourceSize,
       previewKey: const Key('native-camera-preview-natural-size'),
-      child: Texture(textureId: textureId, filterQuality: FilterQuality.low),
+      child: Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(mirrored ? -1 : 1, 1, 1),
+        child: Texture(textureId: textureId, filterQuality: FilterQuality.low),
+      ),
     );
   }
 }

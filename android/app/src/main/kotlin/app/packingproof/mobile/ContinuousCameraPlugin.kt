@@ -3,6 +3,7 @@ package app.packingproof.mobile
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraCharacteristics
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.BinaryMessenger
@@ -54,6 +55,20 @@ class ContinuousCameraPlugin(
             }
             "setTorchEnabled" -> {
                 engine.setTorchEnabled(call.argument<Boolean>("enabled") == true, result)
+            }
+            "switchCamera" -> {
+                if (!engine.canSwitchNow()) {
+                    result.error("camera_busy", "当前状态不能切换摄像头", null)
+                } else {
+                    val target = if (
+                        engine.currentLensFacing() == CameraCharacteristics.LENS_FACING_FRONT
+                    ) CameraCharacteristics.LENS_FACING_BACK
+                    else CameraCharacteristics.LENS_FACING_FRONT
+                    engine.dispose {
+                        engine = createEngine(target)
+                        engine.initialize(result)
+                    }
+                }
             }
             "dispose" -> {
                 engine.dispose()
@@ -109,8 +124,10 @@ class ContinuousCameraPlugin(
         engine.dispose()
     }
 
-    private fun createEngine(): ContinuousSegmentCamera =
-        ContinuousSegmentCamera(activity, textures) { method, arguments ->
+    private fun createEngine(
+        preferredLensFacing: Int = CameraCharacteristics.LENS_FACING_BACK,
+    ): ContinuousSegmentCamera =
+        ContinuousSegmentCamera(activity, textures, preferredLensFacing) { method, arguments ->
             activity.runOnUiThread { channel.invokeMethod(method, arguments) }
         }
 }

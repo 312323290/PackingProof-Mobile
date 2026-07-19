@@ -26,5 +26,21 @@ void main() {
     expect(cancel.top, confirm.top);
     expect(cancel.width, closeTo(confirm.width, 0.1));
     expect(cancel.right, lessThan(confirm.left));
+    expect(find.byType(FilledButton), findsNWidgets(2));
+    expect(find.byType(OutlinedButton), findsNothing);
+    final FilledButton cancelButton = tester.widget<FilledButton>(
+      find.byKey(const Key('confirm-dialog-cancel')),
+    );
+    final FilledButton confirmButton = tester.widget<FilledButton>(
+      find.byKey(const Key('confirm-dialog-confirm')),
+    );
+    expect(
+      cancelButton.style?.backgroundColor?.resolve(<WidgetState>{}),
+      const Color(0xFFE7ECE9),
+    );
+    expect(
+      confirmButton.style?.backgroundColor?.resolve(<WidgetState>{}),
+      const Color(0xFFD92D20),
+    );
   });
 }

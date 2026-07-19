@@ -30,8 +30,12 @@ class TwoButtonConfirmDialog extends StatelessWidget {
           key: const Key('confirm-dialog-button-row'),
           children: <Widget>[
             Expanded(
-              child: OutlinedButton(
+              child: FilledButton(
                 key: const Key('confirm-dialog-cancel'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE7ECE9),
+                  foregroundColor: const Color(0xFF34413C),
+                ),
                 onPressed: () => Navigator.of(context).pop(false),
                 child: Text(cancelLabel),
               ),

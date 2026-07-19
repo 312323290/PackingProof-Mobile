@@ -92,6 +92,8 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
           workMode: _controller.workMode,
           speechEnabled: _controller.speechEnabled,
           maxVolumeEnabled: _controller.maxVolumeEnabled,
+          unbackedRetention: _controller.unbackedRetention,
+          backedRetention: _controller.backedRetention,
           backupSnapshot: _controller.backupSnapshot,
           backupListenable: _controller,
           backupSnapshotProvider: () => _controller.backupSnapshot,
@@ -99,9 +101,12 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
           onSpeechEnabledChanged: _controller.setSpeechEnabled,
           onMaxVolumeEnabledChanged: _controller.setMaxVolumeEnabled,
           onAutoBackupChanged: _controller.setLanBackupAutoEnabled,
+          onBackupRetentionChanged: _controller.setBackupRetention,
           onBackupNow: _controller.backupAllSessions,
           onDisconnectBackup: _controller.disconnectBackup,
           onRetryBackup: _controller.retryBackup,
+          onLoadRemoteRecordings: _controller.fetchRemoteRecordings,
+          remotePlaybackHeaders: _controller.remotePlaybackHeaders,
           onSpeechPreview: _controller.previewSpeech,
           onSessionUpdated: _controller.updateSession,
           onDeleteSessions: _controller.deleteSessions,
@@ -330,14 +335,14 @@ class _CameraArea extends StatelessWidget {
                 ),
               ),
             ),
-          if (view.pairingScanActive)
+          if (view.pairingScanActive || view.pairingMessage != null)
             Positioned(
               left: 20,
               right: 20,
               top: 24,
               child: _ComputerPairingBanner(
                 message: view.pairingMessage ?? '扫描电脑二维码',
-                onCancel: view.onPairingCancel,
+                onCancel: view.pairingScanActive ? view.onPairingCancel : null,
               ),
             ),
         ],
@@ -355,7 +360,9 @@ class _ComputerPairingBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color(0xE6000000),
+      color: onCancel == null
+          ? const Color(0xF0087454)
+          : const Color(0xE6000000),
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
@@ -372,11 +379,12 @@ class _ComputerPairingBanner extends StatelessWidget {
                 ),
               ),
             ),
-            TextButton(
-              onPressed: onCancel,
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
-              child: const Text('取消'),
-            ),
+            if (onCancel != null)
+              TextButton(
+                onPressed: onCancel,
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
+                child: const Text('取消'),
+              ),
           ],
         ),
       ),

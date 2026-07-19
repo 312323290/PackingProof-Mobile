@@ -9,6 +9,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/barcode_marker.dart';
 import '../models/app_settings.dart';
+import '../models/backup_retention_policy.dart';
 import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/speech_prompt.dart';
@@ -72,12 +73,15 @@ class PackingSessionController extends ChangeNotifier {
   Timer? _elapsedTimer;
   Timer? _feedbackTimer;
   Timer? _initialPromptTimer;
+  Timer? _pairingFeedbackTimer;
   Duration _elapsed = Duration.zero;
   BarcodeMarker? _lastMarker;
   String _candidateCode = '';
   WorkMode _workMode = WorkMode.continuousScan;
   bool _speechEnabled = true;
   bool _maxVolumeEnabled = true;
+  UnbackedRetentionPolicy _unbackedRetention = UnbackedRetentionPolicy.days30;
+  BackedRetentionPolicy _backedRetention = BackedRetentionPolicy.days7;
   bool _appIsActive = true;
   String? _errorMessage;
   bool _processingFrame = false;
@@ -86,6 +90,7 @@ class PackingSessionController extends ChangeNotifier {
   bool _pairingScanActive = false;
   bool _pairingBusy = false;
   bool _backupListenerAttached = false;
+  final Set<String> _handledDeletedBackupJobs = <String>{};
   String? _pairingMessage;
   String? _recordingId;
   String? _activeSegmentId;
@@ -104,6 +109,8 @@ class PackingSessionController extends ChangeNotifier {
   WorkMode get workMode => _workMode;
   bool get speechEnabled => _speechEnabled;
   bool get maxVolumeEnabled => _maxVolumeEnabled;
+  UnbackedRetentionPolicy get unbackedRetention => _unbackedRetention;
+  BackedRetentionPolicy get backedRetention => _backedRetention;
   LanBackupSnapshot get backupSnapshot => _lanBackupService.snapshot;
   bool get pairingScanActive => _pairingScanActive;
   String? get pairingMessage => _pairingMessage;
@@ -128,20 +135,27 @@ class PackingSessionController extends ChangeNotifier {
 
     try {
       await _repository.initialize();
-      _sessions = await _repository.loadSessions();
+      _sessions = await _repository.loadSessions(includeMissingFiles: true);
       final AppSettings settings = await _repository.loadSettings();
       _workMode = settings.workMode;
       _speechEnabled = settings.speechEnabled;
       _maxVolumeEnabled = settings.maxVolumeEnabled;
+      _unbackedRetention = settings.unbackedRetention;
+      _backedRetention = settings.backedRetention;
       if (!_backupListenerAttached) {
         _lanBackupService.addListener(_handleBackupChanged);
         _backupListenerAttached = true;
       }
       await _lanBackupService.initialize(
         autoEnabled: settings.lanBackupAutoEnabled,
+        unbackedRetention: settings.unbackedRetention,
+        backedRetention: settings.backedRetention,
       );
+      await _pruneDeletedBackupSessions(notify: false);
       if (_lanBackupService.snapshot.autoEnabled) {
         unawaited(_lanBackupService.backupAll(_sessions));
+      } else {
+        unawaited(_registerSessionsForRetention(_sessions));
       }
       await _speechService.setEnabled(_speechEnabled);
       await _beginMaxVolumeIfNeeded();
@@ -312,6 +326,23 @@ class PackingSessionController extends ChangeNotifier {
   Future<void> setLanBackupAutoEnabled(bool enabled) async {
     await _lanBackupService.setAutoEnabled(enabled);
     await _repository.saveLanBackupAutoEnabled(enabled);
+    if (enabled) {
+      await _lanBackupService.backupAll(_sessions);
+    }
+  }
+
+  Future<void> setBackupRetention({
+    required UnbackedRetentionPolicy unbacked,
+    required BackedRetentionPolicy backed,
+  }) async {
+    _unbackedRetention = unbacked;
+    _backedRetention = backed;
+    notifyListeners();
+    await _lanBackupService.setRetentionPolicies(
+      unbacked: unbacked,
+      backed: backed,
+    );
+    await _repository.saveBackupRetention(unbacked: unbacked, backed: backed);
   }
 
   void beginComputerPairing() {
@@ -326,6 +357,7 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   void cancelComputerPairing() {
+    _pairingFeedbackTimer?.cancel();
     _pairingScanActive = false;
     _pairingBusy = false;
     _pairingMessage = null;
@@ -338,6 +370,19 @@ class PackingSessionController extends ChangeNotifier {
   Future<void> disconnectBackup() => _lanBackupService.disconnect();
 
   Future<void> retryBackup(String jobId) => _lanBackupService.retry(jobId);
+
+  Future<List<RemoteRecording>> fetchRemoteRecordings({
+    required int page,
+    required int pageSize,
+    String keyword = '',
+  }) => _lanBackupService.fetchRemoteRecordings(
+    page: page,
+    pageSize: pageSize,
+    keyword: keyword,
+  );
+
+  Map<String, String> get remotePlaybackHeaders =>
+      _lanBackupService.playbackHeaders;
 
   Future<void> previewSpeech() => _speechService.preview();
 
@@ -515,7 +560,7 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> refreshSessions() async {
-    _sessions = await _repository.loadSessions();
+    _sessions = await _repository.loadSessions(includeMissingFiles: true);
     notifyListeners();
   }
 
@@ -835,7 +880,16 @@ class PackingSessionController extends ChangeNotifier {
       await _lanBackupService.pair(value);
       _pairingScanActive = false;
       await _nativeCamera?.setPairingScanEnabled(false);
-      _pairingMessage = '电脑已连接';
+      final LanBackupEndpoint? endpoint = _lanBackupService.snapshot.endpoint;
+      _pairingMessage = endpoint == null
+          ? '电脑连接成功'
+          : '电脑连接成功 · ${endpoint.computerName} · ${endpoint.displayAddress}';
+      _pairingFeedbackTimer?.cancel();
+      _pairingFeedbackTimer = Timer(const Duration(seconds: 3), () {
+        if (_disposed) return;
+        _pairingMessage = null;
+        notifyListeners();
+      });
       await _lanBackupService.backupAll(_sessions);
       notifyListeners();
     } on FormatException {
@@ -854,9 +908,6 @@ class PackingSessionController extends ChangeNotifier {
     String filePath,
     List<RecordingSession> sessions,
   ) async {
-    if (!_lanBackupService.snapshot.autoEnabled) {
-      return;
-    }
     try {
       await _lanBackupService.enqueueFinalizedFile(filePath, sessions);
     } on Object {
@@ -865,9 +916,49 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   void _handleBackupChanged() {
+    final Set<String> deletedJobs = _lanBackupService.snapshot.jobs
+        .where((LanBackupJob job) => job.localDeletedAt != null)
+        .map((LanBackupJob job) => job.id)
+        .toSet();
+    if (deletedJobs.difference(_handledDeletedBackupJobs).isNotEmpty) {
+      _handledDeletedBackupJobs.addAll(deletedJobs);
+      unawaited(_pruneDeletedBackupSessions());
+    }
     if (!_disposed) {
       notifyListeners();
     }
+  }
+
+  Future<void> _registerSessionsForRetention(
+    List<RecordingSession> sessions,
+  ) async {
+    final Map<String, List<RecordingSession>> grouped =
+        <String, List<RecordingSession>>{};
+    for (final RecordingSession session in sessions) {
+      if (!File(session.filePath).existsSync()) continue;
+      grouped
+          .putIfAbsent(session.filePath, () => <RecordingSession>[])
+          .add(session);
+    }
+    for (final MapEntry<String, List<RecordingSession>> entry
+        in grouped.entries) {
+      await _lanBackupService.enqueueFinalizedFile(entry.key, entry.value);
+    }
+  }
+
+  Future<void> _pruneDeletedBackupSessions({bool notify = true}) async {
+    final Set<String> backedPaths = _lanBackupService.snapshot.jobs
+        .where(
+          (LanBackupJob job) =>
+              job.state == LanBackupJobState.completed &&
+              job.localDeletedAt != null,
+        )
+        .map((LanBackupJob job) => job.filePath)
+        .toSet();
+    _sessions = await _repository.pruneMissingSessions(
+      retainedMissingPaths: backedPaths,
+    );
+    if (notify && !_disposed) notifyListeners();
   }
 
   void _beginInitialPromptFlow() {
@@ -909,6 +1000,7 @@ class PackingSessionController extends ChangeNotifier {
     _lastMarker = marker;
     _candidateCode = '';
     _feedbackTimer?.cancel();
+    _pairingFeedbackTimer?.cancel();
     _feedbackTimer = Timer(const Duration(seconds: 3), () {
       if (_disposed) {
         return;

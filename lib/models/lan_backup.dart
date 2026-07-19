@@ -4,18 +4,26 @@ import 'recording_session.dart';
 
 enum LanBackupJobState { pending, uploading, paused, completed, failed }
 
+enum LanConnectionStatus { disconnected, connecting, connected, offline, rePair }
+
 class LanBackupEndpoint {
   const LanBackupEndpoint({
     required this.baseUri,
     required this.accessKey,
     required this.computerId,
     required this.computerName,
+    this.lastConnectedAt,
   });
 
   final Uri baseUri;
   final String accessKey;
   final String computerId;
   final String computerName;
+  final DateTime? lastConnectedAt;
+
+  String get displayAddress => baseUri.hasPort
+      ? '${baseUri.host}:${baseUri.port}'
+      : baseUri.host;
 }
 
 class LanBackupJob {
@@ -26,6 +34,12 @@ class LanBackupJob {
     required this.uploadedBytes,
     required this.totalBytes,
     this.errorMessage,
+    this.fileCreatedAt,
+    this.backupCompletedAt,
+    this.scheduledCleanupAt,
+    this.localDeletedAt,
+    this.waitingCleanup = false,
+    this.remoteRecordIds = const <int>[],
   });
 
   factory LanBackupJob.fromMap(Map<Object?, Object?> map) {
@@ -39,6 +53,15 @@ class LanBackupJob {
       uploadedBytes: (map['uploadedBytes'] as num?)?.toInt() ?? 0,
       totalBytes: (map['totalBytes'] as num?)?.toInt() ?? 0,
       errorMessage: map['errorMessage'] as String?,
+      fileCreatedAt: _dateTime(map['fileCreatedAt']),
+      backupCompletedAt: _dateTime(map['backupCompletedAt']),
+      scheduledCleanupAt: _dateTime(map['scheduledCleanupAt']),
+      localDeletedAt: _dateTime(map['localDeletedAt']),
+      waitingCleanup: map['waitingCleanup'] == true,
+      remoteRecordIds: ((map['remoteRecordIds'] as List<Object?>?) ?? const [])
+          .whereType<num>()
+          .map((num value) => value.toInt())
+          .toList(growable: false),
     );
   }
 
@@ -48,6 +71,12 @@ class LanBackupJob {
   final int uploadedBytes;
   final int totalBytes;
   final String? errorMessage;
+  final DateTime? fileCreatedAt;
+  final DateTime? backupCompletedAt;
+  final DateTime? scheduledCleanupAt;
+  final DateTime? localDeletedAt;
+  final bool waitingCleanup;
+  final List<int> remoteRecordIds;
 
   double get progress => totalBytes <= 0 ? 0 : uploadedBytes / totalBytes;
 }
@@ -58,17 +87,42 @@ class LanBackupSnapshot {
     this.jobs = const <LanBackupJob>[],
     this.autoEnabled = true,
     this.message,
+    this.connectionStatus = LanConnectionStatus.disconnected,
   });
 
   final LanBackupEndpoint? endpoint;
   final List<LanBackupJob> jobs;
   final bool autoEnabled;
   final String? message;
+  final LanConnectionStatus connectionStatus;
 
   bool get connected => endpoint != null;
   int get pendingCount => jobs.where((LanBackupJob job) {
     return job.state != LanBackupJobState.completed;
   }).length;
+
+  int get activeCount => jobs.where((LanBackupJob job) {
+    return job.state == LanBackupJobState.pending ||
+        job.state == LanBackupJobState.uploading ||
+        job.state == LanBackupJobState.paused;
+  }).length;
+
+  int get completedCount => jobs
+      .where((LanBackupJob job) => job.state == LanBackupJobState.completed)
+      .length;
+
+  double get aggregateProgress {
+    final List<LanBackupJob> active = jobs
+        .where((LanBackupJob job) => job.state != LanBackupJobState.completed)
+        .toList(growable: false);
+    final int total = active.fold(0, (int sum, LanBackupJob job) => sum + job.totalBytes);
+    if (total <= 0) return 0;
+    final int uploaded = active.fold(
+      0,
+      (int sum, LanBackupJob job) => sum + job.uploadedBytes,
+    );
+    return (uploaded / total).clamp(0, 1);
+  }
 
   LanBackupSnapshot copyWith({
     LanBackupEndpoint? endpoint,
@@ -77,15 +131,70 @@ class LanBackupSnapshot {
     bool? autoEnabled,
     String? message,
     bool clearMessage = false,
+    LanConnectionStatus? connectionStatus,
   }) {
     return LanBackupSnapshot(
       endpoint: clearEndpoint ? null : endpoint ?? this.endpoint,
       jobs: jobs ?? this.jobs,
       autoEnabled: autoEnabled ?? this.autoEnabled,
       message: clearMessage ? null : message ?? this.message,
+      connectionStatus: connectionStatus ?? this.connectionStatus,
     );
   }
 }
+
+class RemoteRecording {
+  const RemoteRecording({
+    required this.id,
+    required this.trackingNumber,
+    required this.startedAt,
+    required this.duration,
+    required this.sourceType,
+    required this.sourceDeviceId,
+    required this.sourceDeviceName,
+    required this.sourceSessionId,
+    required this.contentSha256,
+    required this.playUri,
+  });
+
+  factory RemoteRecording.fromJson(Map<String, Object?> json, Uri baseUri) {
+    final String rawStart = '${json['startTime'] ?? ''}';
+    return RemoteRecording(
+      id: (json['id'] as num).toInt(),
+      trackingNumber: '${json['trackingNumber'] ?? json['orderId'] ?? ''}',
+      startedAt: DateTime.tryParse(rawStart) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      duration: Duration(
+        milliseconds: (((json['durationSec'] as num?) ?? 0) * 1000).round(),
+      ),
+      sourceType: '${json['sourceType'] ?? 'pc'}',
+      sourceDeviceId: '${json['sourceDeviceId'] ?? ''}',
+      sourceDeviceName: '${json['sourceDeviceName'] ?? ''}',
+      sourceSessionId: '${json['sourceSessionId'] ?? ''}',
+      contentSha256: '${json['contentSha256'] ?? ''}',
+      playUri: baseUri.resolve('${json['playUrl'] ?? '/api/videos/${json['id']}/play?compat=1'}'),
+    );
+  }
+
+  final int id;
+  final String trackingNumber;
+  final DateTime startedAt;
+  final Duration duration;
+  final String sourceType;
+  final String sourceDeviceId;
+  final String sourceDeviceName;
+  final String sourceSessionId;
+  final String contentSha256;
+  final Uri playUri;
+}
+
+DateTime? _dateTime(Object? value) => switch (value) {
+  String text => DateTime.tryParse(text),
+  num milliseconds => DateTime.fromMillisecondsSinceEpoch(
+    milliseconds.toInt(),
+    isUtc: true,
+  ),
+  _ => null,
+};
 
 Map<String, Object?> recordingSessionBackupMap(RecordingSession session) {
   return <String, Object?>{

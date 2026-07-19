@@ -32,6 +32,7 @@ class _RemoteVideoTrimScreenState extends State<RemoteVideoTrimScreen> {
   List<RemoteClipFrame> _frames = const <RemoteClipFrame>[];
   String? _taskId;
   bool _busy = false;
+  bool _previewingRange = false;
   double? _progress;
   String _status = '';
 
@@ -44,8 +45,61 @@ class _RemoteVideoTrimScreenState extends State<RemoteVideoTrimScreen> {
       widget.playUri,
       httpHeaders: widget.service.headers,
     );
-    _initialized = _video.initialize().then((_) => _video.setVolume(1));
+    _initialized = _video.initialize().then((_) async {
+      await _video.setVolume(1);
+      _video.addListener(_handleVideoTick);
+      await _video.seekTo(
+        Duration(milliseconds: (_range.start * 1000).round()),
+      );
+    });
     unawaited(_loadFrames());
+  }
+
+  void _handleVideoTick() {
+    if (!_previewingRange || !_video.value.isInitialized) return;
+    final double seconds =
+        _video.value.position.inMilliseconds / Duration.millisecondsPerSecond;
+    if (seconds + 0.03 < _range.end) return;
+    _previewingRange = false;
+    unawaited(_video.pause());
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleRangePreview() async {
+    if (_busy || !_video.value.isInitialized) return;
+    if (_previewingRange && _video.value.isPlaying) {
+      _previewingRange = false;
+      await _video.pause();
+      if (mounted) setState(() {});
+      return;
+    }
+    final double position =
+        _video.value.position.inMilliseconds / Duration.millisecondsPerSecond;
+    if (position < _range.start || position >= _range.end - 0.05) {
+      await _video.seekTo(
+        Duration(milliseconds: (_range.start * 1000).round()),
+      );
+    }
+    _previewingRange = true;
+    await _video.play();
+    if (mounted) setState(() {});
+  }
+
+  void _updateRange(RangeValues value) {
+    final RangeValues previous = _range;
+    final bool startMoved =
+        (value.start - previous.start).abs() >=
+        (value.end - previous.end).abs();
+    _previewingRange = false;
+    unawaited(_video.pause());
+    unawaited(
+      _video.seekTo(
+        Duration(
+          milliseconds: ((startMoved ? value.start : value.end) * 1000).round(),
+        ),
+      ),
+    );
+    setState(() => _range = value);
   }
 
   Future<void> _loadFrames() async {
@@ -66,12 +120,18 @@ class _RemoteVideoTrimScreenState extends State<RemoteVideoTrimScreen> {
       _status = '电脑正在生成剪辑';
     });
     try {
-      _taskId = await widget.service.start(widget.videoId, _range.start, _range.end);
+      _taskId = await widget.service.start(
+        widget.videoId,
+        _range.start,
+        _range.end,
+      );
       while (mounted) {
         final task = await widget.service.task(_taskId!);
         final String status = '${task['status'] ?? ''}';
         if (status == 'completed') {
-          final Uri uri = widget.playUri.resolve('${task['downloadUrl'] ?? ''}');
+          final Uri uri = widget.playUri.resolve(
+            '${task['downloadUrl'] ?? ''}',
+          );
           setState(() => _status = '正在下载剪辑');
           final File file = await widget.service.download(
             uri,
@@ -82,10 +142,14 @@ class _RemoteVideoTrimScreenState extends State<RemoteVideoTrimScreen> {
           if (mounted) Navigator.of(context).pop(file);
           return;
         }
-        if (status == 'failed' || status == 'canceled' || status == 'not_found') {
+        if (status == 'failed' ||
+            status == 'canceled' ||
+            status == 'not_found') {
           throw StateError('${task['message'] ?? '剪辑生成失败'}');
         }
-        if (mounted) setState(() => _status = '${task['message'] ?? '电脑正在生成剪辑'}');
+        if (mounted) {
+          setState(() => _status = '${task['message'] ?? '电脑正在生成剪辑'}');
+        }
         await Future<void>.delayed(const Duration(seconds: 1));
       }
     } on Object catch (error) {
@@ -96,7 +160,9 @@ class _RemoteVideoTrimScreenState extends State<RemoteVideoTrimScreen> {
           _progress = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
+          SnackBar(
+            content: Text(error.toString().replaceFirst('Bad state: ', '')),
+          ),
         );
       }
     }
@@ -105,11 +171,18 @@ class _RemoteVideoTrimScreenState extends State<RemoteVideoTrimScreen> {
   Future<void> _cancel() async {
     final taskId = _taskId;
     if (taskId != null) await widget.service.cancel(taskId);
-    if (mounted) setState(() { _busy = false; _taskId = null; _status = '已取消'; });
+    if (mounted) {
+      setState(() {
+        _busy = false;
+        _taskId = null;
+        _status = '已取消';
+      });
+    }
   }
 
   @override
   void dispose() {
+    _video.removeListener(_handleVideoTick);
     _video.dispose();
     super.dispose();
   }
@@ -125,9 +198,36 @@ class _RemoteVideoTrimScreenState extends State<RemoteVideoTrimScreen> {
           padding: const EdgeInsets.all(18),
           children: <Widget>[
             AspectRatio(
-              aspectRatio: _video.value.isInitialized ? _video.value.aspectRatio : 16 / 9,
+              aspectRatio: _video.value.isInitialized
+                  ? _video.value.aspectRatio
+                  : 16 / 9,
               child: snapshot.connectionState == ConnectionState.done
-                  ? VideoPlayer(_video)
+                  ? GestureDetector(
+                      onTap: _toggleRangePreview,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: <Widget>[
+                          VideoPlayer(_video),
+                          if (!_previewingRange)
+                            const Center(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: Color(0x66000000),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: Icon(
+                                    Icons.play_arrow_rounded,
+                                    color: Colors.white,
+                                    size: 34,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    )
                   : const Center(child: CircularProgressIndicator()),
             ),
             const SizedBox(height: 12),
@@ -135,24 +235,45 @@ class _RemoteVideoTrimScreenState extends State<RemoteVideoTrimScreen> {
               SizedBox(
                 height: 58,
                 child: Row(
-                  children: _frames.map((frame) => Expanded(
-                    child: Image.network(
-                      frame.uri.toString(),
-                      headers: widget.service.headers,
-                      height: 58,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const ColoredBox(color: Color(0xFFE1E5E3)),
-                    ),
-                  )).toList(growable: false),
+                  children: _frames
+                      .map(
+                        (frame) => Expanded(
+                          child: Image.network(
+                            frame.uri.toString(),
+                            headers: widget.service.headers,
+                            height: 58,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) =>
+                                const ColoredBox(color: Color(0xFFE1E5E3)),
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
                 ),
               ),
             RangeSlider(
               values: _range,
               min: 0,
               max: total < 1 ? 1 : total,
-              onChanged: _busy ? null : (value) => setState(() => _range = value),
+              onChanged: _busy ? null : _updateRange,
+              onChangeEnd: _busy
+                  ? null
+                  : (RangeValues value) => _drafts[widget.videoId] = value,
             ),
-            Text('${_range.start.toStringAsFixed(1)} 秒 – ${_range.end.toStringAsFixed(1)} 秒', textAlign: TextAlign.center),
+            Text(
+              '${_range.start.toStringAsFixed(1)} 秒 – ${_range.end.toStringAsFixed(1)} 秒',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            FilledButton.tonalIcon(
+              onPressed: _busy ? null : _toggleRangePreview,
+              icon: Icon(
+                _previewingRange
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+              ),
+              label: Text(_previewingRange ? '暂停预览' : '播放选区'),
+            ),
             if (_busy) ...<Widget>[
               const SizedBox(height: 16),
               LinearProgressIndicator(value: _progress),
@@ -160,17 +281,26 @@ class _RemoteVideoTrimScreenState extends State<RemoteVideoTrimScreen> {
               Text(_status, textAlign: TextAlign.center),
             ],
             const SizedBox(height: 20),
-            Row(children: <Widget>[
-              if (_busy) ...<Widget>[
-                Expanded(child: OutlinedButton(onPressed: _cancel, child: const Text('取消'))),
-                const SizedBox(width: 12),
+            Row(
+              children: <Widget>[
+                if (_busy) ...<Widget>[
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _cancel,
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : _generate,
+                    icon: const Icon(Icons.content_cut_rounded),
+                    label: const Text('生成并分享'),
+                  ),
+                ),
               ],
-              Expanded(child: FilledButton.icon(
-                onPressed: _busy ? null : _generate,
-                icon: const Icon(Icons.content_cut_rounded),
-                label: const Text('生成并分享'),
-              )),
-            ]),
+            ),
           ],
         ),
       ),

@@ -500,7 +500,7 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
                           if (widget.remoteUri == null ||
                               widget.remoteVideoId != null) ...<Widget>[
                             Expanded(
-                              child: OutlinedButton.icon(
+                              child: FilledButton.icon(
                                 onPressed: _sharing ? null : _openTrim,
                                 icon: const Icon(Icons.content_cut_rounded),
                                 label: const Text('剪辑'),

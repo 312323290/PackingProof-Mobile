@@ -44,9 +44,17 @@ internal class LanBackupPlugin(
         try {
             when (call.method) {
                 "initialize", "snapshot" -> {
-                    if (call.method == "initialize") schedulePending()
+                    if (call.method == "initialize") {
+                        store.saveRetentionPolicies(
+                            call.argument<Int>("unbackedRetentionDays"),
+                            call.argument<Int>("backedRetentionDays"),
+                        )
+                        schedulePending()
+                        LanBackupCleanupScheduler.rescheduleAll(context, store)
+                    }
                     result.success(snapshot())
                 }
+                "loadAccessKey" -> result.success(credentials.load() ?: "")
                 "saveConnection" -> {
                     val baseUrl = call.argument<String>("baseUrl") ?: error("缺少电脑地址")
                     val accessKey = call.argument<String>("accessKey") ?: error("缺少电脑密钥")
@@ -74,7 +82,18 @@ internal class LanBackupPlugin(
                             ?: emptyList<Map<String, Any?>>(),
                     )
                     val job = store.upsertJob(path, sessions)
-                    schedule(job.getString("id"), replace = false)
+                    LanBackupCleanupScheduler.reschedule(context, store, job)
+                    if (call.argument<Boolean>("startUpload") != false) {
+                        schedule(job.getString("id"), replace = false)
+                    }
+                    result.success(null)
+                }
+                "setRetentionPolicies" -> {
+                    store.saveRetentionPolicies(
+                        call.argument<Int>("unbackedRetentionDays"),
+                        call.argument<Int>("backedRetentionDays"),
+                    )
+                    LanBackupCleanupScheduler.rescheduleAll(context, store)
                     result.success(null)
                 }
                 "retry" -> {

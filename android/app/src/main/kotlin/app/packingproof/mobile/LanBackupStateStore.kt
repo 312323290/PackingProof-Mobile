@@ -5,10 +5,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
+import java.time.Instant
+import java.util.UUID
 
 internal class LanBackupStateStore(private val context: Context) {
     companion object {
         private const val PREFS = "lan_backup_connection"
+        private const val RETENTION_PREFS = "lan_backup_retention"
+        private const val DEVICE_PREFS = "lan_backup_device"
 
         fun stableId(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
@@ -22,6 +26,7 @@ internal class LanBackupStateStore(private val context: Context) {
             .putString("baseUrl", baseUrl)
             .putString("computerId", computerId)
             .putString("computerName", computerName)
+            .putString("lastConnectedAt", Instant.now().toString())
             .apply()
     }
 
@@ -32,6 +37,7 @@ internal class LanBackupStateStore(private val context: Context) {
             .put("baseUrl", baseUrl)
             .put("computerId", prefs.getString("computerId", "") ?: "")
             .put("computerName", prefs.getString("computerName", "已连接电脑") ?: "已连接电脑")
+            .put("lastConnectedAt", prefs.getString("lastConnectedAt", "") ?: "")
     }
 
     fun clearConnection() {
@@ -47,6 +53,14 @@ internal class LanBackupStateStore(private val context: Context) {
             existing.optLong("lastModified") == file.lastModified()
         ) {
             existing.put("sessions", sessions)
+            if (!existing.has("fileCreatedAt")) {
+                existing.put("fileCreatedAt", Instant.ofEpochMilli(file.lastModified()).toString())
+            }
+            if (!existing.has("backupCompletedAt")) existing.put("backupCompletedAt", JSONObject.NULL)
+            if (!existing.has("scheduledCleanupAt")) existing.put("scheduledCleanupAt", JSONObject.NULL)
+            if (!existing.has("localDeletedAt")) existing.put("localDeletedAt", JSONObject.NULL)
+            if (!existing.has("waitingCleanup")) existing.put("waitingCleanup", false)
+            if (!existing.has("remoteRecordIds")) existing.put("remoteRecordIds", JSONArray())
             writeJob(existing)
             return existing
         }
@@ -58,6 +72,12 @@ internal class LanBackupStateStore(private val context: Context) {
             .put("uploadedBytes", 0L)
             .put("totalBytes", file.length())
             .put("lastModified", file.lastModified())
+            .put("fileCreatedAt", Instant.ofEpochMilli(file.lastModified()).toString())
+            .put("backupCompletedAt", JSONObject.NULL)
+            .put("scheduledCleanupAt", JSONObject.NULL)
+            .put("localDeletedAt", JSONObject.NULL)
+            .put("waitingCleanup", false)
+            .put("remoteRecordIds", JSONArray())
             .put("errorMessage", JSONObject.NULL)
             .put("sessions", sessions)
         writeJob(job)
@@ -92,4 +112,29 @@ internal class LanBackupStateStore(private val context: Context) {
         }
         ?.sortedByDescending { it.optLong("lastModified") }
         ?: emptyList()
+
+    fun saveRetentionPolicies(unbackedDays: Int?, backedDays: Int?) {
+        context.getSharedPreferences(RETENTION_PREFS, Context.MODE_PRIVATE).edit()
+            .putInt("unbackedDays", unbackedDays ?: -1)
+            .putInt("backedDays", backedDays ?: -1)
+            .apply()
+    }
+
+    fun unbackedRetentionDays(): Int = context
+        .getSharedPreferences(RETENTION_PREFS, Context.MODE_PRIVATE)
+        .getInt("unbackedDays", 30)
+
+    fun backedRetentionDays(): Int = context
+        .getSharedPreferences(RETENTION_PREFS, Context.MODE_PRIVATE)
+        .getInt("backedDays", 7)
+
+    fun deviceId(): String {
+        val prefs = context.getSharedPreferences(DEVICE_PREFS, Context.MODE_PRIVATE)
+        prefs.getString("id", null)?.takeIf { it.isNotBlank() }?.let { return it }
+        val value = UUID.randomUUID().toString()
+        prefs.edit().putString("id", value).apply()
+        return value
+    }
+
+    fun deviceName(): String = android.os.Build.MODEL?.trim().orEmpty().ifBlank { "打包手机" }
 }

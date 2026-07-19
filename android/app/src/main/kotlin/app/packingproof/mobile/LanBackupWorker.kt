@@ -11,6 +11,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -52,21 +53,10 @@ internal class LanBackupWorker(
                 "$baseUrl/api/mobile-backup/uploads",
                 accessKey,
                 JSONObject()
-                    .put("protocolVersion", 1)
-                    .put(
-                        "file",
-                        JSONObject()
-                            .put("name", file.name)
-                            .put("size", file.length())
-                            .put("sha256", sha256)
-                            .put("container", "mp4")
-                            .put("videoCodec", file.videoCodec()),
-                    )
-                    .put("sessions", job.getJSONArray("sessions")),
+                    .put("fileSha256", sha256)
+                    .put("totalBytes", file.length())
+                    .put("mimeType", "video/mp4"),
             )
-            if (createResponse.optBoolean("completed")) {
-                return complete(job, file.length())
-            }
             val uploadId = createResponse.getString("uploadId")
             val encodedUploadId = URLEncoder.encode(uploadId, Charsets.UTF_8.name())
             var offset = createResponse.optLong("offset", 0L).coerceIn(0L, file.length())
@@ -97,14 +87,21 @@ internal class LanBackupWorker(
                     setForeground(foreground(job, ((offset * 100) / file.length()).toInt()))
                 }
             }
-            postJson(
+            val completion = postJson(
                 "$baseUrl/api/mobile-backup/uploads/$encodedUploadId/complete",
                 accessKey,
                 JSONObject()
-                    .put("sha256", sha256)
-                    .put("sessions", job.getJSONArray("sessions")),
+                    .put("fileSha256", sha256)
+                    .put("sourceDeviceId", store.deviceId())
+                    .put("sourceDeviceName", store.deviceName())
+                    .put("sessions", completionSessions(job.getJSONArray("sessions"))),
             )
-            complete(job, file.length())
+            if (completion.optString("status") != "verified" ||
+                completion.optString("fileSha256") != sha256
+            ) {
+                return fail(job, "电脑未确认录像校验结果")
+            }
+            complete(job, file.length(), completion.optJSONArray("recordIds") ?: JSONArray())
         } catch (error: BackupHttpException) {
             if (error.statusCode == 401 || error.statusCode == 403 || error.statusCode == 404) {
                 fail(job, error.message ?: "电脑拒绝备份")
@@ -118,12 +115,53 @@ internal class LanBackupWorker(
         }
     }
 
-    private fun complete(job: JSONObject, total: Long): Result {
+    private fun complete(job: JSONObject, total: Long, recordIds: JSONArray): Result {
         job.put("state", "completed")
             .put("uploadedBytes", total)
+            .put("backupCompletedAt", java.time.Instant.now().toString())
+            .put("remoteRecordIds", recordIds)
             .put("errorMessage", JSONObject.NULL)
         store.writeJob(job)
+        LanBackupCleanupScheduler.reschedule(applicationContext, store, job)
+        notifyBatchCompleteIfIdle()
         return Result.success()
+    }
+
+    private fun completionSessions(sessions: JSONArray): JSONArray {
+        val result = JSONArray()
+        for (index in 0 until sessions.length()) {
+            val source = sessions.getJSONObject(index)
+            val duration = (source.optLong("mediaEndMs") - source.optLong("mediaStartMs"))
+                .takeIf { it > 0 }
+                ?: runCatching {
+                    java.time.Duration.between(
+                        java.time.Instant.parse(source.getString("startedAt")),
+                        java.time.Instant.parse(source.getString("endedAt")),
+                    ).toMillis()
+                }.getOrDefault(1L)
+            result.put(
+                JSONObject()
+                    .put("sessionId", source.getString("id"))
+                    .put("trackingNumber", source.optString("trackingNumber"))
+                    .put("startedAt", source.getString("startedAt"))
+                    .put("durationMilliseconds", duration.coerceAtLeast(1L)),
+            )
+        }
+        return result
+    }
+
+    private fun notifyBatchCompleteIfIdle() {
+        if (store.jobs().any { it.optString("state") in setOf("pending", "uploading", "paused") }) return
+        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val completed = store.jobs().count { it.optString("state") == "completed" }
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(applicationContext.applicationInfo.icon)
+            .setContentTitle("录像备份完成")
+            .setContentText("已备份 $completed 个视频")
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .build()
+        manager.notify(0x50424B, notification)
     }
 
     private fun fail(job: JSONObject, message: String): Result {

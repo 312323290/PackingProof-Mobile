@@ -12,6 +12,10 @@ import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.params.StreamConfigurationMap
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.ImageReader
@@ -40,6 +44,7 @@ import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.max
+import kotlin.math.sqrt
 
 /**
  * Keeps one Camera2 session and one hardware video encoder alive while work is active.
@@ -58,7 +63,6 @@ class ContinuousSegmentCamera(
         private const val VIDEO_WIDTH = 1920
         private const val VIDEO_HEIGHT = 1080
         private const val VIDEO_FPS = 30
-        private const val MIN_AUTO_VIDEO_FPS = 5
         private const val HEVC_VIDEO_BIT_RATE = 7_000_000
         private const val AVC_VIDEO_BIT_RATE = 10_000_000
         private const val AUDIO_SAMPLE_RATE = 48_000
@@ -71,6 +75,9 @@ class ContinuousSegmentCamera(
 
     private val mainHandler = Handler(activity.mainLooper)
     private val cameraManager = activity.getSystemService(CameraManager::class.java)
+    private val sensorManager = activity.getSystemService(SensorManager::class.java)
+    private val gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+    private val previewFpsPolicy = AdaptivePreviewFpsPolicy()
     private val barcodeScanner: BarcodeScanner = BarcodeScanning.getClient(
         BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS).build(),
     )
@@ -131,6 +138,23 @@ class ContinuousSegmentCamera(
     private var workScanEnabled = false
     private var torchEnabled = false
     private var lastAnalysisElapsedMs = 0L
+    private var previewActive = true
+    private var motionSensorRegistered = false
+    private val motionSensorListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor.type != Sensor.TYPE_GYROSCOPE || event.values.size < 3) return
+            val angularSpeed = sqrt(
+                event.values[0] * event.values[0] +
+                    event.values[1] * event.values[1] +
+                    event.values[2] * event.values[2],
+            )
+            if (previewFpsPolicy.observe(angularSpeed, SystemClock.elapsedRealtime())) {
+                refreshCaptureRequest()
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
 
     fun initialize(result: MethodChannel.Result) {
         if (disposed) {
@@ -242,6 +266,7 @@ class ContinuousSegmentCamera(
             stopResult = result
             recordingRequested = false
             recordingActive = false
+            if (previewActive) previewFpsPolicy.activate(SystemClock.elapsedRealtime())
             refreshCaptureRequest()
             audioRunning.set(false)
             try {
@@ -285,6 +310,8 @@ class ContinuousSegmentCamera(
         recordingRequested = false
         recordingActive = false
         workScanEnabled = false
+        sensorManager.unregisterListener(motionSensorListener)
+        motionSensorRegistered = false
         audioRunning.set(false)
         try {
             audioRecord?.stop()
@@ -505,6 +532,7 @@ class ContinuousSegmentCamera(
                         try {
                             applyCaptureRequest(session, camera, characteristics)
                             initialized = true
+                            updateMotionSensorRegistration()
                             val result = initializeResult
                             initializeResult = null
                             if (result != null) replySuccess(result, initializationMap())
@@ -610,18 +638,13 @@ class ContinuousSegmentCamera(
     ): Range<Int>? {
         val ranges = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
             ?: return null
-        if (!recording) {
-            return ranges.firstOrNull { it.lower == 15 && it.upper == 15 }
-                ?: ranges.filter { it.upper <= 20 }.maxByOrNull { it.upper }
-                ?: ranges.filter { it.lower <= 15 && it.upper >= 15 }
-                    .minByOrNull { it.upper - it.lower }
-        }
-        return ranges.filter {
-            it.lower in MIN_AUTO_VIDEO_FPS until VIDEO_FPS && it.upper == VIDEO_FPS
-        }.minByOrNull { it.lower }
-            ?: ranges.firstOrNull { it.lower == VIDEO_FPS && it.upper == VIDEO_FPS }
-            ?: ranges.filter { it.lower <= VIDEO_FPS && it.upper >= VIDEO_FPS }
+        val target = if (recording) VIDEO_FPS else previewFpsPolicy.targetFps
+        return ranges.firstOrNull { it.lower == target && it.upper == target }
+            ?: ranges.filter { it.lower <= target && it.upper >= target }
                 .minByOrNull { it.upper - it.lower }
+            ?: ranges.minByOrNull {
+                kotlin.math.abs(it.upper - target) + kotlin.math.abs(it.lower - target)
+            }
     }
 
     private fun analyzeImage(reader: ImageReader) {
@@ -704,6 +727,34 @@ class ContinuousSegmentCamera(
         workScanEnabled = enabled
         if (!enabled) lastAnalysisElapsedMs = 0L
         refreshCaptureRequest()
+    }
+
+    fun setPreviewActive(active: Boolean) {
+        previewActive = active
+        val changed = if (active) {
+            previewFpsPolicy.activate(SystemClock.elapsedRealtime())
+        } else {
+            previewFpsPolicy.deactivate()
+        }
+        updateMotionSensorRegistration()
+        if (changed) refreshCaptureRequest()
+    }
+
+    private fun updateMotionSensorRegistration() {
+        val handler = cameraHandler ?: return
+        val shouldRegister = initialized && previewActive && gyroscope != null && !disposed
+        if (shouldRegister == motionSensorRegistered) return
+        if (shouldRegister) {
+            motionSensorRegistered = sensorManager.registerListener(
+                motionSensorListener,
+                gyroscope,
+                SensorManager.SENSOR_DELAY_GAME,
+                handler,
+            )
+        } else {
+            sensorManager.unregisterListener(motionSensorListener)
+            motionSensorRegistered = false
+        }
     }
 
     fun setTorchEnabled(enabled: Boolean, result: MethodChannel.Result) {
@@ -1067,6 +1118,7 @@ class ContinuousSegmentCamera(
         pendingStartPath = null
         recordingRequested = false
         recordingActive = false
+        if (previewActive) previewFpsPolicy.activate(SystemClock.elapsedRealtime())
         refreshCaptureRequest()
         setVideoSuspended(true)
         audioRunning.set(false)

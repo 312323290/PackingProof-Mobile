@@ -57,6 +57,10 @@ class ContinuousCameraPlugin(
                 engine.setWorkScanEnabled(call.argument<Boolean>("enabled") == true)
                 result.success(null)
             }
+            "setPreviewActive" -> {
+                engine.setPreviewActive(call.argument<Boolean>("active") == true)
+                result.success(null)
+            }
             "setTorchEnabled" -> {
                 engine.setTorchEnabled(call.argument<Boolean>("enabled") == true, result)
             }

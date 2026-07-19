@@ -58,10 +58,15 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_controller.handleResumed());
+      unawaited(_resumeSession());
     } else if (shouldSuspendPackingSession(state)) {
       unawaited(_controller.handleInactive());
     }
+  }
+
+  Future<void> _resumeSession() async {
+    await _controller.handleResumed();
+    await _controller.setPreviewActive(_selectedTab == 1);
   }
 
   @override
@@ -82,16 +87,19 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   void _selectTab(int value) {
     if ((_controller.isWorking || _controller.isBusy) && value != 1) return;
     setState(() => _selectedTab = value);
+    unawaited(_controller.setPreviewActive(value == 1));
     if (value == 0) unawaited(_controller.refreshSessions());
   }
 
   void _beginComputerPairing() {
     setState(() => _selectedTab = 1);
+    unawaited(_controller.setPreviewActive(true));
     _controller.beginComputerPairing();
   }
 
   void _beginHistorySearchScan() {
     setState(() => _selectedTab = 1);
+    unawaited(_controller.setPreviewActive(true));
     _controller.beginHistoryBarcodeScan();
   }
 

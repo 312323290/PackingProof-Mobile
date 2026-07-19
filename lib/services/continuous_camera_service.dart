@@ -176,6 +176,12 @@ class ContinuousCameraService {
     });
   }
 
+  Future<void> setPreviewActive(bool active) async {
+    await _channel.invokeMethod<void>('setPreviewActive', <String, Object>{
+      'active': active,
+    });
+  }
+
   Future<bool> setTorchEnabled(bool enabled) async {
     return (await _channel.invokeMethod<bool>(
           'setTorchEnabled',

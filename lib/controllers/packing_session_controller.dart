@@ -653,6 +653,15 @@ class PackingSessionController extends ChangeNotifier {
     }
   }
 
+  Future<void> setPreviewActive(bool active) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _nativeCamera?.setPreviewActive(active);
+    } on Object {
+      // Preview power tuning must never block navigation or recording.
+    }
+  }
+
   Future<void> _setNativeWorkScanEnabled(bool enabled) async {
     if (!Platform.isAndroid) return;
     try {

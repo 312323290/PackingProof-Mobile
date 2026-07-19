@@ -25,7 +25,7 @@ void main() {
     expect(initialization.portraitPreviewSize, const Size(1080, 1920));
   });
 
-  test('工作扫码使用独立的原生开关', () async {
+  test('工作扫码和预览活跃状态使用独立的原生开关', () async {
     const MethodChannel channel = MethodChannel(
       'app.packingproof.mobile/continuous_camera',
     );
@@ -38,9 +38,13 @@ void main() {
     final ContinuousCameraService service = ContinuousCameraService();
 
     await service.setWorkScanEnabled(true);
+    await service.setPreviewActive(false);
 
-    expect(calls.single.method, 'setWorkScanEnabled');
-    expect(calls.single.arguments, <String, Object>{'enabled': true});
+    expect(calls, hasLength(2));
+    expect(calls.first.method, 'setWorkScanEnabled');
+    expect(calls.first.arguments, <String, Object>{'enabled': true});
+    expect(calls.last.method, 'setPreviewActive');
+    expect(calls.last.arguments, <String, Object>{'active': false});
     await service.dispose();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);

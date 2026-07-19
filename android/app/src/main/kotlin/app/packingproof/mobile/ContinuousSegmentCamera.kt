@@ -62,7 +62,7 @@ class ContinuousSegmentCamera(
         private const val AUDIO_SAMPLE_RATE = 48_000
         private const val AUDIO_CHANNEL_COUNT = 1
         private const val AUDIO_BIT_RATE = 96_000
-        private const val ANALYSIS_INTERVAL_MS = 180L
+        private const val ANALYSIS_INTERVAL_MS = 250L
         private const val START_TIMEOUT_MS = 6_000L
         private const val SPLIT_TIMEOUT_MS = 3_000L
     }
@@ -166,6 +166,7 @@ class ContinuousSegmentCamera(
             }
             ensureParent(path)
             recordingRequested = true
+            refreshCaptureRequest()
             pendingStartPath = path
             startResult = result
             audioOutputFormat = null
@@ -235,6 +236,7 @@ class ContinuousSegmentCamera(
             stopResult = result
             recordingRequested = false
             recordingActive = false
+            refreshCaptureRequest()
             audioRunning.set(false)
             try {
                 audioRecord?.stop()
@@ -462,16 +464,7 @@ class ContinuousSegmentCamera(
                         }
                         captureSession = session
                         try {
-                            val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
-                                addTarget(preview)
-                                addTarget(encoder)
-                                addTarget(analysis)
-                                applyAutomaticCameraControls(this, characteristics)
-                                chooseFpsRange(characteristics)?.let {
-                                    set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
-                                }
-                            }.build()
-                            session.setRepeatingRequest(request, null, cameraHandler)
+                            applyCaptureRequest(session, camera, characteristics)
                             initialized = true
                             val result = initializeResult
                             initializeResult = null
@@ -565,16 +558,25 @@ class ContinuousSegmentCamera(
 
     private fun chooseAnalysisSize(configuration: StreamConfigurationMap): Size {
         val sizes = configuration.getOutputSizes(ImageFormat.YUV_420_888)?.toList().orEmpty()
-        return sizes.firstOrNull { it.width == 1280 && it.height == 720 }
-            ?: sizes.filter { it.width <= 1280 && it.height <= 720 && it.width > it.height }
+        return sizes.firstOrNull { it.width == 960 && it.height == 540 }
+            ?: sizes.filter { it.width <= 960 && it.height <= 540 && it.width > it.height }
                 .maxByOrNull { it.width.toLong() * it.height }
             ?: sizes.firstOrNull()
             ?: Size(640, 480)
     }
 
-    private fun chooseFpsRange(characteristics: CameraCharacteristics): Range<Int>? {
+    private fun chooseFpsRange(
+        characteristics: CameraCharacteristics,
+        recording: Boolean,
+    ): Range<Int>? {
         val ranges = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
             ?: return null
+        if (!recording) {
+            return ranges.firstOrNull { it.lower == 15 && it.upper == 15 }
+                ?: ranges.filter { it.upper <= 20 }.maxByOrNull { it.upper }
+                ?: ranges.filter { it.lower <= 15 && it.upper >= 15 }
+                    .minByOrNull { it.upper - it.lower }
+        }
         return ranges.filter {
             it.lower in MIN_AUTO_VIDEO_FPS until VIDEO_FPS && it.upper == VIDEO_FPS
         }.minByOrNull { it.lower }
@@ -615,8 +617,44 @@ class ContinuousSegmentCamera(
         }
     }
 
+    private fun refreshCaptureRequest() {
+        cameraHandler?.post {
+            val session = captureSession ?: return@post
+            val camera = cameraDevice ?: return@post
+            val characteristics = selectedCameraCharacteristics ?: return@post
+            try {
+                applyCaptureRequest(session, camera, characteristics)
+            } catch (error: Throwable) {
+                notifyNativeError("摄像头输出模式切换失败", error)
+            }
+        }
+    }
+
+    private fun applyCaptureRequest(
+        session: CameraCaptureSession,
+        camera: CameraDevice,
+        characteristics: CameraCharacteristics,
+    ) {
+        val includeRecording = recordingRequested || recordingActive
+        val includeAnalysis = includeRecording || pairingScanEnabled
+        val preview = previewSurface ?: return
+        val request = camera.createCaptureRequest(
+            if (includeRecording) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW,
+        ).apply {
+            addTarget(preview)
+            if (includeRecording) videoInputSurface?.let(::addTarget)
+            if (includeAnalysis) analysisReader?.surface?.let(::addTarget)
+            applyAutomaticCameraControls(this, characteristics)
+            chooseFpsRange(characteristics, includeRecording)?.let {
+                set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
+            }
+        }.build()
+        session.setRepeatingRequest(request, null, cameraHandler)
+    }
+
     fun setPairingScanEnabled(enabled: Boolean) {
         pairingScanEnabled = enabled
+        refreshCaptureRequest()
     }
 
     private fun startAudioPipeline() {
@@ -964,6 +1002,7 @@ class ContinuousSegmentCamera(
         pendingStartPath = null
         recordingRequested = false
         recordingActive = false
+        refreshCaptureRequest()
         setVideoSuspended(true)
         audioRunning.set(false)
         try {

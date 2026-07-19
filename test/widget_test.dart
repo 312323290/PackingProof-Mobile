@@ -147,7 +147,13 @@ void main() {
     final Rect durationPill = tester.getRect(
       find.byKey(const Key('recording-duration-pill')),
     );
+    final Rect controlPanel = tester.getRect(
+      find.byKey(const Key('recording-control-panel')),
+    );
     expect(previewViewport.size.aspectRatio, closeTo(9 / 16, 0.001));
+    expect(controlPanel.height, inInclusiveRange(136, 156));
+    expect(controlPanel.top, greaterThan(previewViewport.bottom - 24));
+    expect(durationPill.bottom, lessThan(controlPanel.top));
     expect(durationPill.center.dx, closeTo(previewViewport.center.dx, 1));
     expect(
       durationPill.center.dy,

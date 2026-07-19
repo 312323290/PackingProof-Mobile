@@ -290,8 +290,8 @@ class PackingHomeView extends StatelessWidget {
         bottom: false,
         child: LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
-            final double minimumPanelHeight = (constraints.maxHeight * 0.22)
-                .clamp(184.0, 204.0);
+            final double minimumPanelHeight = (constraints.maxHeight * 0.18)
+                .clamp(136.0, 156.0);
             final double previewAspectRatio = _portraitPreviewAspectRatio;
             final double cameraHeight =
                 (constraints.maxWidth / previewAspectRatio).clamp(
@@ -300,10 +300,7 @@ class PackingHomeView extends StatelessWidget {
                 );
             final double naturalPanelTop =
                 constraints.maxHeight - minimumPanelHeight;
-            final double uncroppedPanelTop = cameraHeight - 28;
-            final double panelTop = uncroppedPanelTop < naturalPanelTop
-                ? uncroppedPanelTop
-                : naturalPanelTop;
+            final double panelTop = naturalPanelTop;
             final double panelHeight = constraints.maxHeight - panelTop;
             final double cameraPanelOverlap = (cameraHeight - panelTop).clamp(
               0.0,
@@ -731,77 +728,91 @@ class _ControlPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isError = view.phase == PackingSessionPhase.error;
-    return Container(
-      height: height,
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.elliptical(30, 40)),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: Color(0x24000000),
-            blurRadius: 28,
-            offset: Offset(0, -8),
+    return PhysicalShape(
+      key: const Key('recording-control-panel'),
+      clipper: const _ShallowUpwardArcClipper(),
+      color: Colors.white,
+      shadowColor: const Color(0x44000000),
+      elevation: 10,
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        height: height,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 17, 24, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (view._isRecording) ...<Widget>[
+                Text(
+                  view.currentCode.isEmpty ? '等待识别面单' : view.currentCode,
+                  key: const Key('current-shipping-code'),
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: PackingProofMobileApp.ink,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    height: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  _recordingHint(view),
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF767D7A),
+                    fontSize: 12,
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: 3),
+              ] else ...<Widget>[
+                Text(
+                  view.historyScanActive
+                      ? '扫描条码以搜索历史记录'
+                      : view.pairingScanActive
+                      ? '正在连接电脑'
+                      : isError
+                      ? (view.errorMessage ?? '请重新检查摄像头权限')
+                      : '对准面单条码',
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF767D7A),
+                    fontSize: 14,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 6),
+              ],
+              _PrimaryWorkButton(view: view, isError: isError),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: <Widget>[
-          if (view._isRecording) ...<Widget>[
-            Text(
-              view.currentCode.isEmpty ? '等待识别面单' : view.currentCode,
-              key: const Key('current-shipping-code'),
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: PackingProofMobileApp.ink,
-                fontSize: 19,
-                fontWeight: FontWeight.w800,
-                height: 1.25,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              _recordingHint(view),
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFF767D7A),
-                fontSize: 13,
-                height: 1.35,
-              ),
-            ),
-            const SizedBox(height: 5),
-          ] else ...<Widget>[
-            Text(
-              view.historyScanActive
-                  ? '扫描条码以搜索历史记录'
-                  : view.pairingScanActive
-                  ? '正在连接电脑'
-                  : isError
-                  ? (view.errorMessage ?? '请重新检查摄像头权限')
-                  : '对准面单条码',
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFF767D7A),
-                fontSize: 15,
-                height: 1.45,
-              ),
-            ),
-            const SizedBox(height: 10),
-          ],
-          _PrimaryWorkButton(view: view, isError: isError),
-          const SizedBox(height: 12),
-          const Spacer(),
-        ],
+        ),
       ),
     );
   }
+}
+
+class _ShallowUpwardArcClipper extends CustomClipper<Path> {
+  const _ShallowUpwardArcClipper();
+
+  @override
+  Path getClip(Size size) => Path()
+    ..moveTo(0, 12)
+    ..cubicTo(size.width * 0.24, 12, size.width * 0.34, 0, size.width * 0.5, 0)
+    ..cubicTo(size.width * 0.66, 0, size.width * 0.76, 12, size.width, 12)
+    ..lineTo(size.width, size.height)
+    ..lineTo(0, size.height)
+    ..close();
+
+  @override
+  bool shouldReclip(_ShallowUpwardArcClipper oldClipper) => false;
 }
 
 class _PrimaryWorkButton extends StatefulWidget {

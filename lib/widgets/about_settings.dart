@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app/app_build_config.dart';
+import '../app/packing_proof_mobile_app.dart';
 
 const String packingProofRepositoryUrl =
     'https://github.com/PackingProof/PackingProof-Mobile';
@@ -108,6 +109,16 @@ class _AboutScreenState extends State<AboutScreen> {
     }
   }
 
+  Future<void> _showStartupNotice() => Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      builder: (_) => StartupNoticeScreen(
+        buildConfig: widget.buildConfig,
+        confirmLabel: '关闭',
+        onConfirm: () async => Navigator.of(context).pop(),
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -141,6 +152,7 @@ class _AboutScreenState extends State<AboutScreen> {
                             icon: Icons.info_outline_rounded,
                             title: 'PackingProof-Mobile',
                             subtitle: version,
+                            onTap: _showStartupNotice,
                           );
                         },
                   ),
@@ -152,6 +164,7 @@ class _AboutScreenState extends State<AboutScreen> {
                       subtitle: widget.buildConfig.buildTimestamp.isEmpty
                           ? widget.buildConfig.buildRevision
                           : '${widget.buildConfig.buildRevision} · ${widget.buildConfig.buildTimestamp}',
+                      onTap: _showStartupNotice,
                     ),
                     const SizedBox(height: 8),
                   ],
@@ -201,11 +214,13 @@ class _InfoRow extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => ListTile(
@@ -213,6 +228,10 @@ class _InfoRow extends StatelessWidget {
     leading: Icon(icon),
     title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
     subtitle: Text(subtitle),
+    trailing: onTap == null
+        ? null
+        : const Icon(Icons.chevron_right_rounded, size: 20),
+    onTap: onTap,
   );
 }
 
@@ -221,10 +240,8 @@ class _LinkRow extends _InfoRow {
     required super.icon,
     required super.title,
     required super.subtitle,
-    required this.onTap,
+    required super.onTap,
   });
-
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => ListTile(

@@ -140,11 +140,13 @@ class StartupNoticeScreen extends StatelessWidget {
   const StartupNoticeScreen({
     required this.buildConfig,
     required this.onConfirm,
+    this.confirmLabel = '开始使用',
     super.key,
   });
 
   final AppBuildConfig buildConfig;
   final Future<void> Function() onConfirm;
+  final String confirmLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -199,7 +201,7 @@ class StartupNoticeScreen extends StatelessWidget {
               FilledButton(
                 key: const Key('startup-notice-confirm'),
                 onPressed: onConfirm,
-                child: const Text('开始使用'),
+                child: Text(confirmLabel),
               ),
             ],
           ),

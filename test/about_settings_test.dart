@@ -69,4 +69,27 @@ void main() {
     await tester.pump();
     expect(find.text('无法打开链接，请稍后重试'), findsOneWidget);
   });
+
+  testWidgets('点击版本可重新查看首次说明且只显示关闭按钮', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AboutScreen(
+          packageInfoLoader: () async => PackageInfo(
+            appName: '包裹留证',
+            packageName: 'app.packingproof.mobile',
+            version: '0.4.2',
+            buildNumber: '10002',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('版本 0.4.2+10002'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('startup-notice-card')), findsOneWidget);
+    expect(find.text('关闭'), findsOneWidget);
+    expect(find.text('开始使用'), findsNothing);
+  });
 }

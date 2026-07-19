@@ -183,6 +183,9 @@ class PackingSessionController extends ChangeNotifier {
         unawaited(_registerSessionsForRetention(_sessions));
       }
       await _speechService.setEnabled(_speechEnabled);
+      if (_speechService case final PreparableSpeechPromptSink speechService) {
+        unawaited(speechService.prepare());
+      }
       await _beginMaxVolumeIfNeeded();
       if (Platform.isAndroid) {
         final ContinuousCameraService nativeCamera = ContinuousCameraService();

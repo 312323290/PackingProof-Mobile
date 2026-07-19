@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "format": "audio-24khz-48kbitrate-mono-mp3",
   "prompts": [
     {
@@ -8,9 +8,9 @@
       "priority": "normal",
       "voice": "zh-CN-XiaoxiaoNeural",
       "file": "ready.mp3",
-      "bytes": 10656,
-      "sha256": "6e31754cd8e7937b104c837207cafe65472281128446fe5238b83339007c75c1",
-      "cacheKey": "d61ad7827f2c20a4a1781bd5415377cdb8a95d43e86e71b452e21385bb787389"
+      "bytes": 10172,
+      "sha256": "60eba40f7d0b70f7e681efba18d5db8997a624702ace1183be4ae550efe3ce77",
+      "cacheKey": "eb8b20fa546143dd6d81d712d6f3ea0c6f8756b9c63edb22f15e6a79a01ee1f2"
     },
     {
       "id": "recordingStarted",
@@ -18,9 +18,9 @@
       "priority": "normal",
       "voice": "zh-CN-XiaoxiaoNeural",
       "file": "recording_started.mp3",
-      "bytes": 9792,
-      "sha256": "aee6d2b5fa5c95cea81643f705f106df3e6d4d37d76e744ac846a3ac28ec37da",
-      "cacheKey": "8beb95724e7affe09e9c1576edb9e5c4c7daca0d993762f62c0d46ba8227440e"
+      "bytes": 9308,
+      "sha256": "6875c4a0f7529e8366093d8cfff15c8fe3cd9d31259e6511963ae056fb3530b4",
+      "cacheKey": "58d6638f155e64b4f6d91794451b65c7b3328c094c83d39a0f6b807bb561a5b0"
     },
     {
       "id": "recordingStopped",
@@ -28,9 +28,9 @@
       "priority": "normal",
       "voice": "zh-CN-XiaoxiaoNeural",
       "file": "recording_stopped.mp3",
-      "bytes": 9792,
-      "sha256": "85d4fe42ea7a152a8a26365852fd3b0eb48703e209086be7ccd792b023c647ab",
-      "cacheKey": "49b7b740a8d861b20c5f2893d8af6329799905fd15985d87508af4003cd80479"
+      "bytes": 9308,
+      "sha256": "38dc2f5276d8bc4983ee5f0da5f51b3ce9549b0b1ee0e0c3f41695eadf53e970",
+      "cacheKey": "15e7f824ba5d96179e632600f2fb892f300e4503deddc56cdc7af4ece5e97462"
     },
     {
       "id": "previewEnabled",
@@ -38,9 +38,9 @@
       "priority": "normal",
       "voice": "zh-CN-XiaoxiaoNeural",
       "file": "preview_enabled.mp3",
-      "bytes": 13104,
-      "sha256": "6fd0a60cbefafbac14f9eb8654d19a19dd4e5e119d3d21ee684c20ff2c630885",
-      "cacheKey": "17b0a6be5e8f09dc79dd0c086e4c3e7d744b33bf9f79a50ce9e3c29d0db9993f"
+      "bytes": 12620,
+      "sha256": "fb8950a23f4f0fcd520d8981a862ca9a25d3edcb554cc1b95e97f777711f92bf",
+      "cacheKey": "a6946a5f2d27365597d3ea75d818fd54bf9e1fbb8346b4e935cf064e79c058a8"
     },
     {
       "id": "cameraNotReady",
@@ -48,9 +48,9 @@
       "priority": "warning",
       "voice": "zh-CN-YunjianNeural",
       "file": "camera_not_ready.mp3",
-      "bytes": 13968,
-      "sha256": "b2d7e8238ead7bc5a9eaeec60a3eaf2f0cc44cc1f9f6b5e3b8dae2d5a42c7bcb",
-      "cacheKey": "afc01da4efbe830fd76a4aa3fd1e89f1f7cba51d0acdd21a2a654bb3e5e2ac99"
+      "bytes": 13484,
+      "sha256": "8bd457391594cf489dd767a4f4c91f5e720fcda17c51b1131ebd3065aba0c118",
+      "cacheKey": "a8751d9aa0e1416cf42f8f3e224daaa9135473c0c9bd0c571eaea48d7ca4bd93"
     },
     {
       "id": "cameraNotFound",
@@ -58,9 +58,9 @@
       "priority": "warning",
       "voice": "zh-CN-YunjianNeural",
       "file": "camera_not_found.mp3",
-      "bytes": 14976,
-      "sha256": "150cfe20163c4e0be844ce172c0f5a43c847e64430ac452b101230f9fc5db58f",
-      "cacheKey": "e33f3e7f8992afb55ea3e242e1389d1539321b0dae36d28e788c591ce73a7eaa"
+      "bytes": 14492,
+      "sha256": "9ad85ff9be60c81c1939b2851db0d9033987ef107a9f29b3b7b20006ac98a06d",
+      "cacheKey": "e59868f43651f1c573da1b6b79a558bb12810323674de9b8504ae3d265b78d7b"
     },
     {
       "id": "permissionRequired",
@@ -68,9 +68,9 @@
       "priority": "warning",
       "voice": "zh-CN-YunjianNeural",
       "file": "permission_required.mp3",
-      "bytes": 18864,
-      "sha256": "174c4fb11786624f08797e2679c85d43de95d79dc79332044231dea8a4853583",
-      "cacheKey": "db04c52036f3b64ff094ddc4c70e3fc3c0ae4bce877bfdf45e6cbb8106bc8f02"
+      "bytes": 18380,
+      "sha256": "07f815670ecfff6b8275da48ccf6701a24aefe9dda247326ca9bc708d51c740d",
+      "cacheKey": "b04c99180a981d3d1af3103b0598d7f261a0655c0e16d3516e3a81c1cdc98adf"
     },
     {
       "id": "recordingFailed",
@@ -78,9 +78,9 @@
       "priority": "warning",
       "voice": "zh-CN-YunjianNeural",
       "file": "recording_failed.mp3",
-      "bytes": 11088,
-      "sha256": "458fb7a775f060731e965c5b7cc70d8e1eb68a81db402f12ca09a9708d38986c",
-      "cacheKey": "f2caa4ae2b3c2f19f513e0cb602a467538596f747b0ec065c5e6920cb96713b9"
+      "bytes": 10604,
+      "sha256": "f43b5eaa7fd75d8a8de4c71c73d60f494bc2ca28f46488c916aad9c2048fe315",
+      "cacheKey": "4924b4a921daace468434bfed88cbedd8c9a404cbdb772ca095fe1db4ed88701"
     },
     {
       "id": "audioRecordingFailed",
@@ -88,9 +88,9 @@
       "priority": "warning",
       "voice": "zh-CN-YunjianNeural",
       "file": "audio_recording_failed.mp3",
-      "bytes": 13536,
-      "sha256": "8b7bc6e96af3efe10641076a313a7cee65531e83833abc5c323c1349dea8f525",
-      "cacheKey": "30b87f51dd28d1882a8f787d654f44547ff1cee6c04f52b872d6ddded6f6455d"
+      "bytes": 13052,
+      "sha256": "2f49774df2a7745cdbaaeb637d5450ec380b9d801060f2ce1f88f7e711b1cc7a",
+      "cacheKey": "8a6ab586e6e61c5c4e6cf018325fc315e94c31f53cb64a59c33c6b89962576b0"
     },
     {
       "id": "videoFileCreateFailed",
@@ -98,9 +98,9 @@
       "priority": "warning",
       "voice": "zh-CN-YunjianNeural",
       "file": "video_file_create_failed.mp3",
-      "bytes": 16272,
-      "sha256": "24e9c253d004ba3deb6a5950095312b3e7b7b6ad091987a46a488ae4fa583e0b",
-      "cacheKey": "abdb091c28b9afc5bf33814ba098cec8beaf739750c08240c8a4380d635ecac4"
+      "bytes": 15788,
+      "sha256": "ecfbad94df416bf50e8b00da110418430d62dc35286203c0b0d2c040e6687af4",
+      "cacheKey": "c2a4a4a2d39079e71faf4e238ddeb9f993b5f13df4b1266c74c31f714b58de15"
     },
     {
       "id": "segmentSaveFailed",
@@ -108,9 +108,9 @@
       "priority": "warning",
       "voice": "zh-CN-YunjianNeural",
       "file": "segment_save_failed.mp3",
-      "bytes": 15696,
-      "sha256": "65cd6862abca022bb632f2e6b482a93d6d2f2e9bb870552152eccfce31bf43f2",
-      "cacheKey": "7c55ec4446b0dec232926fc256ecfcc89c791a41314f54ae9852229e09e8da94"
+      "bytes": 15356,
+      "sha256": "ba378015c2643d739a0c4e9a60b04b82ac0537dce55fdc59bcce76c7f67305fe",
+      "cacheKey": "c64faf3cb16afc380e3210c620964efb721bf23597bc369a6695b00a477fafd4"
     },
     {
       "id": "recordingSaveFailed",
@@ -118,9 +118,9 @@
       "priority": "warning",
       "voice": "zh-CN-YunjianNeural",
       "file": "recording_save_failed.mp3",
-      "bytes": 13680,
-      "sha256": "e05bc8c2286a7f2ae7f9909e2873df5522b0efcaf98e1aabf9823174ef1616f5",
-      "cacheKey": "00be6dba602ee29ad4c921fef2f6649373d6305bebfd8900efa7cc598475343a"
+      "bytes": 13340,
+      "sha256": "8e068e3f586a31fac200774d98c10d2fe5bdb00ed0b0a8ec7a4af0fb1856659c",
+      "cacheKey": "11feaa3f7c42ac4c75be6a5f7d7872a660830dce35fde2814e61f9c7144c7ed5"
     },
     {
       "id": "cameraDisconnected",
@@ -128,9 +128,9 @@
       "priority": "warning",
       "voice": "zh-CN-YunjianNeural",
       "file": "camera_disconnected.mp3",
-      "bytes": 16128,
-      "sha256": "4fb77b35dfef4cf6f2918e1976f34f19253be5f64dbb111dbf545af7e23dc928",
-      "cacheKey": "cec0dee5084adada6d6db79ed318e4a87ca62b83b1ae4def4f9bade2b6512129"
+      "bytes": 15644,
+      "sha256": "6a9faea6a942c41865097214eab5f8a9c499019ef400447b8afda5bc186a1747",
+      "cacheKey": "ccdd81530067ecb8f616211950750faa887b8024a4aaa5f8aad7e3fa729189c6"
     }
   ]
 }

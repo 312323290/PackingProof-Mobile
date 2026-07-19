@@ -76,7 +76,10 @@ foreach ($prompt in $manifest.prompts) {
 if ($changed) {
     $json = $manifest | ConvertTo-Json -Depth 6
     [IO.File]::WriteAllText($resolvedManifest, $json + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
-    Write-Host '语音清单已更新'
+    & (Join-Path $PSScriptRoot 'Optimize-SpeechAssets.ps1') `
+        -ManifestPath $ManifestPath `
+        -AssetVersion ([int]$manifest.version)
+    Write-Host '语音清单已更新并完成起始静音优化'
 }
 else {
     Write-Host '所有语音资产均可复用，未发起网络生成'

@@ -126,6 +126,27 @@ void main() {
     await service.dispose();
   });
 
+  test('准备阶段预加载全部内置语音', () async {
+    final _PreparableFakeSpeechOutput output =
+        _PreparableFakeSpeechOutput();
+    final SpeechPromptService service = SpeechPromptService(
+      output: output,
+      edgeGenerator: _FakeEdgeGenerator(null),
+      cache: SpeechPromptCache.inDirectory(root),
+      assetBundle: _PresentAssetBundle(),
+    );
+
+    await service.prepare();
+
+    expect(
+      output.preparedAssets,
+      SpeechPrompt.values
+          .map((SpeechPrompt prompt) => prompt.audioPlayerAssetPath)
+          .toList(),
+    );
+    await service.dispose();
+  });
+
   test('单机模式不调用 Edge 在线生成', () async {
     final _FakeSpeechOutput output = _FakeSpeechOutput();
     final _FakeEdgeGenerator generator = _FakeEdgeGenerator(_mp3Bytes(200));
@@ -222,6 +243,16 @@ class _FakeSpeechOutput implements SpeechOutput {
 
   @override
   Future<void> dispose() async {}
+}
+
+class _PreparableFakeSpeechOutput extends _FakeSpeechOutput
+    implements PreparableSpeechOutput {
+  final List<String> preparedAssets = <String>[];
+
+  @override
+  Future<void> prepareAssets(Iterable<String> assetPaths) async {
+    preparedAssets.addAll(assetPaths);
+  }
 }
 
 class _InterruptibleSpeechOutput extends _FakeSpeechOutput {

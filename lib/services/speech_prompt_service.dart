@@ -28,6 +28,10 @@ abstract interface class SpeechPromptSink {
   Future<void> dispose();
 }
 
+abstract interface class PreparableSpeechPromptSink {
+  Future<void> prepare();
+}
+
 abstract interface class SpeechOutput {
   Future<void> playAsset(String assetPath);
 
@@ -40,11 +44,16 @@ abstract interface class SpeechOutput {
   Future<void> dispose();
 }
 
+abstract interface class PreparableSpeechOutput {
+  Future<void> prepareAssets(Iterable<String> assetPaths);
+}
+
 abstract interface class EdgeSpeechGenerator {
   Future<Uint8List> synthesize({required String text, required String voice});
 }
 
-class SpeechPromptService implements SpeechPromptSink {
+class SpeechPromptService
+    implements SpeechPromptSink, PreparableSpeechPromptSink {
   SpeechPromptService({
     SpeechOutput? output,
     EdgeSpeechGenerator? edgeGenerator,
@@ -70,6 +79,22 @@ class SpeechPromptService implements SpeechPromptSink {
   bool _draining = false;
   bool _disposed = false;
   SpeechPrompt? _activePrompt;
+  Future<void>? _prepareFuture;
+
+  @override
+  Future<void> prepare() {
+    return _prepareFuture ??= _prepareOutput();
+  }
+
+  Future<void> _prepareOutput() async {
+    if (_output case final PreparableSpeechOutput output) {
+      await output.prepareAssets(
+        SpeechPrompt.values.map(
+          (SpeechPrompt prompt) => prompt.audioPlayerAssetPath,
+        ),
+      );
+    }
+  }
 
   @override
   bool get enabled => _enabled;
@@ -170,6 +195,7 @@ class SpeechPromptService implements SpeechPromptSink {
   }
 
   Future<void> _playWithFallback(SpeechPrompt prompt) async {
+    await prepare();
     if (await _hasBundledAsset(prompt)) {
       try {
         await _output.playAsset(prompt.audioPlayerAssetPath);
@@ -277,10 +303,15 @@ class FlutterEdgeSpeechGenerator implements DisposableEdgeSpeechGenerator {
   }
 }
 
-class DeviceSpeechOutput implements SpeechOutput {
-  DeviceSpeechOutput({AudioPlayer? audioPlayer, FlutterTts? systemTts})
+class DeviceSpeechOutput implements SpeechOutput, PreparableSpeechOutput {
+  DeviceSpeechOutput({
+    AudioPlayer? audioPlayer,
+    FlutterTts? systemTts,
+    AudioCache? audioCache,
+  })
     : _audioPlayer = audioPlayer ?? AudioPlayer(),
-      _systemTts = systemTts ?? FlutterTts() {
+      _systemTts = systemTts ?? FlutterTts(),
+      _audioCache = audioCache ?? AudioCache(prefix: 'assets/') {
     _systemTts.setCompletionHandler(_completePlayback);
     _systemTts.setCancelHandler(_completePlayback);
     _systemTts.setErrorHandler((_) => _completePlayback());
@@ -288,12 +319,32 @@ class DeviceSpeechOutput implements SpeechOutput {
 
   final AudioPlayer _audioPlayer;
   final FlutterTts _systemTts;
+  final AudioCache _audioCache;
+  final Map<String, String> _preparedAssets = <String, String>{};
   Completer<void>? _activePlayback;
   bool _audioContextConfigured = false;
 
   @override
+  Future<void> prepareAssets(Iterable<String> assetPaths) async {
+    await _configureAudioContext();
+    for (final String assetPath in assetPaths) {
+      if (_preparedAssets.containsKey(assetPath)) continue;
+      try {
+        _preparedAssets[assetPath] = await _audioCache.loadPath(assetPath);
+      } on Object {
+        // AssetSource remains available when the temporary cache cannot be prepared.
+      }
+    }
+  }
+
+  @override
   Future<void> playAsset(String assetPath) async {
-    await _play(AssetSource(assetPath));
+    final String? preparedPath = _preparedAssets[assetPath];
+    await _play(
+      preparedPath == null
+          ? AssetSource(assetPath)
+          : DeviceFileSource(preparedPath),
+    );
   }
 
   @override
@@ -303,18 +354,7 @@ class DeviceSpeechOutput implements SpeechOutput {
 
   Future<void> _play(Source source) async {
     await stop();
-    if (!_audioContextConfigured) {
-      await _audioPlayer.setAudioContext(
-        AudioContext(
-          android: const AudioContextAndroid(
-            contentType: AndroidContentType.speech,
-            usageType: AndroidUsageType.assistanceNavigationGuidance,
-            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
-          ),
-        ),
-      );
-      _audioContextConfigured = true;
-    }
+    await _configureAudioContext();
     final Completer<void> completion = Completer<void>();
     _activePlayback = completion;
     final StreamSubscription<void> subscription = _audioPlayer.onPlayerComplete
@@ -327,6 +367,21 @@ class DeviceSpeechOutput implements SpeechOutput {
       if (identical(_activePlayback, completion)) {
         _activePlayback = null;
       }
+    }
+  }
+
+  Future<void> _configureAudioContext() async {
+    if (!_audioContextConfigured) {
+      await _audioPlayer.setAudioContext(
+        AudioContext(
+          android: const AudioContextAndroid(
+            contentType: AndroidContentType.speech,
+            usageType: AndroidUsageType.assistanceNavigationGuidance,
+            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+          ),
+        ),
+      );
+      _audioContextConfigured = true;
     }
   }
 
@@ -400,6 +455,11 @@ class DeviceSpeechOutput implements SpeechOutput {
   Future<void> dispose() async {
     await stop();
     await _audioPlayer.dispose();
+    try {
+      await _audioCache.clearAll();
+    } on Object {
+      // Temporary audio cache cleanup is best effort.
+    }
   }
 }
 

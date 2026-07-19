@@ -25,30 +25,31 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
   bool _handlingBoundary = false;
   bool _listenerAdded = false;
 
-  Duration get _previewStart =>
-      widget.session.mediaStart + Duration(milliseconds: _range.start.round());
+  Duration get _previewStart => Duration(milliseconds: _range.start.round());
 
-  Duration get _previewEnd =>
-      widget.session.mediaStart + Duration(milliseconds: _range.end.round());
+  Duration get _previewEnd => Duration(milliseconds: _range.end.round());
 
   @override
   void initState() {
     super.initState();
-    _maximumMilliseconds = widget.session.playbackDuration.inMilliseconds
-        .toDouble();
-    _range = RangeValues(0, _maximumMilliseconds);
+    _maximumMilliseconds = widget.session.playbackEnd.inMilliseconds.toDouble();
+    _range = RangeValues(
+      widget.session.mediaStart.inMilliseconds.toDouble(),
+      widget.session.playbackEnd.inMilliseconds.toDouble(),
+    );
     _video = VideoPlayerController.file(File(widget.session.filePath));
     _initialized = _video.initialize().then((_) async {
       await _video.setVolume(1);
-      final double availableMilliseconds =
-          (_video.value.duration - widget.session.mediaStart).inMilliseconds
-              .clamp(0, widget.session.playbackDuration.inMilliseconds)
-              .toDouble();
-      if (availableMilliseconds > 0 &&
-          availableMilliseconds < _maximumMilliseconds) {
-        _maximumMilliseconds = availableMilliseconds;
-        _range = RangeValues(0, availableMilliseconds);
-      }
+      final double availableMilliseconds = _video.value.duration.inMilliseconds
+          .toDouble();
+      _maximumMilliseconds = availableMilliseconds;
+      final double start = widget.session.mediaStart.inMilliseconds
+          .clamp(0, availableMilliseconds)
+          .toDouble();
+      final double end = widget.session.playbackEnd.inMilliseconds
+          .clamp(start, availableMilliseconds)
+          .toDouble();
+      _range = RangeValues(start, end);
       await _video.seekTo(_previewStart);
       _video.addListener(_handlePlaybackBoundary);
       _listenerAdded = true;
@@ -121,9 +122,9 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
   }
 
   void _save() {
-    final RecordingSession updated = widget.session.trimmed(
-      startOffset: Duration(milliseconds: _range.start.round()),
-      endOffset: Duration(milliseconds: _range.end.round()),
+    final RecordingSession updated = widget.session.trimmedToMediaRange(
+      mediaStart: Duration(milliseconds: _range.start.round()),
+      mediaEnd: Duration(milliseconds: _range.end.round()),
     );
     Navigator.of(context).pop(updated);
   }

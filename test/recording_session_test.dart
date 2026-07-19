@@ -104,6 +104,36 @@ void main() {
     expect(trimmed.markers.single.offset, const Duration(seconds: 1));
   });
 
+  test('再次剪辑可按源视频绝对时间恢复之前裁掉的内容', () {
+    final DateTime sourceStartedAt = DateTime(2026, 7, 18, 10);
+    final RecordingSession clipped = RecordingSession(
+      id: 'clip-restore',
+      filePath: 'master.mp4',
+      startedAt: sourceStartedAt.add(const Duration(seconds: 10)),
+      endedAt: sourceStartedAt.add(const Duration(seconds: 20)),
+      markers: <BarcodeMarker>[
+        BarcodeMarker(
+          code: 'JT1234567890',
+          occurredAt: sourceStartedAt.add(const Duration(seconds: 12)),
+          offset: const Duration(seconds: 2),
+        ),
+      ],
+      mediaStart: const Duration(seconds: 10),
+      mediaEnd: const Duration(seconds: 20),
+    );
+
+    final RecordingSession restored = clipped.trimmedToMediaRange(
+      mediaStart: const Duration(seconds: 5),
+      mediaEnd: const Duration(seconds: 25),
+    );
+
+    expect(restored.startedAt, sourceStartedAt.add(const Duration(seconds: 5)));
+    expect(restored.endedAt, sourceStartedAt.add(const Duration(seconds: 25)));
+    expect(restored.mediaStart, const Duration(seconds: 5));
+    expect(restored.playbackEnd, const Duration(seconds: 25));
+    expect(restored.markers.single.offset, const Duration(seconds: 7));
+  });
+
   test('删除共享母视频的最后一个片段时才清理文件', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'packing_proof_mobile_delete_test',

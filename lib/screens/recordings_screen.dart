@@ -792,7 +792,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         ? (item.remote == null ? '本机' : '本机 · 已备份')
                         : (item.remote == null ? '已备份 · 电脑离线' : '电脑录像'),
                     selected: _selectedIds.contains(session.id),
-                    onTap: () {
+                    onTap: () async {
                       if (_managing) {
                         if (item.local != null) _toggleSelection(session.id);
                         return;
@@ -804,19 +804,33 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         );
                         return;
                       }
-                      Navigator.of(context).push<void>(
-                        MaterialPageRoute<void>(
-                          builder: (BuildContext context) =>
-                              VideoPlaybackScreen(
-                                session: session,
-                                onSessionUpdated: _updateSession,
-                                remoteUri: localAvailable
-                                    ? null
-                                    : item.remote?.playUri,
-                                remoteHeaders: widget.remotePlaybackHeaders,
-                              ),
-                        ),
-                      );
+                      final bool? deleted = await Navigator.of(context)
+                          .push<bool>(
+                            MaterialPageRoute<bool>(
+                              builder: (BuildContext context) =>
+                                  VideoPlaybackScreen(
+                                    session: session,
+                                    onSessionUpdated: _updateSession,
+                                    onDelete: item.local == null
+                                        ? null
+                                        : () => widget.onDeleteSessions(
+                                            <String>{item.local!.id},
+                                          ),
+                                    remoteUri: localAvailable
+                                        ? null
+                                        : item.remote?.playUri,
+                                    remoteHeaders: widget.remotePlaybackHeaders,
+                                  ),
+                            ),
+                          );
+                      if (deleted == true && mounted && item.local != null) {
+                        setState(() {
+                          _sessions.removeWhere(
+                            (RecordingSession value) =>
+                                value.id == item.local!.id,
+                          );
+                        });
+                      }
                     },
                   ),
                 );

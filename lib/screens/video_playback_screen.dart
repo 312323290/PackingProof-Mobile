@@ -2,15 +2,18 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/recording_session.dart';
+import '../services/video_share_service.dart';
 import 'video_trim_screen.dart';
 
 class VideoPlaybackScreen extends StatefulWidget {
   const VideoPlaybackScreen({
     required this.session,
     required this.onSessionUpdated,
+    this.onDelete,
     this.remoteUri,
     this.remoteHeaders = const <String, String>{},
     super.key,
@@ -18,6 +21,7 @@ class VideoPlaybackScreen extends StatefulWidget {
 
   final RecordingSession session;
   final Future<void> Function(RecordingSession session) onSessionUpdated;
+  final Future<void> Function()? onDelete;
   final Uri? remoteUri;
   final Map<String, String> remoteHeaders;
 
@@ -34,6 +38,10 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   bool _handlingBoundary = false;
   bool _resumeAfterScrub = false;
   double? _scrubMilliseconds;
+  final VideoShareService _shareService = VideoShareService();
+  bool _sharing = false;
+  double _shareProgress = 0;
+  String _shareMessage = '';
 
   @override
   void initState() {
@@ -199,10 +207,115 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
     }
   }
 
+  Future<void> _share() async {
+    if (_sharing || !_video.value.isInitialized) return;
+    await _video.pause();
+    setState(() {
+      _sharing = true;
+      _shareProgress = 0;
+      _shareMessage = widget.remoteUri == null ? '正在准备分享' : '正在下载电脑录像';
+    });
+    try {
+      final File file = await _shareService.prepare(
+        sourcePath: _session.filePath,
+        remoteUri: widget.remoteUri,
+        remoteHeaders: widget.remoteHeaders,
+        mediaStart: _playbackStart,
+        mediaEnd: _playbackEnd,
+        sourceDuration: _video.value.duration,
+        onProgress: (double progress, String message) {
+          if (!mounted) return;
+          setState(() {
+            _shareProgress = progress;
+            _shareMessage = message;
+          });
+        },
+      );
+      await SharePlus.instance.share(
+        ShareParams(
+          title: _session.displayCode,
+          files: <XFile>[XFile(file.path, mimeType: 'video/mp4')],
+        ),
+      );
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '分享失败：${error.toString().replaceFirst('Exception: ', '')}',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sharing = false;
+          _shareProgress = 0;
+          _shareMessage = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _deleteLocalRecording() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('删除这段录像？'),
+        content: const Text('将删除手机中的录像和记录，电脑中的备份不会受到影响'),
+        actions: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('取消'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFD92D20),
+                  ),
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('删除'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await widget.onDelete?.call();
+      if (mounted) Navigator.of(context).pop(true);
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('删除失败，请稍后重试')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_session.displayCode)),
+      appBar: AppBar(
+        title: Text(_session.displayCode),
+        actions: <Widget>[
+          if (widget.remoteUri == null && widget.onDelete != null)
+            IconButton(
+              key: const Key('delete-local-recording'),
+              tooltip: '删除本机录像',
+              onPressed: _sharing ? null : _deleteLocalRecording,
+              icon: const Icon(Icons.delete_outline_rounded),
+            ),
+        ],
+      ),
       body: FutureBuilder<void>(
         future: _initialized,
         builder: (BuildContext context, AsyncSnapshot<void> snapshot) {
@@ -356,15 +469,36 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      if (widget.remoteUri == null)
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: OutlinedButton.icon(
-                            onPressed: _openTrim,
-                            icon: const Icon(Icons.content_cut_rounded),
-                            label: const Text('剪辑'),
+                      if (_sharing) ...<Widget>[
+                        LinearProgressIndicator(value: _shareProgress),
+                        const SizedBox(height: 8),
+                        Text(_shareMessage, textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                      ],
+                      Row(
+                        children: <Widget>[
+                          if (widget.remoteUri == null) ...<Widget>[
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _sharing ? null : _openTrim,
+                                icon: const Icon(Icons.content_cut_rounded),
+                                label: const Text('剪辑'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                          Expanded(
+                            child: FilledButton.tonalIcon(
+                              key: const Key('share-recording'),
+                              onPressed: _sharing ? null : _share,
+                              icon: const Icon(Icons.share_rounded),
+                              label: Text(
+                                widget.remoteUri == null ? '分享' : '下载并分享',
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
+                      ),
                     ],
                   );
                 },

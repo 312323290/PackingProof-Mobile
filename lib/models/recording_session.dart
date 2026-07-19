@@ -30,16 +30,25 @@ class RecordingSession {
   RecordingSession trimmed({
     required Duration startOffset,
     required Duration endOffset,
+  }) => trimmedToMediaRange(
+    mediaStart: mediaStart + startOffset,
+    mediaEnd: mediaStart + endOffset,
+  );
+
+  RecordingSession trimmedToMediaRange({
+    required Duration mediaStart,
+    required Duration mediaEnd,
   }) {
-    if (startOffset.isNegative ||
-        endOffset > playbackDuration ||
-        endOffset <= startOffset) {
-      throw ArgumentError('剪辑区间必须位于当前录像片段内');
+    if (mediaStart.isNegative || mediaEnd <= mediaStart) {
+      throw ArgumentError('剪辑区间必须位于源视频内');
     }
-    final Duration newDuration = endOffset - startOffset;
+    final DateTime sourceStartedAt = startedAt.subtract(this.mediaStart);
+    final Duration newDuration = mediaEnd - mediaStart;
     final List<BarcodeMarker> adjustedMarkers = markers
         .map((BarcodeMarker marker) {
-          Duration offset = marker.offset - startOffset;
+          Duration offset = marker.occurredAt.difference(
+            sourceStartedAt.add(mediaStart),
+          );
           if (offset.isNegative || offset > newDuration) {
             offset = Duration.zero;
           }
@@ -53,11 +62,11 @@ class RecordingSession {
     return RecordingSession(
       id: id,
       filePath: filePath,
-      startedAt: startedAt.add(startOffset),
-      endedAt: startedAt.add(endOffset),
+      startedAt: sourceStartedAt.add(mediaStart),
+      endedAt: sourceStartedAt.add(mediaEnd),
       markers: adjustedMarkers,
-      mediaStart: mediaStart + startOffset,
-      mediaEnd: mediaStart + endOffset,
+      mediaStart: mediaStart,
+      mediaEnd: mediaEnd,
     );
   }
 

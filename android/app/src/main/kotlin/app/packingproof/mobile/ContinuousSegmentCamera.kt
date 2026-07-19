@@ -128,6 +128,7 @@ class ContinuousSegmentCamera(
 
     private var scannerBusy = false
     private var pairingScanEnabled = false
+    private var workScanEnabled = false
     private var torchEnabled = false
     private var lastAnalysisElapsedMs = 0L
 
@@ -261,7 +262,8 @@ class ContinuousSegmentCamera(
         startResult == null &&
         stopResult == null &&
         splitResult == null &&
-        !pairingScanEnabled
+        !pairingScanEnabled &&
+        !workScanEnabled
 
     fun currentLensFacing(): Int = selectedLensFacing
 
@@ -282,6 +284,7 @@ class ContinuousSegmentCamera(
         initialized = false
         recordingRequested = false
         recordingActive = false
+        workScanEnabled = false
         audioRunning.set(false)
         try {
             audioRecord?.stop()
@@ -623,7 +626,7 @@ class ContinuousSegmentCamera(
 
     private fun analyzeImage(reader: ImageReader) {
         val image = reader.acquireLatestImage() ?: return
-        if ((!recordingActive && !pairingScanEnabled) || scannerBusy || SystemClock.elapsedRealtime() - lastAnalysisElapsedMs < ANALYSIS_INTERVAL_MS) {
+        if ((!recordingActive && !recordingRequested && !workScanEnabled && !pairingScanEnabled) || scannerBusy || SystemClock.elapsedRealtime() - lastAnalysisElapsedMs < ANALYSIS_INTERVAL_MS) {
             image.close()
             return
         }
@@ -672,7 +675,7 @@ class ContinuousSegmentCamera(
         characteristics: CameraCharacteristics,
     ) {
         val includeRecording = recordingRequested || recordingActive
-        val includeAnalysis = includeRecording || pairingScanEnabled
+        val includeAnalysis = includeRecording || workScanEnabled || pairingScanEnabled
         val preview = previewSurface ?: return
         val request = camera.createCaptureRequest(
             if (includeRecording) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW,
@@ -694,6 +697,12 @@ class ContinuousSegmentCamera(
 
     fun setPairingScanEnabled(enabled: Boolean) {
         pairingScanEnabled = enabled
+        refreshCaptureRequest()
+    }
+
+    fun setWorkScanEnabled(enabled: Boolean) {
+        workScanEnabled = enabled
+        if (!enabled) lastAnalysisElapsedMs = 0L
         refreshCaptureRequest()
     }
 

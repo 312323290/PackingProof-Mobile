@@ -302,17 +302,20 @@ class PackingSessionController extends ChangeNotifier {
 
     try {
       await WakelockPlus.enable();
+      await _setNativeWorkScanEnabled(true);
       _workActive = true;
       _elapsed = Duration.zero;
       _setPhase(PackingSessionPhase.waitingForBarcode);
       _scheduleInitialReadyPrompt();
     } on CameraException catch (error) {
+      await _setNativeWorkScanEnabled(false);
       _cancelInitialPromptFlow();
       _workActive = false;
       _timeline.reset();
       await WakelockPlus.disable();
       _setCameraError(error);
     } on Object catch (error) {
+      await _setNativeWorkScanEnabled(false);
       _cancelInitialPromptFlow();
       _workActive = false;
       _timeline.reset();
@@ -334,6 +337,7 @@ class PackingSessionController extends ChangeNotifier {
         : camera == null || !camera.value.isRecordingVideo;
     if (startedAt == null) {
       _cancelInitialPromptFlow();
+      await _setNativeWorkScanEnabled(false);
       _workActive = false;
       _candidateCode = '';
       _stabilityTracker.reset();
@@ -345,6 +349,7 @@ class PackingSessionController extends ChangeNotifier {
       return null;
     }
     _cancelInitialPromptFlow();
+    await _setNativeWorkScanEnabled(false);
 
     _setPhase(PackingSessionPhase.saving);
     await WidgetsBinding.instance.endOfFrame;
@@ -642,6 +647,15 @@ class PackingSessionController extends ChangeNotifier {
       await _maxVolumeService.beginSession();
     } on Object {
       // Volume convenience must never block the camera workflow.
+    }
+  }
+
+  Future<void> _setNativeWorkScanEnabled(bool enabled) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _nativeCamera?.setWorkScanEnabled(enabled);
+    } on Object {
+      if (enabled) rethrow;
     }
   }
 

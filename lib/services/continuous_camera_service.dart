@@ -170,6 +170,12 @@ class ContinuousCameraService {
     });
   }
 
+  Future<void> setWorkScanEnabled(bool enabled) async {
+    await _channel.invokeMethod<void>('setWorkScanEnabled', <String, Object>{
+      'enabled': enabled,
+    });
+  }
+
   Future<bool> setTorchEnabled(bool enabled) async {
     return (await _channel.invokeMethod<bool>(
           'setTorchEnabled',

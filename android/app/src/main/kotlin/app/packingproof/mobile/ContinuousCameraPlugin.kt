@@ -53,6 +53,10 @@ class ContinuousCameraPlugin(
                 engine.setPairingScanEnabled(call.argument<Boolean>("enabled") == true)
                 result.success(null)
             }
+            "setWorkScanEnabled" -> {
+                engine.setWorkScanEnabled(call.argument<Boolean>("enabled") == true)
+                result.success(null)
+            }
             "setTorchEnabled" -> {
                 engine.setTorchEnabled(call.argument<Boolean>("enabled") == true, result)
             }

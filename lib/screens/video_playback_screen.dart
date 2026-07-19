@@ -7,8 +7,10 @@ import 'package:video_player/video_player.dart';
 
 import '../models/recording_session.dart';
 import '../services/video_share_service.dart';
+import '../services/remote_video_clip_service.dart';
 import '../widgets/two_button_confirm_dialog.dart';
 import 'video_trim_screen.dart';
+import 'remote_video_trim_screen.dart';
 
 class VideoPlaybackScreen extends StatefulWidget {
   const VideoPlaybackScreen({
@@ -16,7 +18,9 @@ class VideoPlaybackScreen extends StatefulWidget {
     required this.onSessionUpdated,
     this.onDelete,
     this.remoteUri,
+    this.remoteVideoId,
     this.remoteHeaders = const <String, String>{},
+    this.remoteClipService,
     super.key,
   });
 
@@ -24,7 +28,9 @@ class VideoPlaybackScreen extends StatefulWidget {
   final Future<void> Function(RecordingSession session) onSessionUpdated;
   final Future<void> Function()? onDelete;
   final Uri? remoteUri;
+  final int? remoteVideoId;
   final Map<String, String> remoteHeaders;
+  final RemoteVideoClipSink? remoteClipService;
 
   @override
   State<VideoPlaybackScreen> createState() => _VideoPlaybackScreenState();
@@ -172,6 +178,39 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   Future<void> _openTrim() async {
     await _video.pause();
     if (!mounted) {
+      return;
+    }
+    if (widget.remoteUri != null && widget.remoteVideoId != null) {
+      final Uri remote = widget.remoteUri!;
+      final RemoteVideoClipSink service =
+          widget.remoteClipService ??
+          RemoteVideoClipService(
+            baseUri: Uri(
+              scheme: remote.scheme,
+              host: remote.host,
+              port: remote.hasPort ? remote.port : null,
+            ),
+            accessHeaders: widget.remoteHeaders,
+          );
+      final File? clip = await Navigator.of(context).push<File>(
+        MaterialPageRoute<File>(
+          builder: (_) => RemoteVideoTrimScreen(
+            videoId: widget.remoteVideoId!,
+            playUri: remote,
+            duration: _video.value.duration,
+            service: service,
+          ),
+        ),
+      );
+      if (clip != null && mounted) {
+        await SharePlus.instance.share(
+          ShareParams(
+            title: _session.displayCode,
+            files: <XFile>[XFile(clip.path, mimeType: 'video/mp4')],
+          ),
+        );
+      }
+      if (mounted) await _video.play();
       return;
     }
     final RecordingSession? updated = await Navigator.of(context)
@@ -458,7 +497,8 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
                       ],
                       Row(
                         children: <Widget>[
-                          if (widget.remoteUri == null) ...<Widget>[
+                          if (widget.remoteUri == null ||
+                              widget.remoteVideoId != null) ...<Widget>[
                             Expanded(
                               child: OutlinedButton.icon(
                                 onPressed: _sharing ? null : _openTrim,

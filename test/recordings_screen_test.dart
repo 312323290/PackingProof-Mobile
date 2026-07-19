@@ -132,8 +132,42 @@ void main() {
     expect(find.text('连接电脑'), findsOneWidget);
     await tester.drag(find.byType(ListView), const Offset(0, -300));
     await tester.pump();
-    expect(find.byKey(const Key('unbacked-retention-dropdown')), findsOneWidget);
+    expect(
+      find.byKey(const Key('unbacked-retention-dropdown')),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('backed-retention-dropdown')), findsOneWidget);
+  });
+
+  testWidgets('连接后持续显示电脑名称和局域网地址', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '仓库电脑',
+            ),
+            connectionStatus: LanConnectionStatus.connected,
+          ),
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('connected-computer-address')), findsOneWidget);
+    expect(find.text('仓库电脑 · 192.168.1.20:5280'), findsOneWidget);
   });
 
   testWidgets('录像卡片不重复显示内部识别标记数量', (WidgetTester tester) async {

@@ -876,6 +876,11 @@ class PackingSessionController extends ChangeNotifier {
       return;
     }
     _pairingBusy = true;
+    final bool isComputerQr = _looksLikeComputerPairingQr(value);
+    if (isComputerQr) {
+      _pairingMessage = '已识别电脑二维码，正在连接…';
+      notifyListeners();
+    }
     try {
       await _lanBackupService.pair(value);
       _pairingScanActive = false;
@@ -892,8 +897,12 @@ class PackingSessionController extends ChangeNotifier {
       });
       await _lanBackupService.backupAll(_sessions);
       notifyListeners();
-    } on FormatException {
-      // Ignore ordinary waybill barcodes while waiting for a computer QR code.
+    } on FormatException catch (error) {
+      if (isComputerQr) {
+        _pairingMessage = error.message;
+        notifyListeners();
+      }
+      // Ordinary waybill barcodes remain silent while waiting for a computer QR.
     } on Object catch (error) {
       _pairingScanActive = false;
       await _nativeCamera?.setPairingScanEnabled(false);
@@ -1125,4 +1134,9 @@ class PackingSessionController extends ChangeNotifier {
     unawaited(_lanBackupService.dispose());
     super.dispose();
   }
+}
+
+bool _looksLikeComputerPairingQr(String value) {
+  final String normalized = value.trim().toLowerCase();
+  return normalized.startsWith('http://') || normalized.startsWith('https://');
 }

@@ -671,6 +671,34 @@ class _ComputerBackupSettings extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
+          if (snapshot.endpoint != null) ...<Widget>[
+            Row(
+              key: const Key('connected-computer-address'),
+              children: <Widget>[
+                const Icon(
+                  Icons.computer_rounded,
+                  size: 16,
+                  color: PackingProofMobileApp.forest,
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    snapshot.endpoint!.computerName.isEmpty
+                        ? snapshot.endpoint!.displayAddress
+                        : '${snapshot.endpoint!.computerName} · ${snapshot.endpoint!.displayAddress}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: PackingProofMobileApp.forest,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 5),
+          ],
           Text(
             status,
             maxLines: 2,

@@ -152,19 +152,27 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           (capabilities['version'] as num?)?.toInt() != 1) {
         throw const LanBackupUnsupportedException();
       }
+      final LanBackupEndpoint connectedEndpoint = LanBackupEndpoint(
+        baseUri: candidate.baseUri,
+        accessKey: '',
+        computerId: '${capabilities['computerId'] ?? ''}',
+        computerName: '${capabilities['computerName'] ?? '已连接电脑'}',
+        lastConnectedAt: DateTime.now(),
+      );
       await _channel.invokeMethod<void>('saveConnection', <String, Object?>{
         'baseUrl': candidate.baseUri.toString(),
         'accessKey': candidate.accessKey,
-        'computerId': '${capabilities['computerId'] ?? ''}',
-        'computerName': '${capabilities['computerName'] ?? '已连接电脑'}',
+        'computerId': connectedEndpoint.computerId,
+        'computerName': connectedEndpoint.computerName,
       });
       _accessKey = candidate.accessKey;
-      await refresh();
       _snapshot = _snapshot.copyWith(
+        endpoint: connectedEndpoint,
         connectionStatus: LanConnectionStatus.connected,
         message: '电脑连接成功',
       );
       notifyListeners();
+      unawaited(refresh());
     } on FormatException {
       _snapshot = _snapshot.copyWith(connectionStatus: LanConnectionStatus.rePair);
       notifyListeners();

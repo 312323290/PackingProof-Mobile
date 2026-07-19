@@ -49,6 +49,33 @@ void main() {
     expect(find.byKey(const Key('recording-button-shimmer')), findsNothing);
   });
 
+  testWidgets('电脑配对成功后显示带地址的绿色提示', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.ready,
+          elapsed: Duration.zero,
+          previewOverride: const ColoredBox(color: Colors.black),
+          pairingMessage: '电脑连接成功 · 仓库电脑 · 192.168.1.20:5280',
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+          onRecordingsPressed: () {},
+        ),
+      ),
+    );
+
+    expect(find.text('电脑连接成功 · 仓库电脑 · 192.168.1.20:5280'), findsOneWidget);
+    final Material banner = tester.widget<Material>(
+      find
+          .ancestor(
+            of: find.text('电脑连接成功 · 仓库电脑 · 192.168.1.20:5280'),
+            matching: find.byType(Material),
+          )
+          .first,
+    );
+    expect(banner.color, const Color(0xF0087454));
+  });
+
   testWidgets('启动录像时保持摄像头预览可见', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(

@@ -151,6 +151,9 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     return RecordingsScreen(
       mode: mode,
       embedded: true,
+      active: mode == RecordingsScreenMode.history
+          ? _selectedTab == 0
+          : _selectedTab == 2,
       externalSearchQuery: mode == RecordingsScreenMode.history
           ? _historySearchQuery
           : '',

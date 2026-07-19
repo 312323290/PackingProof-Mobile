@@ -392,13 +392,13 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<void> retryBackup(String jobId) => _lanBackupService.retry(jobId);
 
-  Future<List<RemoteRecording>> fetchRemoteRecordings({
-    required int page,
-    required int pageSize,
+  Future<RemoteRecordingPage> fetchRemoteRecordings({
+    String cursor = '',
+    required int limit,
     String keyword = '',
   }) => _lanBackupService.fetchRemoteRecordings(
-    page: page,
-    pageSize: pageSize,
+    cursor: cursor,
+    limit: limit,
     keyword: keyword,
   );
 
@@ -466,15 +466,20 @@ class PackingSessionController extends ChangeNotifier {
     final XFile captured = await camera.stopVideoRecording();
     final DateTime endedAt = DateTime.now();
     final String sessionId = _sessionId(startedAt);
-    final String savedPath = await _repository.persistVideo(
-      captured.path,
-      sessionId,
-    );
-    final List<RecordingSession> sessions = _timeline.buildSessions(
+    final List<RecordingSession> drafts = _timeline.buildSessions(
       endedAt: endedAt,
-      filePath: savedPath,
+      filePath: captured.path,
       recordingId: sessionId,
     );
+    final String savedPath = await _repository.finalizeVideo(
+      sourcePath: captured.path,
+      sessionId: sessionId,
+      startedAt: startedAt,
+      trackingNumber: _firstTrackingNumber(drafts),
+    );
+    final List<RecordingSession> sessions = drafts
+        .map((RecordingSession draft) => _sessionWithPath(draft, savedPath))
+        .toList(growable: false);
     _sessions = await _repository.addSessions(sessions);
     await _enqueueBackupIfNeeded(savedPath, sessions);
     _elapsed = endedAt.difference(startedAt);
@@ -492,15 +497,19 @@ class PackingSessionController extends ChangeNotifier {
     if (draft == null) {
       throw StateError('找不到当前录像片段');
     }
+    final String savedPath = await _repository.finalizeVideo(
+      sourcePath: stopped.path,
+      sessionId: segmentId,
+      startedAt: draft.startedAt,
+      trackingNumber: draft.markers.isEmpty ? '' : draft.markers.first.code,
+    );
     final RecordingSession session = _standaloneSession(
       id: segmentId,
-      path: stopped.path,
+      path: savedPath,
       draft: draft,
     );
     _sessions = await _repository.addSession(session);
-    if (_lanBackupService.snapshot.autoEnabled) {
-      await _lanBackupService.backupAll(_sessions);
-    }
+    await _enqueueBackupIfNeeded(savedPath, <RecordingSession>[session]);
     _elapsed = stopped.endedAt.difference(_timeline.recordingStartedAt!);
     _timeline.reset();
     _recordingId = null;
@@ -858,12 +867,21 @@ class PackingSessionController extends ChangeNotifier {
       throw StateError('录像时间线无法开始下一段');
     }
     _resetSegmentElapsed();
+    final String savedPath = await _repository.finalizeVideo(
+      sourcePath: split.completedPath,
+      sessionId: completedId,
+      startedAt: transition.completed.startedAt,
+      trackingNumber: transition.completed.markers.isEmpty
+          ? ''
+          : transition.completed.markers.first.code,
+    );
     final RecordingSession completed = _standaloneSession(
       id: completedId,
-      path: split.completedPath,
+      path: savedPath,
       draft: transition.completed,
     );
     _sessions = await _repository.addSession(completed);
+    await _enqueueBackupIfNeeded(savedPath, <RecordingSession>[completed]);
     _activeSegmentId = nextId;
     _segmentIndex = nextIndex;
     return transition.marker;
@@ -898,6 +916,28 @@ class PackingSessionController extends ChangeNotifier {
       markers: List<BarcodeMarker>.unmodifiable(draft.markers),
     );
   }
+
+  static String _firstTrackingNumber(List<RecordingSession> sessions) {
+    for (final RecordingSession session in sessions) {
+      if (session.markers.isNotEmpty && session.markers.first.code.isNotEmpty) {
+        return session.markers.first.code;
+      }
+    }
+    return '';
+  }
+
+  static RecordingSession _sessionWithPath(
+    RecordingSession session,
+    String filePath,
+  ) => RecordingSession(
+    id: session.id,
+    filePath: filePath,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    markers: session.markers,
+    mediaStart: session.mediaStart,
+    mediaEnd: session.mediaEnd,
+  );
 
   void _bindCurrentCode(String code, DateTime now) {
     final BarcodeMarker? marker = _timeline.bindCode(code, now);

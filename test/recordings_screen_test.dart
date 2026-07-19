@@ -372,6 +372,107 @@ void main() {
     expect(find.text('2 / 2 页'), findsOneWidget);
   });
 
+  testWidgets('电脑录像仅在首次进入、下一页和搜索时按游标请求', (WidgetTester tester) async {
+    final List<String> requestedCursors = <String>[];
+    final List<String> requestedKeywords = <String>[];
+    Future<RemoteRecordingPage> loadRemote({
+      String cursor = '',
+      required int limit,
+      String keyword = '',
+    }) async {
+      requestedCursors.add(cursor);
+      requestedKeywords.add(keyword);
+      final int start = cursor.isEmpty ? 0 : 10;
+      return RemoteRecordingPage(
+        data: List<RemoteRecording>.generate(
+          keyword.isEmpty ? 10 : 1,
+          (int index) => RemoteRecording(
+            id: start + index + 1,
+            trackingNumber: keyword.isEmpty
+                ? 'REMOTE-${start + index}'
+                : 'SEARCHED',
+            startedAt: DateTime(
+              2026,
+              7,
+              19,
+              12,
+            ).subtract(Duration(minutes: start + index)),
+            duration: const Duration(seconds: 5),
+            sourceType: 'pc',
+            sourceDeviceId: '',
+            sourceDeviceName: '',
+            sourceSessionId: '',
+            contentSha256: '',
+            playUri: Uri.parse('http://192.168.1.20/video'),
+          ),
+        ),
+        nextCursor: cursor.isEmpty && keyword.isEmpty ? 'cursor-10' : '',
+        hasMore: cursor.isEmpty && keyword.isEmpty,
+      );
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '电脑',
+            ),
+            connectionStatus: LanConnectionStatus.connected,
+          ),
+          onLoadRemoteRecordings: loadRemote,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(requestedCursors, <String>['']);
+
+    await tester.drag(find.byType(ListView), const Offset(0, -1000));
+    await tester.pumpAndSettle();
+    expect(requestedCursors, <String>['']);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('recording-page-next')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('recording-page-next')));
+    await tester.pumpAndSettle();
+    expect(requestedCursors, <String>['', 'cursor-10']);
+
+    await tester.tap(find.byKey(const Key('recording-page-previous')));
+    await tester.pump();
+    expect(requestedCursors, <String>['', 'cursor-10']);
+
+    await tester.drag(find.byType(ListView), const Offset(0, 1800));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('recording-search')),
+        matching: find.byType(EditableText),
+      ),
+      'SEARCH',
+    );
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(requestedCursors.last, '');
+    expect(requestedKeywords.last, 'SEARCH');
+    expect(find.text('SEARCHED'), findsOneWidget);
+  });
+
   testWidgets('录像来源标签显示在快递单号右侧', (WidgetTester tester) async {
     final DateTime startedAt = DateTime(2026, 7, 18, 12);
     await tester.pumpWidget(

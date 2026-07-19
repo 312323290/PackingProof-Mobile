@@ -18,9 +18,11 @@ void main() {
     await source.writeAsBytes(<int>[0, 1, 2, 3]);
     final SessionRepository repository = SessionRepository(rootDirectory: root);
     final DateTime startedAt = DateTime(2026, 7, 16, 10);
-    final String videoPath = await repository.persistVideo(
-      source.path,
-      'session-1',
+    final String videoPath = await repository.finalizeVideo(
+      sourcePath: source.path,
+      sessionId: 'session-1',
+      startedAt: startedAt,
+      trackingNumber: 'JT1234567890',
     );
     final RecordingSession session = RecordingSession(
       id: 'session-1',
@@ -47,6 +49,13 @@ void main() {
     expect(loaded.single.mediaStart, const Duration(seconds: 10));
     expect(loaded.single.playbackEnd, const Duration(seconds: 130));
     expect(File(videoPath).existsSync(), isTrue);
+    expect(
+      videoPath,
+      endsWith(
+        '${Platform.pathSeparator}recordings${Platform.pathSeparator}2026-07-16'
+        '${Platform.pathSeparator}JT1234567890_20260716_100000_发货.mp4',
+      ),
+    );
   });
 
   test('旧录像记录缺少片段区间时仍按完整视频播放', () {
@@ -105,9 +114,11 @@ void main() {
     );
     await source.writeAsBytes(<int>[0, 1, 2, 3]);
     final SessionRepository repository = SessionRepository(rootDirectory: root);
-    final String videoPath = await repository.persistVideo(
-      source.path,
-      'shared-recording',
+    final String videoPath = await repository.finalizeVideo(
+      sourcePath: source.path,
+      sessionId: 'shared-recording',
+      startedAt: DateTime(2026, 7, 18, 10),
+      trackingNumber: '',
     );
     final DateTime startedAt = DateTime(2026, 7, 18, 10);
     final RecordingSession first = RecordingSession(
@@ -135,6 +146,45 @@ void main() {
     await repository.deleteSessions(<String>{second.id});
     expect(File(videoPath).existsSync(), isFalse);
     expect(await repository.loadSessions(), isEmpty);
+  });
+
+  test('未识别面单和非法字符使用安全业务文件名且冲突追加会话后缀', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_name_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final DateTime startedAt = DateTime(2026, 7, 19, 9, 8, 7);
+    final File firstSource = File('${root.path}/first.mp4')
+      ..writeAsBytesSync(<int>[1]);
+    final File secondSource = File('${root.path}/second.mp4')
+      ..writeAsBytesSync(<int>[2]);
+    final File unknownSource = File('${root.path}/unknown.mp4')
+      ..writeAsBytesSync(<int>[3]);
+
+    final String first = await repository.finalizeVideo(
+      sourcePath: firstSource.path,
+      sessionId: 'session-first',
+      startedAt: startedAt,
+      trackingNumber: 'SF:12/34',
+    );
+    final String second = await repository.finalizeVideo(
+      sourcePath: secondSource.path,
+      sessionId: 'session-second',
+      startedAt: startedAt,
+      trackingNumber: 'SF:12/34',
+    );
+    final String unknown = await repository.finalizeVideo(
+      sourcePath: unknownSource.path,
+      sessionId: 'session-unknown',
+      startedAt: startedAt.add(const Duration(seconds: 1)),
+      trackingNumber: '',
+    );
+
+    expect(first, endsWith('SF_12_34_20260719_090807_发货.mp4'));
+    expect(second, endsWith('SF_12_34_20260719_090807_发货_onsecond.mp4'));
+    expect(unknown, endsWith('未识别面单_20260719_090808_发货.mp4'));
+    expect(await repository.recordingPath('pending'), contains('.pending'));
   });
 
   test('工作模式可持久化并默认使用连续扫码', () async {

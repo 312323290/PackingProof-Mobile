@@ -39,10 +39,10 @@ abstract interface class LanBackupSink implements Listenable {
   Future<void> retry(String jobId);
   Future<void> cancel(String jobId);
   Future<void> refresh();
-  Future<List<RemoteRecording>> fetchRemoteRecordings({
-    required int page,
-    required int pageSize,
-    String keyword,
+  Future<RemoteRecordingPage> fetchRemoteRecordings({
+    String cursor = '',
+    required int limit,
+    String keyword = '',
   });
   Map<String, String> get playbackHeaders;
   Future<void> dispose();
@@ -294,20 +294,20 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   }
 
   @override
-  Future<List<RemoteRecording>> fetchRemoteRecordings({
-    required int page,
-    required int pageSize,
+  Future<RemoteRecordingPage> fetchRemoteRecordings({
+    String cursor = '',
+    required int limit,
     String keyword = '',
   }) async {
     final LanBackupEndpoint? endpoint = _snapshot.endpoint;
     if (endpoint == null || _accessKey.isEmpty) {
-      return const <RemoteRecording>[];
+      return const RemoteRecordingPage.empty();
     }
     final Uri uri = endpoint.baseUri.replace(
-      path: '/api/videos',
+      path: '/api/mobile-backup/recordings',
       queryParameters: <String, String>{
-        'page': '$page',
-        'size': '$pageSize',
+        'limit': '$limit',
+        if (cursor.isNotEmpty) 'cursor': cursor,
         if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
       },
     );
@@ -326,7 +326,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           connectionStatus: LanConnectionStatus.rePair,
         );
         notifyListeners();
-        return const <RemoteRecording>[];
+        return const RemoteRecordingPage.empty();
       }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException('电脑录像读取失败（${response.statusCode}）');
@@ -347,13 +347,17 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         connectionStatus: LanConnectionStatus.connected,
       );
       notifyListeners();
-      return recordings;
+      return RemoteRecordingPage(
+        data: recordings,
+        nextCursor: '${payload['nextCursor'] ?? ''}',
+        hasMore: payload['hasMore'] == true,
+      );
     } on Object {
       _snapshot = _snapshot.copyWith(
         connectionStatus: LanConnectionStatus.offline,
       );
       notifyListeners();
-      return const <RemoteRecording>[];
+      return const RemoteRecordingPage.empty();
     }
   }
 

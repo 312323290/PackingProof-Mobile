@@ -45,6 +45,7 @@ class RecordingsScreen extends StatefulWidget {
     this.onConnectComputer,
     this.onScanSearch,
     this.externalSearchQuery = '',
+    this.active = true,
     super.key,
   });
 
@@ -72,9 +73,9 @@ class RecordingsScreen extends StatefulWidget {
     required BackedRetentionPolicy backed,
   })?
   onBackupRetentionChanged;
-  final Future<List<RemoteRecording>> Function({
-    required int page,
-    required int pageSize,
+  final Future<RemoteRecordingPage> Function({
+    String cursor,
+    required int limit,
     String keyword,
   })?
   onLoadRemoteRecordings;
@@ -84,6 +85,7 @@ class RecordingsScreen extends StatefulWidget {
   final VoidCallback? onConnectComputer;
   final VoidCallback? onScanSearch;
   final String externalSearchQuery;
+  final bool active;
 
   @override
   State<RecordingsScreen> createState() => _RecordingsScreenState();
@@ -100,11 +102,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late UnbackedRetentionPolicy _unbackedRetention;
   late BackedRetentionPolicy _backedRetention;
   final List<RemoteRecording> _remoteRecordings = <RemoteRecording>[];
-  final ScrollController _scrollController = ScrollController();
   Timer? _remoteSearchTimer;
   bool _loadingRemote = false;
   bool _remoteHasMore = true;
-  int _remotePage = 0;
+  String _remoteCursor = '';
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
   String _query = '';
@@ -142,8 +143,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _backedRetention = widget.backedRetention;
     _applyExternalSearch(widget.externalSearchQuery);
     widget.backupListenable?.addListener(_refreshBackupSnapshot);
-    _scrollController.addListener(_handleScroll);
-    if (widget.mode == RecordingsScreenMode.history) {
+    if (widget.mode == RecordingsScreenMode.history && widget.active) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _loadRemote(reset: true),
       );
@@ -161,6 +161,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _maxVolumeEnabled = widget.maxVolumeEnabled;
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
+    if (!oldWidget.active && widget.active && _remoteRecordings.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => unawaited(_loadRemote(reset: true)),
+      );
+    }
     if (oldWidget.externalSearchQuery != widget.externalSearchQuery &&
         widget.externalSearchQuery.isNotEmpty) {
       _applyExternalSearch(widget.externalSearchQuery);
@@ -181,7 +186,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   void dispose() {
     widget.backupListenable?.removeListener(_refreshBackupSnapshot);
     _remoteSearchTimer?.cancel();
-    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -194,7 +198,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       _backupSnapshot =
           widget.backupSnapshotProvider?.call() ?? widget.backupSnapshot;
     });
-    if (_backupSnapshot.connected && _remoteRecordings.isEmpty) {
+    if (widget.active &&
+        _backupSnapshot.connected &&
+        _remoteRecordings.isEmpty) {
       unawaited(_loadRemote(reset: true));
     }
   }
@@ -214,19 +220,15 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
           ),
         )
         .toList();
-    values.addAll(
-      _remoteRecordings
-          .where(
-            (RemoteRecording remote) =>
-                remote.sourceSessionId.isEmpty ||
-                remoteBySession[remote.sourceSessionId]?.id == remote.id,
-          )
-          .where(
-            (RemoteRecording remote) =>
-                !values.any((item) => item.remote?.id == remote.id),
-          )
-          .map((RemoteRecording remote) => _RecordingListItem(remote: remote)),
-    );
+    final Set<int> includedRemoteIds = values
+        .map((item) => item.remote?.id)
+        .whereType<int>()
+        .toSet();
+    for (final RemoteRecording remote in _remoteRecordings) {
+      if (includedRemoteIds.add(remote.id)) {
+        values.add(_RecordingListItem(remote: remote));
+      }
+    }
     values.sort((a, b) => b.startedAt.compareTo(a.startedAt));
     return values
         .where((item) {
@@ -251,15 +253,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         .toList(growable: false);
   }
 
-  void _handleScroll() {
-    if (widget.mode == RecordingsScreenMode.history &&
-        _scrollController.position.extentAfter < 320) {
-      unawaited(_loadRemote());
-    }
-  }
-
   Future<void> _loadRemote({bool reset = false}) async {
     if (_loadingRemote ||
+        !widget.active ||
         widget.onLoadRemoteRecordings == null ||
         !_backupSnapshot.connected ||
         (!reset && !_remoteHasMore)) {
@@ -267,22 +263,26 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     }
     _loadingRemote = true;
     if (reset) {
-      _remotePage = 0;
+      _remoteCursor = '';
       _remoteHasMore = true;
       _historyPage = 0;
     }
-    final int nextPage = _remotePage + 1;
-    final List<RemoteRecording> values = await widget.onLoadRemoteRecordings!(
-      page: nextPage,
-      pageSize: 50,
+    final RemoteRecordingPage page = await widget.onLoadRemoteRecordings!(
+      cursor: _remoteCursor,
+      limit: _historyPageSize,
       keyword: _query,
     );
     if (!mounted) return;
     setState(() {
       if (reset) _remoteRecordings.clear();
-      _remoteRecordings.addAll(values);
-      _remotePage = nextPage;
-      _remoteHasMore = values.length == 50;
+      final Set<int> existingIds = _remoteRecordings
+          .map((RemoteRecording item) => item.id)
+          .toSet();
+      _remoteRecordings.addAll(
+        page.data.where((RemoteRecording item) => existingIds.add(item.id)),
+      );
+      _remoteCursor = page.nextCursor;
+      _remoteHasMore = page.hasMore;
       _loadingRemote = false;
     });
   }
@@ -559,7 +559,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         ],
       ),
       body: ListView(
-        controller: _scrollController,
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
         children: <Widget>[
           if (!historyMode) ...<Widget>[
@@ -817,9 +816,9 @@ class _HistorySummary extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        _SummaryMetric(label: '全部', value: total),
+        _SummaryMetric(label: '本机全部', value: total),
         const SizedBox(width: 10),
-        _SummaryMetric(label: '今日', value: today),
+        _SummaryMetric(label: '本机今日', value: today),
         const SizedBox(width: 10),
         _SummaryMetric(label: '已备份', value: backedUp),
       ],

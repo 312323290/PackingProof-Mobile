@@ -16,6 +16,7 @@ class SessionRepository {
 
   Directory? _rootDirectory;
   late Directory _recordingsDirectory;
+  late Directory _pendingRecordingsDirectory;
   late File _indexFile;
   late File _settingsFile;
   bool _initialized = false;
@@ -29,6 +30,10 @@ class SessionRepository {
       p.join(_rootDirectory!.path, 'recordings'),
     );
     await _recordingsDirectory.create(recursive: true);
+    _pendingRecordingsDirectory = Directory(
+      p.join(_recordingsDirectory.path, '.pending'),
+    );
+    await _pendingRecordingsDirectory.create(recursive: true);
     _indexFile = File(p.join(_rootDirectory!.path, 'sessions.json'));
     _settingsFile = File(p.join(_rootDirectory!.path, 'settings.json'));
     _initialized = true;
@@ -69,15 +74,35 @@ class SessionRepository {
     }
   }
 
-  Future<String> persistVideo(String sourcePath, String sessionId) async {
+  Future<String> finalizeVideo({
+    required String sourcePath,
+    required String sessionId,
+    required DateTime startedAt,
+    required String trackingNumber,
+  }) async {
     await initialize();
-    final String destinationPath = p.join(
-      _recordingsDirectory.path,
-      '$sessionId.mp4',
+    final Directory dateDirectory = Directory(
+      p.join(_recordingsDirectory.path, _dateDirectoryName(startedAt)),
     );
+    await dateDirectory.create(recursive: true);
+    final String baseName = _sanitizeFileName(
+      '${trackingNumber.trim().isEmpty ? '未识别面单' : trackingNumber.trim()}_'
+      '${_timestamp(startedAt)}_发货',
+    );
+    String destinationPath = p.join(dateDirectory.path, '$baseName.mp4');
     final File source = File(sourcePath);
     if (p.normalize(source.path) == p.normalize(destinationPath)) {
       return destinationPath;
+    }
+    if (await File(destinationPath).exists()) {
+      final String suffix = sessionId.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+      final String shortSuffix = suffix.length <= 8
+          ? suffix
+          : suffix.substring(suffix.length - 8);
+      destinationPath = p.join(
+        dateDirectory.path,
+        '${baseName}_${shortSuffix.isEmpty ? startedAt.millisecondsSinceEpoch : shortSuffix}.mp4',
+      );
     }
     try {
       await source.rename(destinationPath);
@@ -94,7 +119,28 @@ class SessionRepository {
 
   Future<String> recordingPath(String sessionId) async {
     await initialize();
-    return p.join(_recordingsDirectory.path, '$sessionId.mp4');
+    return p.join(_pendingRecordingsDirectory.path, '$sessionId.mp4');
+  }
+
+  static String _dateDirectoryName(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
+
+  static String _timestamp(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}'
+      '${value.month.toString().padLeft(2, '0')}'
+      '${value.day.toString().padLeft(2, '0')}_'
+      '${value.hour.toString().padLeft(2, '0')}'
+      '${value.minute.toString().padLeft(2, '0')}'
+      '${value.second.toString().padLeft(2, '0')}';
+
+  static String _sanitizeFileName(String value) {
+    final String sanitized = value
+        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+        .replaceAll(RegExp(r'[. ]+$'), '')
+        .trim();
+    return sanitized.isEmpty ? '未识别面单' : sanitized;
   }
 
   Future<List<RecordingSession>> addSession(RecordingSession session) async {

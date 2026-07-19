@@ -4,7 +4,13 @@ import 'recording_session.dart';
 
 enum LanBackupJobState { pending, uploading, paused, completed, failed }
 
-enum LanConnectionStatus { disconnected, connecting, connected, offline, rePair }
+enum LanConnectionStatus {
+  disconnected,
+  connecting,
+  connected,
+  offline,
+  rePair,
+}
 
 class LanBackupEndpoint {
   const LanBackupEndpoint({
@@ -21,9 +27,8 @@ class LanBackupEndpoint {
   final String computerName;
   final DateTime? lastConnectedAt;
 
-  String get displayAddress => baseUri.hasPort
-      ? '${baseUri.host}:${baseUri.port}'
-      : baseUri.host;
+  String get displayAddress =>
+      baseUri.hasPort ? '${baseUri.host}:${baseUri.port}' : baseUri.host;
 }
 
 class LanBackupJob {
@@ -115,7 +120,10 @@ class LanBackupSnapshot {
     final List<LanBackupJob> active = jobs
         .where((LanBackupJob job) => job.state != LanBackupJobState.completed)
         .toList(growable: false);
-    final int total = active.fold(0, (int sum, LanBackupJob job) => sum + job.totalBytes);
+    final int total = active.fold(
+      0,
+      (int sum, LanBackupJob job) => sum + job.totalBytes,
+    );
     if (total <= 0) return 0;
     final int uploaded = active.fold(
       0,
@@ -162,7 +170,8 @@ class RemoteRecording {
     return RemoteRecording(
       id: (json['id'] as num).toInt(),
       trackingNumber: '${json['trackingNumber'] ?? json['orderId'] ?? ''}',
-      startedAt: DateTime.tryParse(rawStart) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      startedAt:
+          DateTime.tryParse(rawStart) ?? DateTime.fromMillisecondsSinceEpoch(0),
       duration: Duration(
         milliseconds: (((json['durationSec'] as num?) ?? 0) * 1000).round(),
       ),
@@ -171,7 +180,9 @@ class RemoteRecording {
       sourceDeviceName: '${json['sourceDeviceName'] ?? ''}',
       sourceSessionId: '${json['sourceSessionId'] ?? ''}',
       contentSha256: '${json['contentSha256'] ?? ''}',
-      playUri: baseUri.resolve('${json['playUrl'] ?? '/api/videos/${json['id']}/play?compat=1'}'),
+      playUri: baseUri.resolve(
+        '${json['playUrl'] ?? '/api/videos/${json['id']}/play?compat=1'}',
+      ),
     );
   }
 
@@ -185,6 +196,23 @@ class RemoteRecording {
   final String sourceSessionId;
   final String contentSha256;
   final Uri playUri;
+}
+
+class RemoteRecordingPage {
+  const RemoteRecordingPage({
+    required this.data,
+    required this.nextCursor,
+    required this.hasMore,
+  });
+
+  const RemoteRecordingPage.empty()
+    : data = const <RemoteRecording>[],
+      nextCursor = '',
+      hasMore = false;
+
+  final List<RemoteRecording> data;
+  final String nextCursor;
+  final bool hasMore;
 }
 
 DateTime? _dateTime(Object? value) => switch (value) {

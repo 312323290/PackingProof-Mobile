@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app/packing_proof_mobile_app.dart';
 import '../models/backup_retention_policy.dart';
@@ -10,6 +11,10 @@ import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/work_mode.dart';
 import 'video_playback_screen.dart';
+
+enum RecordingsScreenMode { history, settings }
+
+enum RecordingSourceFilter { all, local, backedUp, computer }
 
 class RecordingsScreen extends StatefulWidget {
   const RecordingsScreen({
@@ -35,6 +40,11 @@ class RecordingsScreen extends StatefulWidget {
     this.onBackupRetentionChanged,
     this.onLoadRemoteRecordings,
     this.remotePlaybackHeaders = const <String, String>{},
+    this.mode = RecordingsScreenMode.history,
+    this.embedded = false,
+    this.onConnectComputer,
+    this.onScanSearch,
+    this.externalSearchQuery = '',
     super.key,
   });
 
@@ -69,6 +79,11 @@ class RecordingsScreen extends StatefulWidget {
   })?
   onLoadRemoteRecordings;
   final Map<String, String> remotePlaybackHeaders;
+  final RecordingsScreenMode mode;
+  final bool embedded;
+  final VoidCallback? onConnectComputer;
+  final VoidCallback? onScanSearch;
+  final String externalSearchQuery;
 
   @override
   State<RecordingsScreen> createState() => _RecordingsScreenState();
@@ -92,6 +107,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   final Set<String> _selectedIds = <String>{};
   String _query = '';
   bool _managing = false;
+  RecordingSourceFilter _sourceFilter = RecordingSourceFilter.all;
 
   List<RecordingSession> get _filteredSessions {
     final String query = _query.trim().toLowerCase();
@@ -121,11 +137,41 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _backupSnapshot = widget.backupSnapshot;
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
+    _applyExternalSearch(widget.externalSearchQuery);
     widget.backupListenable?.addListener(_refreshBackupSnapshot);
     _scrollController.addListener(_handleScroll);
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _loadRemote(reset: true),
-    );
+    if (widget.mode == RecordingsScreenMode.history) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _loadRemote(reset: true),
+      );
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant RecordingsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.sessions, widget.sessions)) {
+      _sessions = List<RecordingSession>.of(widget.sessions);
+    }
+    _workMode = widget.workMode;
+    _speechEnabled = widget.speechEnabled;
+    _maxVolumeEnabled = widget.maxVolumeEnabled;
+    _unbackedRetention = widget.unbackedRetention;
+    _backedRetention = widget.backedRetention;
+    if (oldWidget.externalSearchQuery != widget.externalSearchQuery &&
+        widget.externalSearchQuery.isNotEmpty) {
+      _applyExternalSearch(widget.externalSearchQuery);
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => unawaited(_loadRemote(reset: true)),
+      );
+    }
+  }
+
+  void _applyExternalSearch(String value) {
+    if (value.isEmpty) return;
+    _query = value;
+    _searchController.text = value;
+    _searchController.selection = TextSelection.collapsed(offset: value.length);
   }
 
   @override
@@ -179,11 +225,32 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
           .map((RemoteRecording remote) => _RecordingListItem(remote: remote)),
     );
     values.sort((a, b) => b.startedAt.compareTo(a.startedAt));
-    return values;
+    return values
+        .where((item) {
+          final bool hasLocalFile =
+              item.local != null && File(item.local!.filePath).existsSync();
+          final bool backedUp =
+              item.remote != null ||
+              (item.local != null &&
+                  _backupSnapshot.jobs.any(
+                    (job) =>
+                        job.filePath == item.local!.filePath &&
+                        job.state == LanBackupJobState.completed,
+                  ));
+          return switch (_sourceFilter) {
+            RecordingSourceFilter.all => true,
+            RecordingSourceFilter.local => hasLocalFile,
+            RecordingSourceFilter.backedUp => backedUp,
+            RecordingSourceFilter.computer =>
+              !hasLocalFile && item.remote != null,
+          };
+        })
+        .toList(growable: false);
   }
 
   void _handleScroll() {
-    if (_scrollController.position.extentAfter < 320) {
+    if (widget.mode == RecordingsScreenMode.history &&
+        _scrollController.position.extentAfter < 320) {
       unawaited(_loadRemote());
     }
   }
@@ -380,15 +447,72 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     });
   }
 
+  Future<void> _pasteSearch() async {
+    final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
+    final String value = data?.text?.trim() ?? '';
+    if (!mounted || value.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('剪贴板里没有可用文本')));
+      }
+      return;
+    }
+    _searchController.text = value;
+    _searchController.selection = TextSelection.collapsed(offset: value.length);
+    _onSearchChanged(value);
+  }
+
+  Future<void> _showSourceFilter() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    if (!mounted) return;
+    final RecordingSourceFilter? value =
+        await showModalBottomSheet<RecordingSourceFilter>(
+          context: context,
+          showDragHandle: true,
+          builder: (BuildContext context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: RecordingSourceFilter.values
+                  .map(
+                    (filter) => ListTile(
+                      leading: Icon(
+                        filter == _sourceFilter
+                            ? Icons.check_circle_rounded
+                            : Icons.circle_outlined,
+                        color: filter == _sourceFilter
+                            ? PackingProofMobileApp.forest
+                            : null,
+                      ),
+                      title: Text(_sourceFilterLabel(filter)),
+                      onTap: () => Navigator.of(context).pop(filter),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+          ),
+        );
+    if (value != null && mounted) setState(() => _sourceFilter = value);
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<RecordingSession> visibleSessions = _filteredSessions;
     final List<_RecordingListItem> visibleItems = _visibleItems;
+    final bool historyMode = widget.mode == RecordingsScreenMode.history;
     return Scaffold(
       appBar: AppBar(
-        title: Text(_managing ? '已选 ${_selectedIds.length} 项' : '录像与设置'),
+        automaticallyImplyLeading: !widget.embedded,
+        title: Text(
+          _managing
+              ? '已选 ${_selectedIds.length} 项'
+              : historyMode
+              ? '订单历史'
+              : '设置',
+        ),
         actions: <Widget>[
-          if (_sessions.isNotEmpty)
+          if (historyMode && _sessions.isNotEmpty)
             TextButton(
               onPressed: _toggleManaging,
               child: Text(_managing ? '完成' : '管理'),
@@ -399,136 +523,183 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         controller: _scrollController,
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
         children: <Widget>[
-          _WorkModeSettings(workMode: _workMode, onChanged: _setWorkMode),
-          const SizedBox(height: 12),
-          _SpeechPromptSettings(
-            enabled: _speechEnabled,
-            onChanged: _setSpeechEnabled,
-            onPreview: widget.onSpeechPreview,
-          ),
-          const SizedBox(height: 12),
-          _MaxVolumeSettings(
-            enabled: _maxVolumeEnabled,
-            onChanged: _setMaxVolumeEnabled,
-          ),
-          const SizedBox(height: 12),
-          _ComputerBackupSettings(
-            snapshot: _backupSnapshot,
-            onConnect: () => Navigator.of(context).pop(true),
-            onAutoChanged: widget.onAutoBackupChanged,
-            onBackupNow: widget.onBackupNow,
-            onDisconnect: widget.onDisconnectBackup,
-            onRetry: widget.onRetryBackup,
-            unbackedRetention: _unbackedRetention,
-            backedRetention: _backedRetention,
-            onUnbackedRetentionChanged: _setUnbackedRetention,
-            onBackedRetentionChanged: _setBackedRetention,
-          ),
-          const SizedBox(height: 20),
-          SearchBar(
-            key: const Key('recording-search'),
-            controller: _searchController,
-            hintText: '搜索面单号或日期',
-            leading: const Icon(Icons.search_rounded),
-            trailing: <Widget>[
-              if (_query.isNotEmpty)
+          if (!historyMode) ...<Widget>[
+            _WorkModeSettings(workMode: _workMode, onChanged: _setWorkMode),
+            const SizedBox(height: 12),
+            _SpeechPromptSettings(
+              enabled: _speechEnabled,
+              onChanged: _setSpeechEnabled,
+              onPreview: widget.onSpeechPreview,
+            ),
+            const SizedBox(height: 12),
+            _MaxVolumeSettings(
+              enabled: _maxVolumeEnabled,
+              onChanged: _setMaxVolumeEnabled,
+            ),
+            const SizedBox(height: 12),
+            _RetentionSettings(
+              unbackedRetention: _unbackedRetention,
+              backedRetention: _backedRetention,
+              onUnbackedRetentionChanged: _setUnbackedRetention,
+              onBackedRetentionChanged: _setBackedRetention,
+            ),
+          ] else ...<Widget>[
+            _HistorySummary(
+              total: _sessions.length,
+              today: _sessions.where((item) => _isToday(item.startedAt)).length,
+              backedUp: _backupSnapshot.completedCount,
+            ),
+            const SizedBox(height: 12),
+            _ComputerBackupSettings(
+              snapshot: _backupSnapshot,
+              onConnect:
+                  widget.onConnectComputer ??
+                  () => Navigator.of(context).pop(true),
+              onAutoChanged: widget.onAutoBackupChanged,
+              onBackupNow: widget.onBackupNow,
+              onDisconnect: widget.onDisconnectBackup,
+              onRetry: widget.onRetryBackup,
+              unbackedRetention: _unbackedRetention,
+              backedRetention: _backedRetention,
+              onUnbackedRetentionChanged: _setUnbackedRetention,
+              onBackedRetentionChanged: _setBackedRetention,
+              showRetention: false,
+            ),
+            const SizedBox(height: 16),
+            SearchBar(
+              key: const Key('recording-search'),
+              controller: _searchController,
+              hintText: '搜索面单号或日期',
+              leading: const Icon(Icons.search_rounded),
+              trailing: <Widget>[
                 IconButton(
-                  tooltip: '清除搜索',
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() => _query = '');
-                    unawaited(_loadRemote(reset: true));
-                  },
-                  icon: const Icon(Icons.close_rounded),
+                  key: const Key('scan-search-button'),
+                  tooltip: '扫描条码搜索',
+                  onPressed: widget.onScanSearch,
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
                 ),
-            ],
-            onChanged: _onSearchChanged,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(2, 22, 2, 12),
-            child: Row(
-              children: <Widget>[
-                const Expanded(
-                  child: Text(
-                    '录像记录',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                  ),
+                IconButton(
+                  key: const Key('paste-search-button'),
+                  tooltip: '粘贴搜索内容',
+                  onPressed: _pasteSearch,
+                  icon: const Icon(Icons.content_paste_rounded),
                 ),
-                if (_managing && visibleSessions.isNotEmpty)
-                  TextButton(
-                    onPressed: () => _toggleSelectAll(visibleSessions),
-                    child: Text(
-                      _selectedIds.containsAll(
-                            visibleSessions.map(
-                              (RecordingSession item) => item.id,
-                            ),
-                          )
-                          ? '取消全选'
-                          : '全选',
-                    ),
+                if (_query.isNotEmpty)
+                  IconButton(
+                    tooltip: '清除搜索',
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() => _query = '');
+                      unawaited(_loadRemote(reset: true));
+                    },
+                    icon: const Icon(Icons.close_rounded),
                   ),
               ],
+              onChanged: _onSearchChanged,
             ),
-          ),
-          if (_sessions.isEmpty && _remoteRecordings.isEmpty)
-            const SizedBox(height: 280, child: _EmptyRecordings())
-          else if (visibleItems.isEmpty)
-            const SizedBox(height: 220, child: _NoSearchResults())
-          else
-            ...List<Widget>.generate(visibleItems.length, (int index) {
-              final _RecordingListItem item = visibleItems[index];
-              final RecordingSession session = item.session;
-              final bool localAvailable =
-                  item.local != null && File(item.local!.filePath).existsSync();
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: index == visibleItems.length - 1 ? 0 : 10,
-                ),
-                child: _RecordingTile(
-                  session: session,
-                  backupJob: _backupSnapshot.jobs
-                      .where(
-                        (LanBackupJob job) => job.filePath == session.filePath,
-                      )
-                      .firstOrNull,
-                  managing: _managing && item.local != null,
-                  sourceLabel: localAvailable
-                      ? (item.remote == null ? '本机' : '本机 · 已备份')
-                      : (item.remote == null ? '已备份 · 电脑离线' : '电脑录像'),
-                  selected: _selectedIds.contains(session.id),
-                  onTap: () {
-                    if (_managing) {
-                      if (item.local != null) _toggleSelection(session.id);
-                      return;
-                    }
-                    FocusManager.instance.primaryFocus?.unfocus();
-                    if (!localAvailable && item.remote == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('电脑当前不可用，暂时无法播放这段录像')),
-                      );
-                      return;
-                    }
-                    Navigator.of(context).push<void>(
-                      MaterialPageRoute<void>(
-                        builder: (BuildContext context) => VideoPlaybackScreen(
-                          session: session,
-                          onSessionUpdated: _updateSession,
-                          remoteUri: localAvailable
-                              ? null
-                              : item.remote?.playUri,
-                          remoteHeaders: widget.remotePlaybackHeaders,
-                        ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilterChip(
+                key: const Key('recording-source-filter'),
+                avatar: const Icon(Icons.filter_list_rounded, size: 18),
+                label: Text(_sourceFilterLabel(_sourceFilter)),
+                selected: _sourceFilter != RecordingSourceFilter.all,
+                onSelected: (_) => _showSourceFilter(),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(2, 22, 2, 12),
+              child: Row(
+                children: <Widget>[
+                  const Expanded(
+                    child: Text(
+                      '录像记录',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
                       ),
-                    );
-                  },
-                ),
-              );
-            }),
-          if (_loadingRemote)
-            const Padding(
-              padding: EdgeInsets.all(18),
-              child: Center(child: CircularProgressIndicator()),
+                    ),
+                  ),
+                  if (_managing && visibleSessions.isNotEmpty)
+                    TextButton(
+                      onPressed: () => _toggleSelectAll(visibleSessions),
+                      child: Text(
+                        _selectedIds.containsAll(
+                              visibleSessions.map(
+                                (RecordingSession item) => item.id,
+                              ),
+                            )
+                            ? '取消全选'
+                            : '全选',
+                      ),
+                    ),
+                ],
+              ),
             ),
+            if (_sessions.isEmpty && _remoteRecordings.isEmpty)
+              const SizedBox(height: 280, child: _EmptyRecordings())
+            else if (visibleItems.isEmpty)
+              const SizedBox(height: 220, child: _NoSearchResults())
+            else
+              ...List<Widget>.generate(visibleItems.length, (int index) {
+                final _RecordingListItem item = visibleItems[index];
+                final RecordingSession session = item.session;
+                final bool localAvailable =
+                    item.local != null &&
+                    File(item.local!.filePath).existsSync();
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: index == visibleItems.length - 1 ? 0 : 10,
+                  ),
+                  child: _RecordingTile(
+                    session: session,
+                    backupJob: _backupSnapshot.jobs
+                        .where(
+                          (LanBackupJob job) =>
+                              job.filePath == session.filePath,
+                        )
+                        .firstOrNull,
+                    managing: _managing && item.local != null,
+                    sourceLabel: localAvailable
+                        ? (item.remote == null ? '本机' : '本机 · 已备份')
+                        : (item.remote == null ? '已备份 · 电脑离线' : '电脑录像'),
+                    selected: _selectedIds.contains(session.id),
+                    onTap: () {
+                      if (_managing) {
+                        if (item.local != null) _toggleSelection(session.id);
+                        return;
+                      }
+                      FocusManager.instance.primaryFocus?.unfocus();
+                      if (!localAvailable && item.remote == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('电脑当前不可用，暂时无法播放这段录像')),
+                        );
+                        return;
+                      }
+                      Navigator.of(context).push<void>(
+                        MaterialPageRoute<void>(
+                          builder: (BuildContext context) =>
+                              VideoPlaybackScreen(
+                                session: session,
+                                onSessionUpdated: _updateSession,
+                                remoteUri: localAvailable
+                                    ? null
+                                    : item.remote?.playUri,
+                                remoteHeaders: widget.remotePlaybackHeaders,
+                              ),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              }),
+            if (_loadingRemote)
+              const Padding(
+                padding: EdgeInsets.all(18),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+          ],
         ],
       ),
       bottomNavigationBar: _managing
@@ -575,6 +746,183 @@ class _RecordingListItem {
   }
 }
 
+class _HistorySummary extends StatelessWidget {
+  const _HistorySummary({
+    required this.total,
+    required this.today,
+    required this.backedUp,
+  });
+
+  final int total;
+  final int today;
+  final int backedUp;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        _SummaryMetric(label: '全部', value: total),
+        const SizedBox(width: 10),
+        _SummaryMetric(label: '今日', value: today),
+        const SizedBox(width: 10),
+        _SummaryMetric(label: '已备份', value: backedUp),
+      ],
+    );
+  }
+}
+
+class _SummaryMetric extends StatelessWidget {
+  const _SummaryMetric({required this.label, required this.value});
+
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF2F6F4),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
+          children: <Widget>[
+            Text(
+              '$value',
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 2),
+            Text(label, style: const TextStyle(color: Color(0xFF69716E))),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RetentionSettings extends StatelessWidget {
+  const _RetentionSettings({
+    required this.unbackedRetention,
+    required this.backedRetention,
+    required this.onUnbackedRetentionChanged,
+    required this.onBackedRetentionChanged,
+  });
+
+  final UnbackedRetentionPolicy unbackedRetention;
+  final BackedRetentionPolicy backedRetention;
+  final ValueChanged<UnbackedRetentionPolicy> onUnbackedRetentionChanged;
+  final ValueChanged<BackedRetentionPolicy> onBackedRetentionChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F6F4),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            '录像保留',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 14),
+          _RetentionDropdowns(
+            unbackedRetention: unbackedRetention,
+            backedRetention: backedRetention,
+            onUnbackedRetentionChanged: onUnbackedRetentionChanged,
+            onBackedRetentionChanged: onBackedRetentionChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RetentionDropdowns extends StatelessWidget {
+  const _RetentionDropdowns({
+    required this.unbackedRetention,
+    required this.backedRetention,
+    required this.onUnbackedRetentionChanged,
+    required this.onBackedRetentionChanged,
+  });
+
+  final UnbackedRetentionPolicy unbackedRetention;
+  final BackedRetentionPolicy backedRetention;
+  final ValueChanged<UnbackedRetentionPolicy> onUnbackedRetentionChanged;
+  final ValueChanged<BackedRetentionPolicy> onBackedRetentionChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: DropdownButtonFormField<UnbackedRetentionPolicy>(
+                key: const Key('unbacked-retention-dropdown'),
+                initialValue: unbackedRetention,
+                decoration: const InputDecoration(
+                  labelText: '未备份保留',
+                  isDense: true,
+                ),
+                items: UnbackedRetentionPolicy.values
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(value.label),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: (value) {
+                  if (value != null) onUnbackedRetentionChanged(value);
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: DropdownButtonFormField<BackedRetentionPolicy>(
+                key: const Key('backed-retention-dropdown'),
+                initialValue: backedRetention,
+                decoration: const InputDecoration(
+                  labelText: '备份后保留',
+                  isDense: true,
+                ),
+                items: BackedRetentionPolicy.values
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(value.label),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: (value) {
+                  if (value != null) onBackedRetentionChanged(value);
+                },
+              ),
+            ),
+          ],
+        ),
+        if (unbackedRetention !=
+            UnbackedRetentionPolicy.keepForever) ...<Widget>[
+          const SizedBox(height: 8),
+          const Text(
+            '超过保留时间且仍未完成电脑备份的录像将从本机永久删除',
+            style: TextStyle(
+              color: Color(0xFFD15B2A),
+              fontSize: 11,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class _ComputerBackupSettings extends StatelessWidget {
   const _ComputerBackupSettings({
     required this.snapshot,
@@ -587,6 +935,7 @@ class _ComputerBackupSettings extends StatelessWidget {
     required this.backedRetention,
     required this.onUnbackedRetentionChanged,
     required this.onBackedRetentionChanged,
+    this.showRetention = true,
   });
 
   final LanBackupSnapshot snapshot;
@@ -599,6 +948,7 @@ class _ComputerBackupSettings extends StatelessWidget {
   final BackedRetentionPolicy backedRetention;
   final ValueChanged<UnbackedRetentionPolicy> onUnbackedRetentionChanged;
   final ValueChanged<BackedRetentionPolicy> onBackedRetentionChanged;
+  final bool showRetention;
 
   @override
   Widget build(BuildContext context) {
@@ -611,7 +961,7 @@ class _ComputerBackupSettings extends StatelessWidget {
       orElse: () => null,
     );
     final int progress = (snapshot.aggregateProgress * 100).round();
-    final String status = !snapshot.connected
+    final String? status = !snapshot.connected
         ? '扫描电脑二维码后自动备份'
         : snapshot.connectionStatus == LanConnectionStatus.rePair
         ? '需要重新配对'
@@ -623,7 +973,7 @@ class _ComputerBackupSettings extends StatelessWidget {
         ? (failed.errorMessage ?? '备份失败')
         : snapshot.pendingCount > 0
         ? '还有 ${snapshot.pendingCount} 个录像待备份'
-        : '已连接 ${snapshot.endpoint!.computerName} · ${snapshot.endpoint!.displayAddress}';
+        : null;
 
     return Container(
       key: const Key('computer-backup-settings'),
@@ -699,78 +1049,28 @@ class _ComputerBackupSettings extends StatelessWidget {
             ),
             const SizedBox(height: 5),
           ],
-          Text(
-            status,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF69716E),
-              fontSize: 13,
-              height: 1.4,
+          if (status != null)
+            Text(
+              status,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF69716E),
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
-          ),
           if (active != null || snapshot.activeCount > 0) ...<Widget>[
             const SizedBox(height: 10),
             LinearProgressIndicator(value: snapshot.aggregateProgress),
           ],
-          const SizedBox(height: 14),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: DropdownButtonFormField<UnbackedRetentionPolicy>(
-                  key: const Key('unbacked-retention-dropdown'),
-                  initialValue: unbackedRetention,
-                  decoration: const InputDecoration(
-                    labelText: '未备份保留',
-                    isDense: true,
-                  ),
-                  items: UnbackedRetentionPolicy.values
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Text(value.label),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) {
-                    if (value != null) onUnbackedRetentionChanged(value);
-                  },
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: DropdownButtonFormField<BackedRetentionPolicy>(
-                  key: const Key('backed-retention-dropdown'),
-                  initialValue: backedRetention,
-                  decoration: const InputDecoration(
-                    labelText: '备份后保留',
-                    isDense: true,
-                  ),
-                  items: BackedRetentionPolicy.values
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Text(value.label),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) {
-                    if (value != null) onBackedRetentionChanged(value);
-                  },
-                ),
-              ),
-            ],
-          ),
-          if (unbackedRetention !=
-              UnbackedRetentionPolicy.keepForever) ...<Widget>[
-            const SizedBox(height: 8),
-            const Text(
-              '超过保留时间且仍未完成电脑备份的录像将从本机永久删除',
-              style: TextStyle(
-                color: Color(0xFFD15B2A),
-                fontSize: 11,
-                height: 1.4,
-              ),
+          if (showRetention) ...<Widget>[
+            const SizedBox(height: 14),
+            _RetentionDropdowns(
+              unbackedRetention: unbackedRetention,
+              backedRetention: backedRetention,
+              onUnbackedRetentionChanged: onUnbackedRetentionChanged,
+              onBackedRetentionChanged: onBackedRetentionChanged,
             ),
           ],
           const SizedBox(height: 10),
@@ -1172,3 +1472,17 @@ String _duration(Duration value) {
 }
 
 String _two(int number) => number.toString().padLeft(2, '0');
+
+bool _isToday(DateTime value) {
+  final DateTime now = DateTime.now();
+  return value.year == now.year &&
+      value.month == now.month &&
+      value.day == now.day;
+}
+
+String _sourceFilterLabel(RecordingSourceFilter value) => switch (value) {
+  RecordingSourceFilter.all => '全部来源',
+  RecordingSourceFilter.local => '仅本机',
+  RecordingSourceFilter.backedUp => '已备份',
+  RecordingSourceFilter.computer => '电脑录像',
+};

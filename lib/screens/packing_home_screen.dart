@@ -38,6 +38,8 @@ class PackingHomeScreen extends StatefulWidget {
 class _PackingHomeScreenState extends State<PackingHomeScreen>
     with WidgetsBindingObserver {
   late final PackingSessionController _controller;
+  int _selectedTab = 1;
+  String _historySearchQuery = '';
 
   @override
   void initState() {
@@ -77,45 +79,20 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     await _controller.startWork();
   }
 
-  Future<void> _openRecordings() async {
-    if (_controller.isRecording || _controller.isBusy) {
-      return;
-    }
-    await _controller.refreshSessions();
-    if (!mounted) {
-      return;
-    }
-    final bool? connectComputer = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        builder: (BuildContext context) => RecordingsScreen(
-          sessions: _controller.sessions,
-          workMode: _controller.workMode,
-          speechEnabled: _controller.speechEnabled,
-          maxVolumeEnabled: _controller.maxVolumeEnabled,
-          unbackedRetention: _controller.unbackedRetention,
-          backedRetention: _controller.backedRetention,
-          backupSnapshot: _controller.backupSnapshot,
-          backupListenable: _controller,
-          backupSnapshotProvider: () => _controller.backupSnapshot,
-          onWorkModeChanged: _controller.setWorkMode,
-          onSpeechEnabledChanged: _controller.setSpeechEnabled,
-          onMaxVolumeEnabledChanged: _controller.setMaxVolumeEnabled,
-          onAutoBackupChanged: _controller.setLanBackupAutoEnabled,
-          onBackupRetentionChanged: _controller.setBackupRetention,
-          onBackupNow: _controller.backupAllSessions,
-          onDisconnectBackup: _controller.disconnectBackup,
-          onRetryBackup: _controller.retryBackup,
-          onLoadRemoteRecordings: _controller.fetchRemoteRecordings,
-          remotePlaybackHeaders: _controller.remotePlaybackHeaders,
-          onSpeechPreview: _controller.previewSpeech,
-          onSessionUpdated: _controller.updateSession,
-          onDeleteSessions: _controller.deleteSessions,
-        ),
-      ),
-    );
-    if (connectComputer == true && mounted) {
-      _controller.beginComputerPairing();
-    }
+  void _selectTab(int value) {
+    if ((_controller.isRecording || _controller.isBusy) && value != 1) return;
+    setState(() => _selectedTab = value);
+    if (value == 0) unawaited(_controller.refreshSessions());
+  }
+
+  void _beginComputerPairing() {
+    setState(() => _selectedTab = 1);
+    _controller.beginComputerPairing();
+  }
+
+  void _beginHistorySearchScan() {
+    setState(() => _selectedTab = 1);
+    _controller.beginHistoryBarcodeScan();
   }
 
   @override
@@ -123,25 +100,134 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     return ListenableBuilder(
       listenable: _controller,
       builder: (BuildContext context, Widget? child) {
-        return PackingHomeView(
-          cameraController: _controller.cameraController,
-          nativeTextureId: _controller.nativeTextureId,
-          nativePreviewSize: _controller.nativePreviewSize,
-          phase: _controller.phase,
-          elapsed: _controller.elapsed,
-          lastMarker: _controller.lastMarker,
-          candidateCode: _controller.candidateCode,
-          currentCode: _controller.currentCode,
-          workMode: _controller.workMode,
-          errorMessage: _controller.errorMessage,
-          pairingScanActive: _controller.pairingScanActive,
-          pairingMessage: _controller.pairingMessage,
-          onPairingCancel: _controller.cancelComputerPairing,
-          onPrimaryPressed: _toggleWork,
-          onRetryPressed: _controller.retryInitialize,
-          onRecordingsPressed: _openRecordings,
+        final String? scanned = _controller.historyScanResult;
+        if (scanned != null) {
+          _controller.clearHistoryScanResult();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() {
+              _historySearchQuery = scanned;
+              _selectedTab = 0;
+            });
+          });
+        }
+        return Scaffold(
+          body: IndexedStack(
+            index: _selectedTab,
+            children: <Widget>[
+              _buildRecordingsScreen(RecordingsScreenMode.history),
+              PackingHomeView(
+                cameraController: _controller.cameraController,
+                nativeTextureId: _controller.nativeTextureId,
+                nativePreviewSize: _controller.nativePreviewSize,
+                phase: _controller.phase,
+                elapsed: _controller.elapsed,
+                lastMarker: _controller.lastMarker,
+                candidateCode: _controller.candidateCode,
+                currentCode: _controller.currentCode,
+                workMode: _controller.workMode,
+                errorMessage: _controller.errorMessage,
+                pairingScanActive: _controller.pairingScanActive,
+                pairingMessage: _controller.pairingMessage,
+                historyScanActive: _controller.historyScanActive,
+                onPairingCancel: _controller.cancelComputerPairing,
+                onHistoryScanCancel: _controller.cancelHistoryBarcodeScan,
+                onPrimaryPressed: _toggleWork,
+                onRetryPressed: _controller.retryInitialize,
+                onRecordingsPressed: () => _selectTab(0),
+              ),
+              _buildRecordingsScreen(RecordingsScreenMode.settings),
+            ],
+          ),
+          bottomNavigationBar: _PackingBottomNavigation(
+            selectedIndex: _selectedTab,
+            onSelected: _selectTab,
+          ),
         );
       },
+    );
+  }
+
+  Widget _buildRecordingsScreen(RecordingsScreenMode mode) {
+    return RecordingsScreen(
+      mode: mode,
+      embedded: true,
+      externalSearchQuery: mode == RecordingsScreenMode.history
+          ? _historySearchQuery
+          : '',
+      sessions: _controller.sessions,
+      workMode: _controller.workMode,
+      speechEnabled: _controller.speechEnabled,
+      maxVolumeEnabled: _controller.maxVolumeEnabled,
+      unbackedRetention: _controller.unbackedRetention,
+      backedRetention: _controller.backedRetention,
+      backupSnapshot: _controller.backupSnapshot,
+      backupListenable: _controller,
+      backupSnapshotProvider: () => _controller.backupSnapshot,
+      onWorkModeChanged: _controller.setWorkMode,
+      onSpeechEnabledChanged: _controller.setSpeechEnabled,
+      onMaxVolumeEnabledChanged: _controller.setMaxVolumeEnabled,
+      onAutoBackupChanged: _controller.setLanBackupAutoEnabled,
+      onBackupRetentionChanged: _controller.setBackupRetention,
+      onBackupNow: _controller.backupAllSessions,
+      onDisconnectBackup: _controller.disconnectBackup,
+      onRetryBackup: _controller.retryBackup,
+      onLoadRemoteRecordings: _controller.fetchRemoteRecordings,
+      remotePlaybackHeaders: _controller.remotePlaybackHeaders,
+      onConnectComputer: _beginComputerPairing,
+      onScanSearch: _beginHistorySearchScan,
+      onSpeechPreview: _controller.previewSpeech,
+      onSessionUpdated: _controller.updateSession,
+      onDeleteSessions: _controller.deleteSessions,
+    );
+  }
+}
+
+class _PackingBottomNavigation extends StatelessWidget {
+  const _PackingBottomNavigation({
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return NavigationBar(
+      key: const Key('main-bottom-navigation'),
+      selectedIndex: selectedIndex,
+      onDestinationSelected: onSelected,
+      height: 72,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+      destinations: const <NavigationDestination>[
+        NavigationDestination(
+          icon: Icon(Icons.history_rounded),
+          selectedIcon: Icon(Icons.history_rounded),
+          label: '历史',
+        ),
+        NavigationDestination(
+          icon: CircleAvatar(
+            radius: 22,
+            backgroundColor: Color(0xFFDDEDE7),
+            child: Icon(
+              Icons.videocam_rounded,
+              color: PackingProofMobileApp.forest,
+            ),
+          ),
+          selectedIcon: CircleAvatar(
+            radius: 22,
+            backgroundColor: PackingProofMobileApp.forest,
+            child: Icon(Icons.videocam_rounded, color: Colors.white),
+          ),
+          label: '录制',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings_rounded),
+          label: '设置',
+        ),
+      ],
     );
   }
 }
@@ -163,7 +249,9 @@ class PackingHomeView extends StatelessWidget {
     this.errorMessage,
     this.pairingScanActive = false,
     this.pairingMessage,
+    this.historyScanActive = false,
     this.onPairingCancel,
+    this.onHistoryScanCancel,
     this.previewOverride,
     super.key,
   });
@@ -180,7 +268,9 @@ class PackingHomeView extends StatelessWidget {
   final String? errorMessage;
   final bool pairingScanActive;
   final String? pairingMessage;
+  final bool historyScanActive;
   final VoidCallback? onPairingCancel;
+  final VoidCallback? onHistoryScanCancel;
   final VoidCallback onPrimaryPressed;
   final VoidCallback onRetryPressed;
   final VoidCallback onRecordingsPressed;
@@ -343,6 +433,16 @@ class _CameraArea extends StatelessWidget {
               child: _ComputerPairingBanner(
                 message: view.pairingMessage ?? '扫描电脑二维码',
                 onCancel: view.pairingScanActive ? view.onPairingCancel : null,
+              ),
+            ),
+          if (view.historyScanActive)
+            Positioned(
+              left: 20,
+              right: 20,
+              top: 24,
+              child: _ComputerPairingBanner(
+                message: '对准条码，识别后自动筛选历史记录',
+                onCancel: view.onHistoryScanCancel,
               ),
             ),
         ],
@@ -677,7 +777,9 @@ class _ControlPanel extends StatelessWidget {
             const SizedBox(height: 5),
           ] else ...<Widget>[
             Text(
-              view.pairingScanActive
+              view.historyScanActive
+                  ? '扫描条码以搜索历史记录'
+                  : view.pairingScanActive
                   ? '正在连接电脑'
                   : isError
                   ? (view.errorMessage ?? '请重新检查摄像头权限')
@@ -697,7 +799,10 @@ class _ControlPanel extends StatelessWidget {
           const SizedBox(height: 1),
           TextButton(
             onPressed:
-                view._isRecording || view._isBusy || view.pairingScanActive
+                view._isRecording ||
+                    view._isBusy ||
+                    view.pairingScanActive ||
+                    view.historyScanActive
                 ? null
                 : view.onRecordingsPressed,
             style: TextButton.styleFrom(
@@ -710,7 +815,7 @@ class _ControlPanel extends StatelessWidget {
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Text('录像与设置'),
+                Text('查看历史'),
                 SizedBox(width: 5),
                 Icon(Icons.chevron_right_rounded, size: 20),
               ],
@@ -775,7 +880,8 @@ class _PrimaryWorkButtonState extends State<_PrimaryWorkButton>
     final PackingHomeView view = widget.view;
     return FilledButton(
       key: const Key('primary-work-button'),
-      onPressed: view._isBusy || view.pairingScanActive
+      onPressed:
+          view._isBusy || view.pairingScanActive || view.historyScanActive
           ? null
           : widget.isError
           ? view.onRetryPressed

@@ -36,7 +36,7 @@ void main() {
     );
 
     expect(find.text('开始工作'), findsOneWidget);
-    expect(find.text('录像与设置'), findsOneWidget);
+    expect(find.text('查看历史'), findsOneWidget);
     expect(find.text('对准面单条码'), findsOneWidget);
     expect(find.text('摄像头已就绪'), findsNothing);
     expect(find.text('连续录像 · 面单自动标记 · 仅存本机'), findsNothing);

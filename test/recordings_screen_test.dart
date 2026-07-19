@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/models/barcode_marker.dart';
 import 'package:packing_proof_mobile/models/lan_backup.dart';
@@ -12,6 +13,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
+          mode: RecordingsScreenMode.settings,
           sessions: const [],
           workMode: selected,
           speechEnabled: true,
@@ -45,6 +47,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
+          mode: RecordingsScreenMode.settings,
           sessions: const [],
           workMode: WorkMode.continuousScan,
           speechEnabled: enabled,
@@ -85,6 +88,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
+          mode: RecordingsScreenMode.settings,
           sessions: const [],
           workMode: WorkMode.continuousScan,
           speechEnabled: true,
@@ -109,6 +113,24 @@ void main() {
   });
 
   testWidgets('电脑备份未连接时提供扫码入口', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    int scanCount = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (
+          MethodCall call,
+        ) async {
+          if (call.method == 'Clipboard.getData') {
+            return <String, Object?>{'text': 'SF1234567890'};
+          }
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
@@ -117,6 +139,7 @@ void main() {
           speechEnabled: true,
           maxVolumeEnabled: true,
           backupSnapshot: const LanBackupSnapshot(),
+          onScanSearch: () => scanCount++,
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
           onMaxVolumeEnabledChanged: (_) async {},
@@ -130,13 +153,20 @@ void main() {
     expect(find.byKey(const Key('computer-backup-settings')), findsOneWidget);
     expect(find.text('电脑备份'), findsOneWidget);
     expect(find.text('连接电脑'), findsOneWidget);
-    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    expect(find.byKey(const Key('scan-search-button')), findsOneWidget);
+    expect(find.byKey(const Key('paste-search-button')), findsOneWidget);
+    expect(find.byKey(const Key('recording-source-filter')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('scan-search-button')));
+    expect(scanCount, 1);
+
+    await tester.tap(find.byKey(const Key('paste-search-button')));
     await tester.pump();
-    expect(
-      find.byKey(const Key('unbacked-retention-dropdown')),
-      findsOneWidget,
-    );
-    expect(find.byKey(const Key('backed-retention-dropdown')), findsOneWidget);
+    expect(find.text('SF1234567890'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('recording-source-filter')));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('仅本机'), findsOneWidget);
   });
 
   testWidgets('连接后持续显示电脑名称和局域网地址', (WidgetTester tester) async {

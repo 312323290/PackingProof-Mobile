@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$VersionName = '0.3.0',
-    [int]$VersionCode = 9000,
+    [string]$VersionName = '0.3.1',
+    [int]$VersionCode = 9002,
     [string]$OutputDirectory = 'dist/android'
 )
 
@@ -31,6 +31,7 @@ foreach ($prompt in $manifest.prompts) {
     }
 }
 
+flutter clean
 flutter pub get
 flutter analyze
 flutter test
@@ -56,7 +57,7 @@ foreach ($edition in $editions) {
     if (-not (Test-Path -LiteralPath $source)) {
         throw "未找到构建产物：$source"
     }
-    $fileName = "PackingProof-Mobile-v$VersionName-$($edition.Flavor).apk"
+    $fileName = "PackingProof-Mobile-$($edition.Flavor).apk"
     $destination = Join-Path $resolvedOutput $fileName
     Copy-Item -LiteralPath $source -Destination $destination -Force
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash.ToLowerInvariant()

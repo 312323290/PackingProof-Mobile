@@ -88,10 +88,12 @@ class PackingSessionController extends ChangeNotifier {
   bool _handlingBarcode = false;
   bool _disposed = false;
   bool _pairingScanActive = false;
+  bool _historyScanActive = false;
   bool _pairingBusy = false;
   bool _backupListenerAttached = false;
   final Set<String> _handledDeletedBackupJobs = <String>{};
   String? _pairingMessage;
+  String? _historyScanResult;
   String? _recordingId;
   String? _activeSegmentId;
   int _segmentIndex = 1;
@@ -114,6 +116,8 @@ class PackingSessionController extends ChangeNotifier {
   LanBackupSnapshot get backupSnapshot => _lanBackupService.snapshot;
   bool get pairingScanActive => _pairingScanActive;
   String? get pairingMessage => _pairingMessage;
+  bool get historyScanActive => _historyScanActive;
+  String? get historyScanResult => _historyScanResult;
   String? get errorMessage => _errorMessage;
   bool get isRecording => _phase == PackingSessionPhase.recording;
   bool get isBusy =>
@@ -365,6 +369,23 @@ class PackingSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void beginHistoryBarcodeScan() {
+    if (isRecording || isBusy) return;
+    _historyScanResult = null;
+    _historyScanActive = true;
+    _stabilityTracker.reset();
+    unawaited(_nativeCamera?.setPairingScanEnabled(true));
+    notifyListeners();
+  }
+
+  void cancelHistoryBarcodeScan() {
+    _historyScanActive = false;
+    unawaited(_nativeCamera?.setPairingScanEnabled(false));
+    notifyListeners();
+  }
+
+  void clearHistoryScanResult() => _historyScanResult = null;
+
   Future<void> backupAllSessions() => _lanBackupService.backupAll(_sessions);
 
   Future<void> disconnectBackup() => _lanBackupService.disconnect();
@@ -575,6 +596,22 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   void _processNativeBarcodeFrame(List<NativeBarcodeCandidate> candidates) {
+    if (_historyScanActive) {
+      NativeBarcodeCandidate? match;
+      for (final NativeBarcodeCandidate candidate in candidates) {
+        if (BarcodeCandidatePolicy.isValid(candidate.value)) {
+          match = candidate;
+          break;
+        }
+      }
+      if (match != null) {
+        _historyScanResult = BarcodeCandidatePolicy.normalize(match.value);
+        _historyScanActive = false;
+        unawaited(_nativeCamera?.setPairingScanEnabled(false));
+        notifyListeners();
+      }
+      return;
+    }
     if (_pairingScanActive) {
       if (!_pairingBusy) {
         for (final NativeBarcodeCandidate candidate in candidates) {

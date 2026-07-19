@@ -14,6 +14,7 @@ class MainActivity : FlutterActivity() {
     private var videoExportPlugin: VideoExportPlugin? = null
     private var recordingThumbnailPlugin: RecordingThumbnailPlugin? = null
     private var videoWatermarkPlugin: VideoWatermarkPlugin? = null
+    private var orderInfoReceiverPlugin: OrderInfoReceiverPlugin? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +41,10 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
         )
         videoWatermarkPlugin = VideoWatermarkPlugin(
+            this,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
+        orderInfoReceiverPlugin = OrderInfoReceiverPlugin(
             this,
             flutterEngine.dartExecutor.binaryMessenger,
         )
@@ -98,11 +103,14 @@ class MainActivity : FlutterActivity() {
         recordingThumbnailPlugin = null
         videoWatermarkPlugin?.dispose()
         videoWatermarkPlugin = null
+        orderInfoReceiverPlugin?.dispose()
+        orderInfoReceiverPlugin = null
         super.onDestroy()
     }
 
     override fun onStart() {
         super.onStart()
+        orderInfoReceiverPlugin?.onHostForeground()
         maxVolumeController?.resumeSession()
     }
 
@@ -114,6 +122,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onStop() {
+        orderInfoReceiverPlugin?.onHostBackground()
         maxVolumeController?.pauseSession()
         super.onStop()
     }

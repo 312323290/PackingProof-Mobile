@@ -168,7 +168,7 @@ void main() {
     expect(find.text('连接电脑'), findsOneWidget);
     expect(find.text('全部完成'), findsOneWidget);
     expect(find.text('连接电脑后自动备份录像'), findsOneWidget);
-    expect(find.text('总大小'), findsOneWidget);
+    expect(find.text('总占用'), findsOneWidget);
     expect(find.text('0 MB'), findsOneWidget);
     expect(
       tester.getCenter(find.text('本机今日')).dx,

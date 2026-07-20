@@ -816,11 +816,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               onChanged: _setOrderSpeechEnabled,
             ),
             const SizedBox(height: 12),
-            _OrderReceiverSettings(
-              snapshot: widget.orderReceiverSnapshot,
-              onRetry: widget.onRetryOrderReceiver,
-            ),
-            const SizedBox(height: 12),
             _MaxVolumeSettings(
               enabled: _maxVolumeEnabled,
               onChanged: _setMaxVolumeEnabled,
@@ -831,6 +826,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               backedRetention: _backedRetention,
               onUnbackedRetentionChanged: _setUnbackedRetention,
               onBackedRetentionChanged: _setBackedRetention,
+            ),
+            const SizedBox(height: 12),
+            _OrderReceiverSettings(
+              snapshot: widget.orderReceiverSnapshot,
+              onRetry: widget.onRetryOrderReceiver,
             ),
             const SizedBox(height: 12),
             const AboutSettings(),
@@ -1215,7 +1215,7 @@ class _HistorySummary extends StatelessWidget {
         _SummaryMetric(label: '本机全部', value: '$total'),
         const SizedBox(width: 10),
         _SummaryMetric(
-          label: '总大小',
+          label: '总占用',
           value: totalSize.value,
           unit: totalSize.unit,
         ),
@@ -1299,7 +1299,7 @@ class _RetentionSettings extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           const Text(
-            '录像保留',
+            '录像清理',
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 14),

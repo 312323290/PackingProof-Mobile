@@ -13,6 +13,23 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
+val releaseStorePath = System.getenv("PACKING_PROOF_KEYSTORE_PATH")?.trim().orEmpty()
+val releaseKeyAlias = System.getenv("PACKING_PROOF_KEY_ALIAS")?.trim().orEmpty()
+val releaseStorePassword = System.getenv("PACKING_PROOF_STORE_PASSWORD").orEmpty()
+val releaseKeyPassword = System.getenv("PACKING_PROOF_KEY_PASSWORD").orEmpty()
+val releaseSigningRequired =
+    System.getenv("PACKING_PROOF_REQUIRE_RELEASE_SIGNING")?.equals("true", ignoreCase = true) == true
+val releaseSigningConfigured = listOf(
+    releaseStorePath,
+    releaseKeyAlias,
+    releaseStorePassword,
+    releaseKeyPassword,
+).all { it.isNotEmpty() }
+
+if (releaseSigningRequired && !releaseSigningConfigured) {
+    throw GradleException("正式 Release 构建缺少 PackingProof 签名配置")
+}
+
 android {
     namespace = "app.packingproof.mobile"
     compileSdk = flutter.compileSdkVersion
@@ -50,11 +67,26 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("packingProofRelease") {
+                storeFile = file(releaseStorePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (releaseSigningConfigured) {
+                signingConfigs.getByName("packingProofRelease")
+            } else {
+                // Local development remains installable without access to the
+                // private release key. The release script can require signing.
+                signingConfigs.getByName("debug")
+            }
             // ML Kit's byte-image converter fails after shrinking on some devices.
             // Reliability is more important than APK size for the first release.
             isMinifyEnabled = false

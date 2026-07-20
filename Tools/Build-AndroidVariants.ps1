@@ -2,7 +2,8 @@
 param(
     [string]$VersionName = '0.5.0',
     [int]$VersionCode = 11000,
-    [string]$OutputDirectory = 'dist/android'
+    [string]$OutputDirectory = 'dist/android',
+    [string]$SigningDirectory = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +58,106 @@ function Resolve-ApkAnalyzer {
     return $resolved
 }
 
+function Resolve-ApkSigner {
+    $sdkRoots = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA 'Android/Sdk')) |
+        Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    foreach ($root in $sdkRoots) {
+        $tool = Get-ChildItem -LiteralPath (Join-Path $root 'build-tools') -Directory -ErrorAction SilentlyContinue |
+            Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'apksigner.bat' } |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            Select-Object -First 1
+        if ($tool) { return $tool }
+    }
+    throw '找不到 apksigner，无法校验 APK 正式签名'
+}
+
+function Resolve-KeyTool {
+    $candidates = @()
+    if ($env:JAVA_HOME) { $candidates += (Join-Path $env:JAVA_HOME 'bin/keytool.exe') }
+    $candidates += @(
+        'C:/Program Files/Android/Android Studio/jbr/bin/keytool.exe',
+        'C:/Program Files/Android/Android Studio/jre/bin/keytool.exe'
+    )
+    $javaRoots = Get-ChildItem -LiteralPath 'C:/Program Files/Java' -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending
+    $candidates += $javaRoots | ForEach-Object { Join-Path $_.FullName 'bin/keytool.exe' }
+    $resolved = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $resolved) { throw '找不到 JDK keytool，无法读取正式签名证书' }
+    return $resolved
+}
+
+function Get-SigningConfiguration {
+    param([Parameter(Mandatory)][string]$Directory)
+    $resolved = [IO.Path]::GetFullPath($Directory)
+    if (-not (Test-Path -LiteralPath $resolved -PathType Container)) {
+        throw "签名目录不存在：$resolved"
+    }
+    $credentialPath = Join-Path $resolved '签名凭据.txt'
+    if (-not (Test-Path -LiteralPath $credentialPath -PathType Leaf)) {
+        throw "签名目录缺少签名凭据.txt：$resolved"
+    }
+    $values = @{}
+    foreach ($line in [IO.File]::ReadAllLines($credentialPath, [Text.Encoding]::UTF8)) {
+        $separator = $line.IndexOf([char]0xFF1A)
+        if ($separator -lt 0) { $separator = $line.IndexOf(':') }
+        if ($separator -le 0) { continue }
+        $label = $line.Substring(0, $separator).Trim()
+        $value = $line.Substring($separator + 1).Trim()
+        if ($label -in @('密钥文件', '别名', '密钥库密码', '密钥密码')) {
+            $values[$label] = $value
+        }
+    }
+    foreach ($label in @('密钥文件', '别名', '密钥库密码', '密钥密码')) {
+        if ([string]::IsNullOrWhiteSpace($values[$label])) {
+            throw "签名凭据缺少字段：$label"
+        }
+    }
+    $keyStorePath = $values['密钥文件']
+    if (-not [IO.Path]::IsPathRooted($keyStorePath)) {
+        $keyStorePath = Join-Path $resolved $keyStorePath
+    }
+    $keyStorePath = [IO.Path]::GetFullPath($keyStorePath)
+    if (-not (Test-Path -LiteralPath $keyStorePath -PathType Leaf)) {
+        throw "找不到签名密钥文件：$keyStorePath"
+    }
+    return [ordered]@{
+        KeyStorePath = $keyStorePath
+        KeyAlias = $values['别名']
+        StorePassword = $values['密钥库密码']
+        KeyPassword = $values['密钥密码']
+    }
+}
+
+function Get-KeyStoreCertificateSha256 {
+    param(
+        [Parameter(Mandatory)]$Signing,
+        [Parameter(Mandatory)][string]$KeyTool
+    )
+    $env:PACKING_PROOF_STORE_PASSWORD = $Signing.StorePassword
+    $output = (& $KeyTool -list -v -keystore $Signing.KeyStorePath -alias $Signing.KeyAlias -storepass:env PACKING_PROOF_STORE_PASSWORD) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $output -notmatch 'SHA256:\s*([0-9A-F:]{95})') {
+        throw '无法读取正式签名证书，请检查别名和密钥库密码'
+    }
+    return $matches[1].Replace(':', '').ToLowerInvariant()
+}
+
+function Assert-ApkSignature {
+    param(
+        [Parameter(Mandatory)][string]$ApkPath,
+        [Parameter(Mandatory)][string]$ApkSigner,
+        [Parameter(Mandatory)][string]$ExpectedSha256
+    )
+    $output = (& $ApkSigner verify --verbose --print-certs $ApkPath) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw "APK 签名校验失败：$ApkPath" }
+    if ($output -notmatch 'certificate SHA-256 digest:\s*([0-9a-fA-F]{64})') {
+        throw "无法读取 APK 签名证书：$ApkPath"
+    }
+    if ($matches[1].ToLowerInvariant() -ne $ExpectedSha256) {
+        throw "APK 未使用指定的 PackingProof 正式证书：$ApkPath"
+    }
+}
+
 function Assert-ApkMetadata {
     param(
         [Parameter(Mandatory)][string]$ApkPath,
@@ -86,6 +187,19 @@ $buildStartedAt = [DateTime]::UtcNow
 $env:PACKING_PROOF_BUILD_REVISION = $revision
 $env:PACKING_PROOF_BUILD_TIMESTAMP = $buildTimestamp
 $analyzer = Resolve-ApkAnalyzer
+$signing = $null
+$signingCertificateSha256 = $null
+if (-not [string]::IsNullOrWhiteSpace($SigningDirectory)) {
+    $signing = Get-SigningConfiguration -Directory $SigningDirectory
+    $env:PACKING_PROOF_KEYSTORE_PATH = $signing.KeyStorePath
+    $env:PACKING_PROOF_KEY_ALIAS = $signing.KeyAlias
+    $env:PACKING_PROOF_STORE_PASSWORD = $signing.StorePassword
+    $env:PACKING_PROOF_KEY_PASSWORD = $signing.KeyPassword
+    $env:PACKING_PROOF_REQUIRE_RELEASE_SIGNING = 'true'
+    $keyTool = Resolve-KeyTool
+    $signingCertificateSha256 = Get-KeyStoreCertificateSha256 -Signing $signing -KeyTool $keyTool
+    $apkSigner = Resolve-ApkSigner
+}
 
 $resolvedOutput = [IO.Path]::GetFullPath((Join-Path $repo $OutputDirectory))
 $resolvedRepo = [IO.Path]::GetFullPath($repo).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
@@ -131,6 +245,9 @@ try {
         $source = Join-Path $repo "build/app/outputs/flutter-apk/app-$($edition.Flavor)-release.apk"
         if (-not (Test-Path -LiteralPath $source)) { throw "未找到构建产物：$source" }
         Assert-ApkMetadata -ApkPath $source -Edition $edition.Flavor -Revision $revision -Timestamp $buildTimestamp -BuildStartedAt $buildStartedAt -Analyzer $analyzer
+        if ($signing) {
+            Assert-ApkSignature -ApkPath $source -ApkSigner $apkSigner -ExpectedSha256 $signingCertificateSha256
+        }
         $fileName = "PackingProof-Mobile-$($edition.Flavor).apk"
         $destination = Join-Path $temporaryOutput $fileName
         Copy-Item -LiteralPath $source -Destination $destination
@@ -146,6 +263,8 @@ try {
         packageName = 'app.packingproof.mobile'
         revision = $revision
         builtAtUtc = $buildTimestamp
+        releaseSigned = [bool]$signing
+        signingCertificateSha256 = $signingCertificateSha256
         artifacts = $artifacts
     }
     [IO.File]::WriteAllText(
@@ -171,4 +290,9 @@ finally {
     Remove-Item -LiteralPath $temporaryOutput -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item Env:PACKING_PROOF_BUILD_REVISION -ErrorAction SilentlyContinue
     Remove-Item Env:PACKING_PROOF_BUILD_TIMESTAMP -ErrorAction SilentlyContinue
+    Remove-Item Env:PACKING_PROOF_KEYSTORE_PATH -ErrorAction SilentlyContinue
+    Remove-Item Env:PACKING_PROOF_KEY_ALIAS -ErrorAction SilentlyContinue
+    Remove-Item Env:PACKING_PROOF_STORE_PASSWORD -ErrorAction SilentlyContinue
+    Remove-Item Env:PACKING_PROOF_KEY_PASSWORD -ErrorAction SilentlyContinue
+    Remove-Item Env:PACKING_PROOF_REQUIRE_RELEASE_SIGNING -ErrorAction SilentlyContinue
 }

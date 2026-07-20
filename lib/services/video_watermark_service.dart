@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -17,9 +18,32 @@ class VideoWatermarkService implements VideoWatermarkSink {
           const MethodChannel('app.packingproof.mobile/video_watermark');
 
   final MethodChannel _channel;
+  Future<void> _tail = Future<void>.value();
 
   @override
   Future<String> apply({
+    required String inputPath,
+    required DateTime startedAt,
+    required String trackingNumber,
+  }) {
+    final Completer<String> result = Completer<String>();
+    _tail = _tail.catchError((Object _) {}).then((_) async {
+      try {
+        result.complete(
+          await _applyNow(
+            inputPath: inputPath,
+            startedAt: startedAt,
+            trackingNumber: trackingNumber,
+          ),
+        );
+      } on Object catch (error, stackTrace) {
+        result.completeError(error, stackTrace);
+      }
+    });
+    return result.future;
+  }
+
+  Future<String> _applyNow({
     required String inputPath,
     required DateTime startedAt,
     required String trackingNumber,

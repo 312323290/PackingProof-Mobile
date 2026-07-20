@@ -644,13 +644,8 @@ class PackingSessionController extends ChangeNotifier {
     if (draft == null) {
       throw StateError('找不到当前录像片段');
     }
-    final String watermarkedPath = await _videoWatermarkService.apply(
-      inputPath: stopped.path,
-      startedAt: draft.startedAt,
-      trackingNumber: draft.markers.isEmpty ? '' : draft.markers.first.code,
-    );
     final String savedPath = await _repository.finalizeVideo(
-      sourcePath: watermarkedPath,
+      sourcePath: stopped.path,
       sessionId: segmentId,
       startedAt: draft.startedAt,
       trackingNumber: draft.markers.isEmpty ? '' : draft.markers.first.code,
@@ -661,12 +656,48 @@ class PackingSessionController extends ChangeNotifier {
       draft: draft,
     );
     _sessions = await _repository.addSession(session);
-    await _enqueueBackupIfNeeded(savedPath, <RecordingSession>[session]);
+    unawaited(_watermarkAndBackup(savedPath, session));
     _elapsed = stopped.endedAt.difference(_timeline.recordingStartedAt!);
     _timeline.reset();
     _recordingId = null;
     _activeSegmentId = null;
     return <RecordingSession>[session];
+  }
+
+  Future<void> _watermarkAndBackup(
+    String savedPath,
+    RecordingSession session,
+  ) async {
+    final String trackingNumber = _firstTrackingNumber(<RecordingSession>[
+      session,
+    ]);
+    try {
+      final String watermarkedPath = await _videoWatermarkService.apply(
+        inputPath: savedPath,
+        startedAt: session.startedAt,
+        trackingNumber: trackingNumber,
+      );
+      final String finalPath = await _repository.finalizeVideo(
+        sourcePath: watermarkedPath,
+        sessionId: session.id,
+        startedAt: session.startedAt,
+        trackingNumber: trackingNumber,
+      );
+      final RecordingSession finalized = finalPath == session.filePath
+          ? session
+          : _sessionWithPath(session, finalPath);
+      if (finalized.filePath != session.filePath) {
+        _sessions = await _repository.updateSession(finalized);
+      }
+      await _enqueueBackupIfNeeded(finalPath, <RecordingSession>[finalized]);
+    } on Object {
+      // The original recording is already safely indexed. A failed watermark
+      // must not keep the work button blocked or discard the video.
+      if (await File(savedPath).exists()) {
+        await _enqueueBackupIfNeeded(savedPath, <RecordingSession>[session]);
+      }
+    }
+    if (!_disposed) notifyListeners();
   }
 
   void _startElapsedTimer() {
@@ -1120,15 +1151,8 @@ class PackingSessionController extends ChangeNotifier {
     _setActiveOrderInfo(nextOrderInfo, announce: false);
     _resetSegmentElapsed();
     onSegmentStarted(transition.marker);
-    final String watermarkedPath = await _videoWatermarkService.apply(
-      inputPath: split.completedPath,
-      startedAt: transition.completed.startedAt,
-      trackingNumber: transition.completed.markers.isEmpty
-          ? ''
-          : transition.completed.markers.first.code,
-    );
     final String savedPath = await _repository.finalizeVideo(
-      sourcePath: watermarkedPath,
+      sourcePath: split.completedPath,
       sessionId: completedId,
       startedAt: transition.completed.startedAt,
       trackingNumber: transition.completed.markers.isEmpty
@@ -1142,7 +1166,7 @@ class PackingSessionController extends ChangeNotifier {
       orderInfo: completedOrderInfo,
     );
     _sessions = await _repository.addSession(completed);
-    await _enqueueBackupIfNeeded(savedPath, <RecordingSession>[completed]);
+    unawaited(_watermarkAndBackup(savedPath, completed));
     _activeSegmentId = nextId;
     _segmentIndex = nextIndex;
     return transition.marker;

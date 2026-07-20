@@ -727,6 +727,7 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<void> handleResumed() async {
     _appIsActive = true;
+    await _lanBackupService.refresh();
     await _orderInfoReceiver.setBackgroundKeepAlive(false);
     await _beginMaxVolumeIfNeeded();
     final bool needsInitialization = Platform.isAndroid
@@ -794,6 +795,7 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   Future<void> refreshSessions() async {
+    await _lanBackupService.refresh();
     _sessions = await _repository.loadSessions(includeMissingFiles: true);
     notifyListeners();
   }

@@ -2,10 +2,12 @@ package app.packingproof.mobile
 
 import android.app.Activity
 import android.content.Context
+import androidx.lifecycle.Observer
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import io.flutter.plugin.common.BinaryMessenger
@@ -28,9 +30,15 @@ internal class LanBackupPlugin(
     private val channel = MethodChannel(messenger, CHANNEL)
     private val store = LanBackupStateStore(context)
     private val credentials = LanBackupCredentialStore(context)
+    private val workObserver = Observer<List<WorkInfo>> {
+        notifySnapshotChanged()
+    }
 
     init {
         channel.setMethodCallHandler(this)
+        WorkManager.getInstance(context)
+            .getWorkInfosByTagLiveData("lan-backup")
+            .observeForever(workObserver)
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -149,7 +157,14 @@ internal class LanBackupPlugin(
         "jobs" to store.jobs().map { it.toFlutterValue() },
     )
 
+    fun notifySnapshotChanged() {
+        channel.invokeMethod("snapshotChanged", snapshot())
+    }
+
     fun dispose() {
+        WorkManager.getInstance(context)
+            .getWorkInfosByTagLiveData("lan-backup")
+            .removeObserver(workObserver)
         channel.setMethodCallHandler(null)
     }
 }

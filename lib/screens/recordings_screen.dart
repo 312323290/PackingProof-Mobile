@@ -44,6 +44,7 @@ class RecordingsScreen extends StatefulWidget {
     this.onDisconnectBackup,
     this.onRetryConnection,
     this.onRetryBackup,
+    this.onRefreshHistory,
     this.unbackedRetention = UnbackedRetentionPolicy.days30,
     this.backedRetention = BackedRetentionPolicy.days7,
     this.onBackupRetentionChanged,
@@ -84,6 +85,7 @@ class RecordingsScreen extends StatefulWidget {
   final Future<void> Function()? onDisconnectBackup;
   final Future<void> Function()? onRetryConnection;
   final Future<void> Function(String jobId)? onRetryBackup;
+  final Future<void> Function()? onRefreshHistory;
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
   final Future<void> Function({
@@ -140,6 +142,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late Set<int> _hiddenRemoteIds;
   Timer? _remoteSearchTimer;
   bool _loadingRemote = false;
+  bool _remoteCacheDirty = false;
+  bool _manualRefreshing = false;
+  DateTime? _lastManualRefreshAt;
   int _remoteTotal = 0;
   int _remoteDeviceTotal = 0;
   final TextEditingController _searchController = TextEditingController();
@@ -223,11 +228,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         }
       });
     }
-    if (!oldWidget.active && widget.active && _remoteRecordings.isEmpty) {
+    if (!oldWidget.active &&
+        widget.active &&
+        (_remoteRecordings.isEmpty || _remoteCacheDirty)) {
       WidgetsBinding.instance.addPostFrameCallback(
-        (_) => unawaited(
-          _loadRemote(reset: true, pageNumber: 1, prefetchNext: true),
-        ),
+        (_) => _reloadRemoteAfterBackup(force: _remoteRecordings.isEmpty),
       );
     }
     if (oldWidget.externalSearchQuery != widget.externalSearchQuery &&
@@ -263,8 +268,16 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     }
     final LanBackupSnapshot next =
         widget.backupSnapshotProvider?.call() ?? widget.backupSnapshot;
+    final Set<String> previousCompleted = _completedBackupSignatures(
+      _backupSnapshot,
+    );
+    final Set<String> nextCompleted = _completedBackupSignatures(next);
+    final bool completedChanged = nextCompleted
+        .difference(previousCompleted)
+        .isNotEmpty;
     setState(() {
       _backupSnapshot = next;
+      if (completedChanged) _remoteCacheDirty = true;
       if (next.connectionStatus != LanConnectionStatus.connected) {
         _remoteRequestGeneration++;
         _loadingRemote = false;
@@ -277,10 +290,60 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         _historyPage = 0;
       }
     });
+    if (completedChanged) _reloadRemoteAfterBackup();
     if (widget.active &&
         _backupSnapshot.connectionStatus == LanConnectionStatus.connected &&
         _remoteRecordings.isEmpty) {
       unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));
+    }
+  }
+
+  Set<String> _completedBackupSignatures(LanBackupSnapshot snapshot) => snapshot
+      .jobs
+      .where(
+        (LanBackupJob job) =>
+            job.state == LanBackupJobState.completed &&
+            job.remoteRecordIds.isNotEmpty,
+      )
+      .map(
+        (LanBackupJob job) =>
+            '${job.id}:${job.destinationComputerId}:${job.remoteRecordIds.join(',')}',
+      )
+      .toSet();
+
+  void _reloadRemoteAfterBackup({bool force = false}) {
+    if ((!_remoteCacheDirty && !force) ||
+        !mounted ||
+        !widget.active ||
+        _loadingRemote ||
+        _backupSnapshot.connectionStatus != LanConnectionStatus.connected) {
+      return;
+    }
+    _remoteCacheDirty = false;
+    unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));
+  }
+
+  Future<void> _manualRefresh() async {
+    final DateTime now = DateTime.now();
+    if (_manualRefreshing ||
+        (_lastManualRefreshAt != null &&
+            now.difference(_lastManualRefreshAt!) <
+                const Duration(milliseconds: 800))) {
+      return;
+    }
+    _lastManualRefreshAt = now;
+    setState(() => _manualRefreshing = true);
+    try {
+      await widget.onRefreshHistory?.call();
+      if (!mounted) return;
+      _remoteRequestGeneration++;
+      _loadingRemote = false;
+      _remoteCacheDirty = false;
+      if (_backupSnapshot.connectionStatus == LanConnectionStatus.connected) {
+        await _loadRemote(reset: true, pageNumber: 1, prefetchNext: true);
+      }
+    } finally {
+      if (mounted) setState(() => _manualRefreshing = false);
     }
   }
 
@@ -384,6 +447,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     } finally {
       if (mounted && requestGeneration == _remoteRequestGeneration) {
         setState(() => _loadingRemote = false);
+        _reloadRemoteAfterBackup();
       }
     }
   }
@@ -926,6 +990,17 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                             : '全选',
                       ),
                     ),
+                  IconButton(
+                    key: const Key('refresh-recordings-button'),
+                    tooltip: '刷新录像记录',
+                    onPressed: _manualRefreshing ? null : _manualRefresh,
+                    icon: _manualRefreshing
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh_rounded),
+                  ),
                   const SizedBox(width: 8),
                   FilterChip(
                     key: const Key('recording-source-filter'),

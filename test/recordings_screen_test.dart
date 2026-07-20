@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -941,6 +942,118 @@ void main() {
     expect(find.text('THIS-PHONE'), findsOneWidget);
     expect(find.text('OTHER-PHONE'), findsOneWidget);
     expect(find.text('已备份'), findsOneWidget);
+  });
+
+  testWidgets('手动刷新按钮会去抖并避免重复请求', (WidgetTester tester) async {
+    final Completer<void> refresh = Completer<void>();
+    int refreshCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+          onRefreshHistory: () {
+            refreshCount++;
+            return refresh.future;
+          },
+        ),
+      ),
+    );
+
+    final Finder button = find.byKey(const Key('refresh-recordings-button'));
+    await tester.tap(button);
+    await tester.tap(button);
+    await tester.pump();
+    expect(refreshCount, 1);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    refresh.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('备份任务完成后自动刷新电脑录像缓存', (WidgetTester tester) async {
+    final ValueNotifier<LanBackupSnapshot> snapshots =
+        ValueNotifier<LanBackupSnapshot>(
+          LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '电脑',
+            ),
+            connectionStatus: LanConnectionStatus.connected,
+            jobs: const <LanBackupJob>[
+              LanBackupJob(
+                id: 'job-1',
+                filePath: '/recordings/one.mp4',
+                state: LanBackupJobState.uploading,
+                uploadedBytes: 1,
+                totalBytes: 2,
+                destinationComputerId: 'computer-1',
+              ),
+            ],
+          ),
+        );
+    addTearDown(snapshots.dispose);
+    int remoteLoadCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: snapshots.value,
+          backupListenable: snapshots,
+          backupSnapshotProvider: () => snapshots.value,
+          onLoadRemoteRecordings:
+              ({required page, required pageSize, keyword = ''}) async {
+                remoteLoadCount++;
+                return RemoteRecordingPage(
+                  data: const <RemoteRecording>[],
+                  page: page,
+                  pageSize: pageSize,
+                  total: 0,
+                  deviceTotal: 0,
+                );
+              },
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(remoteLoadCount, 1);
+
+    snapshots.value = LanBackupSnapshot(
+      endpoint: snapshots.value.endpoint,
+      connectionStatus: LanConnectionStatus.connected,
+      jobs: const <LanBackupJob>[
+        LanBackupJob(
+          id: 'job-1',
+          filePath: '/recordings/one.mp4',
+          state: LanBackupJobState.completed,
+          uploadedBytes: 2,
+          totalBytes: 2,
+          remoteRecordIds: <int>[42],
+          destinationComputerId: 'computer-1',
+        ),
+      ],
+    );
+    await tester.pumpAndSettle();
+    expect(remoteLoadCount, 2);
   });
 
   testWidgets('管理模式可多选并确认删除录像', (WidgetTester tester) async {

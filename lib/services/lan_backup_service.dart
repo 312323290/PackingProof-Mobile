@@ -63,6 +63,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   final MethodChannel _channel;
   final HttpClient _httpClient;
   Timer? _pollTimer;
+  Future<void>? _refreshFuture;
+  bool _refreshAgain = false;
+  bool _nativeHandlerAttached = false;
   String _accessKey = '';
   LanBackupSnapshot _snapshot = const LanBackupSnapshot();
 
@@ -75,6 +78,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     required UnbackedRetentionPolicy unbackedRetention,
     required BackedRetentionPolicy backedRetention,
   }) async {
+    _attachNativeHandler();
     _snapshot = _snapshot.copyWith(autoEnabled: autoEnabled);
     if (!Platform.isAndroid) {
       notifyListeners();
@@ -216,7 +220,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     notifyListeners();
     try {
       final HttpClientRequest request = await _httpClient
-          .getUrl(endpoint.baseUri.replace(path: '/api/mobile-backup/capabilities'))
+          .getUrl(
+            endpoint.baseUri.replace(path: '/api/mobile-backup/capabilities'),
+          )
           .timeout(const Duration(seconds: 5));
       request.followRedirects = false;
       request.headers.set('X-EPM-Access-Key', _accessKey);
@@ -329,10 +335,30 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   }
 
   @override
-  Future<void> refresh() async {
+  Future<void> refresh() {
     if (!Platform.isAndroid) {
-      return;
+      return Future<void>.value();
     }
+    final Future<void>? active = _refreshFuture;
+    if (active != null) {
+      _refreshAgain = true;
+      return active;
+    }
+    final Future<void> refresh = _refreshLoop();
+    _refreshFuture = refresh;
+    return refresh.whenComplete(() {
+      if (identical(_refreshFuture, refresh)) _refreshFuture = null;
+    });
+  }
+
+  Future<void> _refreshLoop() async {
+    do {
+      _refreshAgain = false;
+      await _refreshOnce();
+    } while (_refreshAgain);
+  }
+
+  Future<void> _refreshOnce() async {
     try {
       final Map<Object?, Object?> values =
           (await _channel.invokeMapMethod<Object?, Object?>('snapshot')) ??
@@ -341,6 +367,15 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     } on PlatformException {
       // A worker can briefly hold the state file while replacing it.
     }
+  }
+
+  void _attachNativeHandler() {
+    if (_nativeHandlerAttached || !Platform.isAndroid) return;
+    _nativeHandlerAttached = true;
+    _channel.setMethodCallHandler((MethodCall call) async {
+      if (call.method != 'snapshotChanged' || call.arguments is! Map) return;
+      _applyNativeSnapshot(Map<Object?, Object?>.from(call.arguments! as Map));
+    });
   }
 
   @override
@@ -506,6 +541,10 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   @override
   Future<void> dispose() async {
     _pollTimer?.cancel();
+    if (_nativeHandlerAttached) {
+      _channel.setMethodCallHandler(null);
+      _nativeHandlerAttached = false;
+    }
     _httpClient.close(force: true);
     super.dispose();
   }

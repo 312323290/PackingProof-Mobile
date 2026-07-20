@@ -110,6 +110,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onStart() {
         super.onStart()
+        lanBackupPlugin?.notifySnapshotChanged()
         orderInfoReceiverPlugin?.onHostForeground()
         maxVolumeController?.resumeSession()
     }

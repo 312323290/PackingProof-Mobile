@@ -21,7 +21,10 @@ void main() {
       '卖家备注，核对颜色',
     ]);
     expect(info.speechMessages.first.warning, isTrue);
-    expect(info.speechMessages.any((value) => value.text.contains('商品 A')), isFalse);
+    expect(
+      info.speechMessages.any((value) => value.text.contains('商品 A')),
+      isFalse,
+    );
   });
 
   test('录像索引持久化订单快照', () {
@@ -38,7 +41,9 @@ void main() {
       ),
     );
 
-    final RecordingSession restored = RecordingSession.fromJson(session.toJson());
+    final RecordingSession restored = RecordingSession.fromJson(
+      session.toJson(),
+    );
     expect(restored.orderInfo?.orderId, 'ORDER-1');
     expect(restored.orderInfo?.buyerMessage, '留言');
   });

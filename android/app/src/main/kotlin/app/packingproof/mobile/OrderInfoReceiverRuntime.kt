@@ -6,6 +6,7 @@ import fi.iki.elonen.NanoHTTPD.Response.Status
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.util.Collections
@@ -92,8 +93,7 @@ internal object OrderInfoReceiverRuntime {
         return parts[0] == 10 ||
             (parts[0] == 172 && parts[1] in 16..31) ||
             (parts[0] == 192 && parts[1] == 168) ||
-            (parts[0] == 169 && parts[1] == 254) ||
-            parts[0] == 127
+            (parts[0] == 169 && parts[1] == 254)
     }
 }
 
@@ -160,9 +160,7 @@ private class OrderInfoHttpServer(
         require(contentType.startsWith("application/json", ignoreCase = true)) { "Content-Type 必须为 application/json" }
         val contentLength = session.headers["content-length"]?.toLongOrNull()
         require(contentLength == null || contentLength <= MAX_BODY_BYTES) { "请求内容过大，最大允许 1024 KB" }
-        val files = HashMap<String, String>()
-        session.parseBody(files)
-        val body = files["postData"].orEmpty()
+        val body = readUtf8Body(session, contentLength)
         require(body.toByteArray(Charsets.UTF_8).size <= MAX_BODY_BYTES) { "请求内容过大，最大允许 1024 KB" }
         val values = JSONArray(body)
         require(values.length() > 0) { "空数据" }
@@ -181,6 +179,26 @@ private class OrderInfoHttpServer(
                 .put("count", stored.size)
                 .put("testCount", tests.size),
         )
+    }
+
+    private fun readUtf8Body(session: IHTTPSession, contentLength: Long?): String {
+        if (contentLength == null) {
+            val files = HashMap<String, String>()
+            session.parseBody(files)
+            return files["postData"].orEmpty()
+        }
+        require(contentLength >= 0 && contentLength <= MAX_BODY_BYTES) { "请求内容过大，最大允许 1024 KB" }
+        val output = ByteArrayOutputStream(contentLength.toInt())
+        val buffer = ByteArray(8 * 1024)
+        var remaining = contentLength
+        while (remaining > 0) {
+            val read = session.inputStream.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+            if (read < 0) break
+            output.write(buffer, 0, read)
+            remaining -= read
+        }
+        require(remaining == 0L) { "订单数据接收不完整，请重试" }
+        return output.toByteArray().toString(Charsets.UTF_8)
     }
 
     private fun json(status: Status, value: JSONObject): Response =

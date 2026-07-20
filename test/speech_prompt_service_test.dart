@@ -110,15 +110,18 @@ void main() {
   test('动态订单播报复用按文本和音色生成的缓存', () async {
     final _FakeEdgeGenerator generator = _FakeEdgeGenerator(_mp3Bytes(200));
     final SpeechPromptCache cache = SpeechPromptCache.inDirectory(root);
+    final _FakeSpeechOutput firstOutput = _FakeSpeechOutput();
     final SpeechPromptService first = SpeechPromptService(
-      output: _FakeSpeechOutput(),
+      output: firstOutput,
       edgeGenerator: generator,
       cache: cache,
       assetBundle: _MissingAssetBundle(),
     );
+    await first.prepareText('买家留言，请放门口');
     first.enqueueText('买家留言，请放门口');
     await first.waitUntilIdle();
     expect(generator.calls, 1);
+    expect(firstOutput.files, hasLength(1));
     await first.dispose();
 
     final _FakeEdgeGenerator secondGenerator = _FakeEdgeGenerator(null);
@@ -155,6 +158,24 @@ void main() {
     await service.dispose();
   });
 
+  test('备注播报先播放电脑端同款提示音', () async {
+    final _FakeSpeechOutput output = _FakeSpeechOutput();
+    final SpeechPromptService service = SpeechPromptService(
+      output: output,
+      edgeGenerator: _FakeEdgeGenerator(null),
+      cache: SpeechPromptCache.inDirectory(root),
+      assetBundle: _MissingAssetBundle(),
+      onlineEdgeTtsEnabled: false,
+    );
+
+    service.enqueueText('卖家备注，核对颜色', playRemarkTone: true);
+    await service.waitUntilIdle();
+
+    expect(output.remarkToneCount, 1);
+    expect(output.systemTexts, <String>['卖家备注，核对颜色']);
+    await service.dispose();
+  });
+
   test('内置音频存在时不调用 Edge 在线生成', () async {
     final _FakeSpeechOutput output = _FakeSpeechOutput();
     final _FakeEdgeGenerator generator = _FakeEdgeGenerator(_mp3Bytes(200));
@@ -175,8 +196,7 @@ void main() {
   });
 
   test('准备阶段预加载全部内置语音', () async {
-    final _PreparableFakeSpeechOutput output =
-        _PreparableFakeSpeechOutput();
+    final _PreparableFakeSpeechOutput output = _PreparableFakeSpeechOutput();
     final SpeechPromptService service = SpeechPromptService(
       output: output,
       edgeGenerator: _FakeEdgeGenerator(null),
@@ -273,12 +293,16 @@ class _FakeSpeechOutput implements SpeechOutput {
   final List<String> files = <String>[];
   final List<String> systemTexts = <String>[];
   final List<bool> offlineOnlyRequests = <bool>[];
+  int remarkToneCount = 0;
 
   @override
   Future<void> playAsset(String assetPath) async => assets.add(assetPath);
 
   @override
   Future<void> playFile(String filePath) async => files.add(filePath);
+
+  @override
+  Future<void> playRemarkTone() async => remarkToneCount++;
 
   @override
   Future<void> speakSystem(String text, {bool offlineOnly = false}) async {

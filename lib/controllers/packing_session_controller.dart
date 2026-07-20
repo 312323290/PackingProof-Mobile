@@ -1212,16 +1212,33 @@ class PackingSessionController extends ChangeNotifier {
     if (_disposed) return;
     if (info.isTest) {
       if (_speechService case final DynamicSpeechPromptSink speech) {
-        speech.enqueueText('已收到测试订单');
+        speech.enqueueText('已收到测试订单', playRemarkTone: true);
       }
       return;
     }
+    _prepareOrderSpeech(info);
     if (_timeline.currentCode.isEmpty ||
         info.trackingNumber != _timeline.currentCode.trim().toUpperCase()) {
       return;
     }
     _setActiveOrderInfo(info, announce: false);
     _announceOrderInfo(info);
+  }
+
+  void _prepareOrderSpeech(OrderInfo info) {
+    if (!_speechEnabled || !_orderSpeechEnabled) return;
+    if (_speechService case final DynamicSpeechPromptSink speech) {
+      for (final message in info.speechMessages) {
+        unawaited(
+          speech.prepareText(
+            message.text,
+            priority: message.warning
+                ? SpeechPromptPriority.warning
+                : SpeechPromptPriority.normal,
+          ),
+        );
+      }
+    }
   }
 
   void _setActiveOrderInfo(OrderInfo? value, {required bool announce}) {
@@ -1252,6 +1269,7 @@ class PackingSessionController extends ChangeNotifier {
           incidentKey: message.warning
               ? 'order-refund:${info.trackingNumber}:${info.refundStatus}'
               : null,
+          playRemarkTone: !message.warning,
         );
       }
     }

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:crypto/crypto.dart';
@@ -33,10 +35,16 @@ abstract interface class PreparableSpeechPromptSink {
 }
 
 abstract interface class DynamicSpeechPromptSink {
+  Future<void> prepareText(
+    String text, {
+    SpeechPromptPriority priority = SpeechPromptPriority.normal,
+  });
+
   void enqueueText(
     String text, {
     SpeechPromptPriority priority = SpeechPromptPriority.normal,
     String? incidentKey,
+    bool playRemarkTone = false,
   });
 }
 
@@ -45,24 +53,29 @@ class _QueuedSpeechPrompt {
     : prompt = value,
       text = value.text,
       voice = value.voice,
-      priority = value.priority;
+      priority = value.priority,
+      playRemarkTone = false;
 
   _QueuedSpeechPrompt.dynamic({
     required this.text,
     required this.voice,
     required this.priority,
+    required this.playRemarkTone,
   }) : prompt = null;
 
   final SpeechPrompt? prompt;
   final String text;
   final String voice;
   final SpeechPromptPriority priority;
+  final bool playRemarkTone;
 }
 
 abstract interface class SpeechOutput {
   Future<void> playAsset(String assetPath);
 
   Future<void> playFile(String filePath);
+
+  Future<void> playRemarkTone();
 
   Future<void> speakSystem(String text, {bool offlineOnly = false});
 
@@ -105,6 +118,8 @@ class SpeechPromptService
   final ListQueue<_QueuedSpeechPrompt> _queue =
       ListQueue<_QueuedSpeechPrompt>();
   final Set<String> _activeIncidents = <String>{};
+  final Map<String, Future<File?>> _dynamicGenerations =
+      <String, Future<File?>>{};
 
   bool _enabled = true;
   bool _draining = false;
@@ -185,6 +200,7 @@ class SpeechPromptService
     String text, {
     SpeechPromptPriority priority = SpeechPromptPriority.normal,
     String? incidentKey,
+    bool playRemarkTone = false,
   }) {
     final String normalized = text.trim();
     if (_disposed || !_enabled || normalized.isEmpty) return;
@@ -204,9 +220,46 @@ class SpeechPromptService
             ? SpeechPrompt.warningVoice
             : SpeechPrompt.normalVoice,
         priority: priority,
+        playRemarkTone: playRemarkTone,
       ),
     );
     unawaited(_drain());
+  }
+
+  @override
+  Future<void> prepareText(
+    String text, {
+    SpeechPromptPriority priority = SpeechPromptPriority.normal,
+  }) async {
+    final String normalized = text.trim();
+    if (_disposed || normalized.isEmpty || !onlineEdgeTtsEnabled) return;
+    final String voice = priority == SpeechPromptPriority.warning
+        ? SpeechPrompt.warningVoice
+        : SpeechPrompt.normalVoice;
+    await _prepareDynamicText(normalized, voice);
+  }
+
+  Future<File?> _prepareDynamicText(String text, String voice) async {
+    final File? cached = await _cache.findText(text, voice);
+    if (cached != null || _disposed || !onlineEdgeTtsEnabled) return cached;
+    final String key = SpeechPromptCache.cacheKeyFor(text, voice);
+    final Future<File?>? active = _dynamicGenerations[key];
+    if (active != null) return active;
+    final Future<File?> generation = () async {
+      try {
+        final Uint8List bytes = await _edgeGenerator
+            .synthesize(text: text, voice: voice)
+            .timeout(const Duration(seconds: 10));
+        if (_disposed) return null;
+        return await _cache.storeText(text, voice, bytes);
+      } on Object {
+        return null;
+      } finally {
+        _dynamicGenerations.remove(key);
+      }
+    }();
+    _dynamicGenerations[key] = generation;
+    return generation;
   }
 
   @override
@@ -259,6 +312,13 @@ class SpeechPromptService
 
   Future<void> _playWithFallback(_QueuedSpeechPrompt item) async {
     await prepare();
+    if (item.playRemarkTone) {
+      try {
+        await _output.playRemarkTone();
+      } on Object {
+        // The short cue is optional; speech should still continue.
+      }
+    }
     final SpeechPrompt? prompt = item.prompt;
     if (prompt != null && await _hasBundledAsset(prompt)) {
       try {
@@ -277,6 +337,18 @@ class SpeechPromptService
       } on Object {
         await _cache.remove(cached);
       }
+    }
+
+    // 订单等动态文本必须立即响应。缓存缺失时在后台生成 Edge 音频，
+    // 当前这次直接使用系统语音，后续再次出现时再复用 Edge 缓存。
+    if (prompt == null) {
+      unawaited(_prepareDynamicText(item.text, item.voice));
+      try {
+        await _output.speakSystem(item.text, offlineOnly: offlineSystemTtsOnly);
+      } on Object {
+        // Speech must never interrupt or fail the recording workflow.
+      }
+      return;
     }
 
     if (onlineEdgeTtsEnabled) {
@@ -417,6 +489,59 @@ class DeviceSpeechOutput implements SpeechOutput, PreparableSpeechOutput {
   @override
   Future<void> playFile(String filePath) async {
     await _play(DeviceFileSource(filePath));
+  }
+
+  @override
+  Future<void> playRemarkTone() => _play(BytesSource(_remarkToneWav()));
+
+  static Uint8List _remarkToneWav() {
+    const int sampleRate = 22050;
+    const int toneMs = 120;
+    const int gapMs = 45;
+    const double volume = 0.50;
+    const List<int> tones = <int>[660, 880];
+    final int toneSamples = sampleRate * toneMs ~/ 1000;
+    final int gapSamples = sampleRate * gapMs ~/ 1000;
+    final int sampleCount = tones.length * toneSamples + gapSamples;
+    final ByteData wav = ByteData(44 + sampleCount * 2);
+    void ascii(int offset, String value) {
+      for (int index = 0; index < value.length; index++) {
+        wav.setUint8(offset + index, value.codeUnitAt(index));
+      }
+    }
+
+    ascii(0, 'RIFF');
+    wav.setUint32(4, 36 + sampleCount * 2, Endian.little);
+    ascii(8, 'WAVE');
+    ascii(12, 'fmt ');
+    wav.setUint32(16, 16, Endian.little);
+    wav.setUint16(20, 1, Endian.little);
+    wav.setUint16(22, 1, Endian.little);
+    wav.setUint32(24, sampleRate, Endian.little);
+    wav.setUint32(28, sampleRate * 2, Endian.little);
+    wav.setUint16(32, 2, Endian.little);
+    wav.setUint16(34, 16, Endian.little);
+    ascii(36, 'data');
+    wav.setUint32(40, sampleCount * 2, Endian.little);
+    int output = 0;
+    for (final int frequency in tones) {
+      for (int index = 0; index < toneSamples; index++) {
+        final int edge = math.max(1, toneSamples ~/ 10);
+        final double envelope = index < edge
+            ? index / edge
+            : index >= toneSamples - edge
+            ? (toneSamples - index - 1) / edge
+            : 1;
+        final double value =
+            math.sin(2 * math.pi * frequency * index / sampleRate) *
+            volume *
+            envelope;
+        wav.setInt16(44 + output * 2, (value * 32767).round(), Endian.little);
+        output++;
+      }
+      if (frequency != tones.last) output += gapSamples;
+    }
+    return wav.buffer.asUint8List();
   }
 
   Future<void> _play(Source source) async {

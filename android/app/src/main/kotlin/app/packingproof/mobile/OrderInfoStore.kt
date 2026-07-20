@@ -10,7 +10,7 @@ internal class OrderInfoStore(context: Context) : SQLiteOpenHelper(
     context,
     "order_info.db",
     null,
-    1,
+    2,
 ) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -25,7 +25,12 @@ internal class OrderInfoStore(context: Context) : SQLiteOpenHelper(
         db.execSQL("CREATE INDEX idx_order_info_push_time ON order_info(push_time DESC)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // The app has not been released yet. Drop development caches so data
+        // previously decoded with the wrong request charset cannot survive.
+        db.execSQL("DROP TABLE IF EXISTS order_info")
+        onCreate(db)
+    }
 
     @Synchronized
     fun upsert(items: List<OrderInfoRecord>): List<OrderInfoRecord> {

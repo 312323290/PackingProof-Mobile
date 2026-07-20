@@ -44,6 +44,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   int _selectedTab = 1;
   String _historySearchQuery = '';
   int _handledPairingSuccessRevision = 0;
+  Timer? _watermarkClock;
 
   @override
   void initState() {
@@ -56,6 +57,9 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
         offlineSystemTtsOnly: widget.buildConfig.isStandalone,
       ),
     );
+    _watermarkClock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _selectedTab == 1) setState(() {});
+    });
     unawaited(_controller.initialize());
   }
 
@@ -76,6 +80,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _watermarkClock?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -302,6 +307,7 @@ class PackingHomeView extends StatelessWidget {
     this.onTorchPressed,
     this.onCameraSwitchPressed,
     this.previewOverride,
+    this.watermarkTimestamp,
     super.key,
   });
 
@@ -330,6 +336,7 @@ class PackingHomeView extends StatelessWidget {
   final VoidCallback onPrimaryPressed;
   final VoidCallback onRetryPressed;
   final Widget? previewOverride;
+  final DateTime? watermarkTimestamp;
 
   bool get _isRecording => phase == PackingSessionPhase.recording;
   bool get _isWorking =>
@@ -441,16 +448,15 @@ class _CameraArea extends StatelessWidget {
         fit: StackFit.expand,
         children: <Widget>[
           Positioned.fill(child: preview),
-          if (view._isRecording)
-            Positioned(
-              key: const Key('camera-watermark-position'),
-              top: 22,
-              right: view.flashAvailable ? 72 : 18,
-              child: _CameraWatermarkPreview(
-                timestamp: DateTime.now(),
-                trackingNumber: view.currentCode,
-              ),
+          Positioned(
+            key: const Key('camera-watermark-position'),
+            top: 22,
+            right: view.flashAvailable ? 72 : 18,
+            child: _CameraWatermarkPreview(
+              timestamp: view.watermarkTimestamp ?? DateTime.now(),
+              trackingNumber: view.currentCode,
             ),
+          ),
           Positioned(
             left: 24,
             right: 24,

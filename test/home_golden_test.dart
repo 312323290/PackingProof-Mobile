@@ -89,6 +89,7 @@ void main() {
           phase: PackingSessionPhase.ready,
           elapsed: Duration.zero,
           nativePreviewSize: const Size(1080, 1920),
+          watermarkTimestamp: DateTime(2026, 7, 20, 10, 57, 50),
           previewOverride: Image(image: preview, fit: BoxFit.cover),
           onPrimaryPressed: () {},
           onRetryPressed: () {},

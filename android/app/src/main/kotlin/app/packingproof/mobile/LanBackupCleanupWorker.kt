@@ -20,7 +20,7 @@ internal object LanBackupCleanupScheduler {
         val id = job.getString("id")
         val workManager = WorkManager.getInstance(context)
         val dueAt = dueAt(store, job)
-        if (dueAt == null || job.optString("localDeletedAt").isNotBlank()) {
+        if (dueAt == null || nullableText(job, "localDeletedAt") != null) {
             workManager.cancelUniqueWork(WORK_PREFIX + id)
             job.put("scheduledCleanupAt", JSONObject.NULL).put("waitingCleanup", false)
             store.writeJob(job)
@@ -45,7 +45,7 @@ internal object LanBackupCleanupScheduler {
     }
 
     fun dueAt(store: LanBackupStateStore, job: JSONObject): Instant? {
-        val completedAt = job.optString("backupCompletedAt").takeIf { it.isNotBlank() }
+        val completedAt = nullableText(job, "backupCompletedAt")
         if (job.optString("state") == "completed" && completedAt == null) return null
         val days = if (completedAt != null) store.backedRetentionDays() else store.unbackedRetentionDays()
         if (days < 0) return null
@@ -54,6 +54,17 @@ internal object LanBackupCleanupScheduler {
         }.getOrNull() ?: return null
         return base.plus(Duration.ofDays(days.toLong()))
     }
+
+    internal fun nullableText(value: JSONObject, key: String): String? {
+        if (!value.has(key) || value.isNull(key)) return null
+        return normalizeNullableText(value.opt(key))
+    }
+
+    internal fun normalizeNullableText(value: Any?): String? = value
+        ?.takeUnless { it == JSONObject.NULL }
+        ?.toString()
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && it != "null" }
 }
 
 internal class LanBackupCleanupWorker(
@@ -65,7 +76,9 @@ internal class LanBackupCleanupWorker(
     override suspend fun doWork(): Result {
         val id = inputData.getString("jobId") ?: return Result.failure()
         val job = store.readJob(id) ?: return Result.success()
-        if (job.optString("localDeletedAt").isNotBlank()) return Result.success()
+        if (LanBackupCleanupScheduler.nullableText(job, "localDeletedAt") != null) {
+            return Result.success()
+        }
         val dueAt = LanBackupCleanupScheduler.dueAt(store, job) ?: return Result.success()
         if (Instant.now().isBefore(dueAt)) {
             LanBackupCleanupScheduler.reschedule(applicationContext, store, job)
@@ -78,9 +91,9 @@ internal class LanBackupCleanupWorker(
         }
 
         val file = File(job.optString("filePath"))
-        val filesRoot = applicationContext.filesDir.canonicalFile
+        val appDataRoot = applicationContext.dataDir.canonicalFile
         val managed = runCatching {
-            file.canonicalFile.path.startsWith(filesRoot.path + File.separator)
+            file.canonicalFile.path.startsWith(appDataRoot.path + File.separator)
         }.getOrDefault(false)
         if (!managed) {
             job.put("waitingCleanup", false)

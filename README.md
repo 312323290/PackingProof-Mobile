@@ -6,7 +6,11 @@
 
 [下载最新版本](https://github.com/PackingProof/PackingProof-Mobile/releases)
 
-![包裹留证界面](assets/images/packing-preview.png)
+<p align="center">
+  <img src="docs/screenshots/history.jpg" alt="录像历史与快速查找" width="31%">
+  <img src="docs/screenshots/home.jpg" alt="录制与面单识别" width="31%">
+  <img src="docs/screenshots/settings.png" alt="设置" width="31%">
+</p>
 
 ## 核心能力
 

@@ -17,7 +17,7 @@ PackingProof-Mobile is a Flutter app for continuous package-recording and shippi
 ## Product Constraints
 
 - Maintain one unified app edition. Do not reintroduce standard/standalone flavors or multiple APK variants.
-- Speech prompts use Android system TTS in offline-only mode. Do not add Edge TTS, online speech generation, or bundled generated TTS caches.
+- Generate fixed speech assets with Edge TTS on the build machine and bundle them in the APK. The app runtime must never call Edge TTS or require internet access; dynamic text and missing assets fall back to Android system TTS in offline-only mode.
 - The refund warning sound is generated locally and must remain consistent with the desktop warning behavior.
 - Barcode scanning and uninterrupted recording are the core workflow. Avoid changes that require touch interaction during normal scanning work.
 - Preserve local recordings and settings during upgrades. Never delete recordings based only on missing, stale, or partially matched metadata.
@@ -47,6 +47,7 @@ dart format <changed-files>
 - Run the affected test file while iterating.
 - Before committing, run `flutter analyze` and the relevant tests.
 - Before a release, use `Tools/Build-Android.ps1`; it runs the full analysis and test suite before packaging.
+- The release script must validate and reuse matching speech assets, generating only missing or changed fixed prompts before packaging.
 - Recording, camera, audio, permissions, background lifecycle, installation upgrades, and LAN backup changes still require real-device validation when affected.
 
 ## Android Release
@@ -65,7 +66,7 @@ pwsh -NoProfile -File Tools\Build-Android.ps1 `
 - Keep keystores and `签名凭据.txt` outside the repository.
 - Never print, commit, copy, or package signing credentials.
 - Release output is `dist/android/PackingProof-Mobile.apk`, with `SHA256SUMS.txt` and `build-manifest.json`.
-- Treat the build as successful only when metadata, Git revision, formal signature, and SHA256 validation all pass.
+- Treat the build as successful only when bundled speech assets, metadata, Git revision, formal signature, and SHA256 validation all pass.
 
 ## Change Discipline
 

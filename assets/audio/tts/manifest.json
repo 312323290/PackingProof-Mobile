@@ -1,0 +1,136 @@
+{
+  "version": 3,
+  "format": "audio-24khz-48kbitrate-mono-mp3",
+  "prompts": [
+    {
+      "id": "ready",
+      "text": "准备就绪",
+      "priority": "normal",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "file": "ready.mp3",
+      "bytes": 10172,
+      "sha256": "60eba40f7d0b70f7e681efba18d5db8997a624702ace1183be4ae550efe3ce77",
+      "cacheKey": "eb8b20fa546143dd6d81d712d6f3ea0c6f8756b9c63edb22f15e6a79a01ee1f2"
+    },
+    {
+      "id": "recordingStarted",
+      "text": "开始录制",
+      "priority": "normal",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "file": "recording_started.mp3",
+      "bytes": 9308,
+      "sha256": "6875c4a0f7529e8366093d8cfff15c8fe3cd9d31259e6511963ae056fb3530b4",
+      "cacheKey": "58d6638f155e64b4f6d91794451b65c7b3328c094c83d39a0f6b807bb561a5b0"
+    },
+    {
+      "id": "recordingStopped",
+      "text": "停止录制",
+      "priority": "normal",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "file": "recording_stopped.mp3",
+      "bytes": 9308,
+      "sha256": "38dc2f5276d8bc4983ee5f0da5f51b3ce9549b0b1ee0e0c3f41695eadf53e970",
+      "cacheKey": "15e7f824ba5d96179e632600f2fb892f300e4503deddc56cdc7af4ece5e97462"
+    },
+    {
+      "id": "previewEnabled",
+      "text": "语音提示已开启",
+      "priority": "normal",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "file": "preview_enabled.mp3",
+      "bytes": 12620,
+      "sha256": "fb8950a23f4f0fcd520d8981a862ca9a25d3edcb554cc1b95e97f777711f92bf",
+      "cacheKey": "a6946a5f2d27365597d3ea75d818fd54bf9e1fbb8346b4e935cf064e79c058a8"
+    },
+    {
+      "id": "cameraNotReady",
+      "text": "摄像头未就绪",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "camera_not_ready.mp3",
+      "bytes": 13484,
+      "sha256": "8bd457391594cf489dd767a4f4c91f5e720fcda17c51b1131ebd3065aba0c118",
+      "cacheKey": "a8751d9aa0e1416cf42f8f3e224daaa9135473c0c9bd0c571eaea48d7ca4bd93"
+    },
+    {
+      "id": "cameraNotFound",
+      "text": "未检测到摄像头",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "camera_not_found.mp3",
+      "bytes": 14492,
+      "sha256": "9ad85ff9be60c81c1939b2851db0d9033987ef107a9f29b3b7b20006ac98a06d",
+      "cacheKey": "e59868f43651f1c573da1b6b79a558bb12810323674de9b8504ae3d265b78d7b"
+    },
+    {
+      "id": "permissionRequired",
+      "text": "需要摄像头和麦克风权限",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "permission_required.mp3",
+      "bytes": 18380,
+      "sha256": "07f815670ecfff6b8275da48ccf6701a24aefe9dda247326ca9bc708d51c740d",
+      "cacheKey": "b04c99180a981d3d1af3103b0598d7f261a0655c0e16d3516e3a81c1cdc98adf"
+    },
+    {
+      "id": "recordingFailed",
+      "text": "录制失败",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "recording_failed.mp3",
+      "bytes": 10604,
+      "sha256": "f43b5eaa7fd75d8a8de4c71c73d60f494bc2ca28f46488c916aad9c2048fe315",
+      "cacheKey": "4924b4a921daace468434bfed88cbedd8c9a404cbdb772ca095fe1db4ed88701"
+    },
+    {
+      "id": "audioRecordingFailed",
+      "text": "声音录制异常",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "audio_recording_failed.mp3",
+      "bytes": 13052,
+      "sha256": "2f49774df2a7745cdbaaeb637d5450ec380b9d801060f2ce1f88f7e711b1cc7a",
+      "cacheKey": "8a6ab586e6e61c5c4e6cf018325fc315e94c31f53cb64a59c33c6b89962576b0"
+    },
+    {
+      "id": "videoFileCreateFailed",
+      "text": "录像文件创建失败",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "video_file_create_failed.mp3",
+      "bytes": 15788,
+      "sha256": "ecfbad94df416bf50e8b00da110418430d62dc35286203c0b0d2c040e6687af4",
+      "cacheKey": "c2a4a4a2d39079e71faf4e238ddeb9f993b5f13df4b1266c74c31f714b58de15"
+    },
+    {
+      "id": "segmentSaveFailed",
+      "text": "录像分段保存失败",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "segment_save_failed.mp3",
+      "bytes": 15356,
+      "sha256": "ba378015c2643d739a0c4e9a60b04b82ac0537dce55fdc59bcce76c7f67305fe",
+      "cacheKey": "c64faf3cb16afc380e3210c620964efb721bf23597bc369a6695b00a477fafd4"
+    },
+    {
+      "id": "recordingSaveFailed",
+      "text": "录像保存失败",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "recording_save_failed.mp3",
+      "bytes": 13340,
+      "sha256": "8e068e3f586a31fac200774d98c10d2fe5bdb00ed0b0a8ec7a4af0fb1856659c",
+      "cacheKey": "11feaa3f7c42ac4c75be6a5f7d7872a660830dce35fde2814e61f9c7144c7ed5"
+    },
+    {
+      "id": "cameraDisconnected",
+      "text": "摄像头连接已断开",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "camera_disconnected.mp3",
+      "bytes": 15644,
+      "sha256": "6a9faea6a942c41865097214eab5f8a9c499019ef400447b8afda5bc186a1747",
+      "cacheKey": "ccdd81530067ecb8f616211950750faa887b8024a4aaa5f8aad7e3fa729189c6"
+    }
+  ]
+}

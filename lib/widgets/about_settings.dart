@@ -91,6 +91,7 @@ class _AboutScreenState extends State<AboutScreen> {
     ),
     (name: 'flutter_tts', url: 'https://pub.dev/packages/flutter_tts'),
     (name: 'audioplayers', url: 'https://pub.dev/packages/audioplayers'),
+    (name: 'Microsoft Edge TTS', url: 'https://www.microsoft.com/edge'),
   ];
 
   Future<void> _open(String value) async {

@@ -38,6 +38,7 @@ void main() {
     expect(find.text('源码仓库'), findsOneWidget);
     expect(find.text('版本发布'), findsOneWidget);
     expect(find.text('Flutter'), findsOneWidget);
+    expect(find.text('Microsoft Edge TTS'), findsOneWidget);
 
     await tester.tap(find.text('版本发布'));
     await tester.pump();

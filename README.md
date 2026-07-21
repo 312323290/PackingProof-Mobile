@@ -17,7 +17,7 @@
 - 应用退到后台时自动结束并保存当前录像
 - 录像期间保持屏幕常亮
 - 录像保留现场声音；启动后提示准备就绪，首次识别和切换面单时提示开始录制
-- 语音提示使用系统离线 TTS，退款提示音由应用本地生成
+- 固定语音由构建机通过 Edge TTS 预生成并内置，动态订单文字使用系统离线 TTS，退款提示音由应用本地生成
 
 ## 最短使用路径
 
@@ -39,7 +39,7 @@ flutter build apk --debug
 pwsh -NoProfile -File Tools\Build-Android.ps1
 ```
 
-Android 调试包输出到 `build/app/outputs/flutter-apk/app-debug.apk`。发布脚本只生成一个统一安装包 `dist/android/PackingProof-Mobile.apk`；传入仓库外的签名目录时，会额外校验正式签名、版本信息和 SHA256。
+Android 调试包输出到 `build/app/outputs/flutter-apk/app-debug.apk`。发布脚本会先校验并复用内置语音，仅在固定语音缺失或配置变化时通过 Edge TTS 补齐，然后生成一个统一安装包 `dist/android/PackingProof-Mobile.apk`；传入仓库外的签名目录时，会额外校验正式签名、版本信息和 SHA256。真机不调用 Edge TTS，固定提示直接播放 APK 资源，动态文字回退到系统离线语音。
 
 iOS 工程已配置最低版本 15.5 和摄像头用途说明，但必须在 macOS + Xcode 环境中完成签名、真机运行和打包验证。
 

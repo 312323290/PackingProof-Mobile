@@ -13,6 +13,85 @@ Set-Location $repo
 if ($VersionName -notmatch '^\d+\.\d+\.\d+$') { throw 'VersionName 必须为 x.y.z 格式' }
 if ($VersionCode -le 0) { throw 'VersionCode 必须大于 0' }
 
+function Invoke-SpeechAssetGeneration {
+    $generator = Join-Path $repo 'tool/generate_speech_assets.dart'
+    if (-not (Test-Path -LiteralPath $generator -PathType Leaf)) {
+        throw "找不到固定语音生成器：$generator"
+    }
+    & dart run $generator
+    if ($LASTEXITCODE -ne 0) {
+        throw "固定语音生成失败，退出代码：$LASTEXITCODE"
+    }
+}
+
+function Get-SpeechAssetState {
+    param([Parameter(Mandatory)][string]$ManifestPath)
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+        throw "缺少内置语音清单：$ManifestPath"
+    }
+    $manifest = Get-Content -Raw -Encoding UTF8 $ManifestPath | ConvertFrom-Json
+    $result = [ordered]@{}
+    foreach ($prompt in @($manifest.prompts)) {
+        $audioPath = Join-Path (Split-Path -Parent $ManifestPath) $prompt.file
+        if (-not (Test-Path -LiteralPath $audioPath -PathType Leaf)) {
+            throw "缺少内置语音：$($prompt.file)"
+        }
+        $file = Get-Item -LiteralPath $audioPath
+        if ($file.Length -lt 128 -or $file.Length -ne [long]$prompt.bytes) {
+            throw "内置语音大小与清单不一致：$($prompt.file)"
+        }
+        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $audioPath).Hash.ToLowerInvariant()
+        if ($hash -ne "$($prompt.sha256)".ToLowerInvariant()) {
+            throw "内置语音哈希与清单不一致：$($prompt.file)"
+        }
+        $cacheInput = "$($prompt.text)|$($prompt.voice)|$($manifest.format)|$($manifest.version)"
+        $cacheHash = [Convert]::ToHexString(
+            [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($cacheInput))
+        ).ToLowerInvariant()
+        if ($cacheHash -ne "$($prompt.cacheKey)".ToLowerInvariant()) {
+            throw "内置语音缓存键与清单不一致：$($prompt.file)"
+        }
+        if ($result.Contains($prompt.file)) { throw "内置语音清单包含重复文件：$($prompt.file)" }
+        $result[$prompt.file] = $hash
+    }
+    if ($result.Count -eq 0) { throw '内置语音清单为空' }
+    return $result
+}
+
+function Assert-SameSpeechAssetState {
+    param([Parameter(Mandatory)]$Before, [Parameter(Mandatory)]$After)
+    if ($Before.Count -ne $After.Count) { throw '构建过程改变了内置语音文件数量' }
+    foreach ($name in $Before.Keys) {
+        if (-not $After.Contains($name) -or $Before[$name] -ne $After[$name]) {
+            throw "构建过程改变了内置语音：$name"
+        }
+    }
+}
+
+function Assert-ApkContainsSpeechAssets {
+    param(
+        [Parameter(Mandatory)][string]$ApkPath,
+        [Parameter(Mandatory)]$SpeechAssets
+    )
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($ApkPath)
+    try {
+        $entries = @{}
+        foreach ($entry in $archive.Entries) { $entries[$entry.FullName] = $entry.Length }
+        $manifestEntry = 'assets/flutter_assets/assets/audio/tts/manifest.json'
+        if (-not $entries.ContainsKey($manifestEntry)) { throw 'APK 缺少内置语音清单' }
+        foreach ($name in $SpeechAssets.Keys) {
+            $entryName = "assets/flutter_assets/assets/audio/tts/$name"
+            if (-not $entries.ContainsKey($entryName) -or $entries[$entryName] -lt 128) {
+                throw "APK 缺少有效的内置语音：$name"
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 function Resolve-ApkAnalyzer {
     $candidates = @(
         (Join-Path "$env:ANDROID_HOME" 'cmdline-tools/latest/bin/apkanalyzer.bat'),
@@ -180,6 +259,9 @@ try {
     Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $repo 'build/app/outputs/flutter-apk/*.apk')
     flutter clean
     flutter pub get
+    Invoke-SpeechAssetGeneration
+    $speechManifestPath = Join-Path $repo 'assets/audio/tts/manifest.json'
+    $speechAssetsBefore = Get-SpeechAssetState -ManifestPath $speechManifestPath
     flutter analyze
     flutter test
 
@@ -191,6 +273,9 @@ try {
 
     $source = Join-Path $repo 'build/app/outputs/flutter-apk/app-release.apk'
     if (-not (Test-Path -LiteralPath $source)) { throw "未找到构建产物：$source" }
+    $speechAssetsAfter = Get-SpeechAssetState -ManifestPath $speechManifestPath
+    Assert-SameSpeechAssetState -Before $speechAssetsBefore -After $speechAssetsAfter
+    Assert-ApkContainsSpeechAssets -ApkPath $source -SpeechAssets $speechAssetsBefore
     Assert-ApkMetadata -ApkPath $source -Revision $revision -Timestamp $buildTimestamp -BuildStartedAt $buildStartedAt -Analyzer $analyzer
     if ($signing) {
         Assert-ApkSignature -ApkPath $source -ApkSigner $apkSigner -ExpectedSha256 $signingCertificateSha256
@@ -211,6 +296,7 @@ try {
         builtAtUtc = $buildTimestamp
         releaseSigned = [bool]$signing
         signingCertificateSha256 = $signingCertificateSha256
+        bundledSpeechAssetCount = $speechAssetsBefore.Count
         artifacts = $artifacts
     }
     [IO.File]::WriteAllText(

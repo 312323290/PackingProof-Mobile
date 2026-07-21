@@ -243,6 +243,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_edge_tts:
+    dependency: "direct dev"
+    description:
+      name: flutter_edge_tts
+      sha256: "1223b652f09d055e26d840102943e3c6398500b0874ac6a8ad61ea6025cfa47c"
+      url: "https://pub.flutter-io.cn"
+    source: hosted
+    version: "0.0.2"
   flutter_lints:
     dependency: "direct dev"
     description:

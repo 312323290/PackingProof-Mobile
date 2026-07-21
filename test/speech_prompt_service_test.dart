@@ -5,8 +5,20 @@ import 'package:packing_proof_mobile/models/speech_prompt.dart';
 import 'package:packing_proof_mobile/services/speech_prompt_service.dart';
 
 void main() {
-  test('固定提示使用离线系统语音', () async {
+  test('固定提示优先播放内置 Edge 语音', () async {
     final _FakeSpeechOutput output = _FakeSpeechOutput();
+    final SpeechPromptService service = SpeechPromptService(output: output);
+
+    service.enqueue(SpeechPrompt.recordingFailed);
+    await service.waitUntilIdle();
+
+    expect(output.assetPaths, <String>['audio/tts/recording_failed.mp3']);
+    expect(output.systemTexts, isEmpty);
+    await service.dispose();
+  });
+
+  test('固定语音资源损坏时回退离线系统语音', () async {
+    final _FakeSpeechOutput output = _FakeSpeechOutput(failAssets: true);
     final SpeechPromptService service = SpeechPromptService(output: output);
 
     service.enqueue(SpeechPrompt.recordingFailed);
@@ -68,12 +80,12 @@ void main() {
     service.enqueue(SpeechPrompt.cameraDisconnected, incidentKey: 'camera');
     service.enqueue(SpeechPrompt.cameraDisconnected, incidentKey: 'camera');
     await service.waitUntilIdle();
-    expect(output.systemTexts, hasLength(1));
+    expect(output.assetPaths, hasLength(1));
 
     service.resolveIncident('camera');
     service.enqueue(SpeechPrompt.cameraDisconnected, incidentKey: 'camera');
     await service.waitUntilIdle();
-    expect(output.systemTexts, hasLength(2));
+    expect(output.assetPaths, hasLength(2));
     await service.dispose();
   });
 
@@ -82,23 +94,36 @@ void main() {
     final SpeechPromptService service = SpeechPromptService(output: output);
 
     service.enqueue(SpeechPrompt.ready);
-    while (output.systemTexts.isEmpty) {
+    while (output.assetPaths.isEmpty) {
       await Future<void>.delayed(Duration.zero);
     }
     service.enqueue(SpeechPrompt.recordingStarted);
     await service.waitUntilIdle();
 
-    expect(output.systemTexts, <String>['准备就绪', '开始录制']);
+    expect(output.assetPaths, <String>[
+      'audio/tts/ready.mp3',
+      'audio/tts/recording_started.mp3',
+    ]);
     expect(output.stopCount, greaterThanOrEqualTo(1));
     await service.dispose();
   });
 }
 
 class _FakeSpeechOutput implements SpeechOutput {
+  _FakeSpeechOutput({this.failAssets = false});
+
+  final bool failAssets;
+  final List<String> assetPaths = <String>[];
   final List<String> systemTexts = <String>[];
   final List<bool> offlineOnlyRequests = <bool>[];
   int remarkToneCount = 0;
   int warningToneCount = 0;
+
+  @override
+  Future<void> playAsset(String assetPath) async {
+    assetPaths.add(assetPath);
+    if (failAssets) throw StateError('asset unavailable');
+  }
 
   @override
   Future<void> playRemarkTone() async => remarkToneCount++;
@@ -124,9 +149,9 @@ class _InterruptibleSpeechOutput extends _FakeSpeechOutput {
   int stopCount = 0;
 
   @override
-  Future<void> speakSystem(String text, {bool offlineOnly = false}) async {
-    await super.speakSystem(text, offlineOnly: offlineOnly);
-    if (text == '准备就绪') await _readyPlayback.future;
+  Future<void> playAsset(String assetPath) async {
+    await super.playAsset(assetPath);
+    if (assetPath == 'audio/tts/ready.mp3') await _readyPlayback.future;
   }
 
   @override

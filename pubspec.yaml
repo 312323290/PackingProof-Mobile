@@ -50,6 +50,7 @@ dev_dependencies:
     sdk: flutter
   integration_test:
     sdk: flutter
+  flutter_edge_tts: 0.0.2
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -73,6 +74,7 @@ flutter:
     - assets/images/app-icon.png
     - assets/images/packing-preview.png
     - assets/design/selected-option.png
+    - assets/audio/tts/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

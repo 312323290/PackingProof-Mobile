@@ -57,6 +57,8 @@ class _QueuedSpeechPrompt {
 }
 
 abstract interface class SpeechOutput {
+  Future<void> playAsset(String assetPath);
+
   Future<void> playRemarkTone();
 
   Future<void> playWarningTone();
@@ -228,6 +230,15 @@ class SpeechPromptService implements SpeechPromptSink, DynamicSpeechPromptSink {
         // The warning cue is optional; speech should still continue.
       }
     }
+    final SpeechPrompt? prompt = item.prompt;
+    if (prompt != null) {
+      try {
+        await _output.playAsset(prompt.audioPlayerAssetPath);
+        return;
+      } on Object {
+        // A missing or damaged bundled prompt falls back to offline system TTS.
+      }
+    }
     try {
       await _output.speakSystem(item.text, offlineOnly: true);
     } on Object {
@@ -261,6 +272,9 @@ class DeviceSpeechOutput implements SpeechOutput {
   final FlutterTts _systemTts;
   Completer<void>? _activePlayback;
   bool _audioContextConfigured = false;
+
+  @override
+  Future<void> playAsset(String assetPath) => _play(AssetSource(assetPath));
 
   @override
   Future<void> playRemarkTone() => _play(BytesSource(_remarkToneWav()));

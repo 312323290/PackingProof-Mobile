@@ -45,6 +45,7 @@ abstract interface class DynamicSpeechPromptSink {
     SpeechPromptPriority priority = SpeechPromptPriority.normal,
     String? incidentKey,
     bool playRemarkTone = false,
+    bool playWarningTone = false,
   });
 }
 
@@ -54,13 +55,15 @@ class _QueuedSpeechPrompt {
       text = value.text,
       voice = value.voice,
       priority = value.priority,
-      playRemarkTone = false;
+      playRemarkTone = false,
+      playWarningTone = false;
 
   _QueuedSpeechPrompt.dynamic({
     required this.text,
     required this.voice,
     required this.priority,
     required this.playRemarkTone,
+    required this.playWarningTone,
   }) : prompt = null;
 
   final SpeechPrompt? prompt;
@@ -68,6 +71,7 @@ class _QueuedSpeechPrompt {
   final String voice;
   final SpeechPromptPriority priority;
   final bool playRemarkTone;
+  final bool playWarningTone;
 }
 
 abstract interface class SpeechOutput {
@@ -76,6 +80,8 @@ abstract interface class SpeechOutput {
   Future<void> playFile(String filePath);
 
   Future<void> playRemarkTone();
+
+  Future<void> playWarningTone();
 
   Future<void> speakSystem(String text, {bool offlineOnly = false});
 
@@ -201,6 +207,7 @@ class SpeechPromptService
     SpeechPromptPriority priority = SpeechPromptPriority.normal,
     String? incidentKey,
     bool playRemarkTone = false,
+    bool playWarningTone = false,
   }) {
     final String normalized = text.trim();
     if (_disposed || !_enabled || normalized.isEmpty) return;
@@ -221,6 +228,7 @@ class SpeechPromptService
             : SpeechPrompt.normalVoice,
         priority: priority,
         playRemarkTone: playRemarkTone,
+        playWarningTone: playWarningTone,
       ),
     );
     unawaited(_drain());
@@ -317,6 +325,13 @@ class SpeechPromptService
         await _output.playRemarkTone();
       } on Object {
         // The short cue is optional; speech should still continue.
+      }
+    }
+    if (item.playWarningTone) {
+      try {
+        await _output.playWarningTone();
+      } on Object {
+        // The warning cue is optional; speech should still continue.
       }
     }
     final SpeechPrompt? prompt = item.prompt;
@@ -494,6 +509,9 @@ class DeviceSpeechOutput implements SpeechOutput, PreparableSpeechOutput {
   @override
   Future<void> playRemarkTone() => _play(BytesSource(_remarkToneWav()));
 
+  @override
+  Future<void> playWarningTone() => _play(BytesSource(_warningToneWav()));
+
   static Uint8List _remarkToneWav() {
     const int sampleRate = 22050;
     const int toneMs = 120;
@@ -540,6 +558,60 @@ class DeviceSpeechOutput implements SpeechOutput, PreparableSpeechOutput {
         output++;
       }
       if (frequency != tones.last) output += gapSamples;
+    }
+    return wav.buffer.asUint8List();
+  }
+
+  static Uint8List _warningToneWav() {
+    const int sampleRate = 22050;
+    const int toneMs = 180;
+    const int gapMs = 65;
+    const double volume = 0.88;
+    const List<int> tones = <int>[1250, 720, 1250, 720, 1250, 720];
+    final int toneSamples = sampleRate * toneMs ~/ 1000;
+    final int gapSamples = sampleRate * gapMs ~/ 1000;
+    final int sampleCount =
+        tones.length * toneSamples + (tones.length - 1) * gapSamples;
+    final ByteData wav = ByteData(44 + sampleCount * 2);
+    void ascii(int offset, String value) {
+      for (int index = 0; index < value.length; index++) {
+        wav.setUint8(offset + index, value.codeUnitAt(index));
+      }
+    }
+
+    ascii(0, 'RIFF');
+    wav.setUint32(4, 36 + sampleCount * 2, Endian.little);
+    ascii(8, 'WAVE');
+    ascii(12, 'fmt ');
+    wav.setUint32(16, 16, Endian.little);
+    wav.setUint16(20, 1, Endian.little);
+    wav.setUint16(22, 1, Endian.little);
+    wav.setUint32(24, sampleRate, Endian.little);
+    wav.setUint32(28, sampleRate * 2, Endian.little);
+    wav.setUint16(32, 2, Endian.little);
+    wav.setUint16(34, 16, Endian.little);
+    ascii(36, 'data');
+    wav.setUint32(40, sampleCount * 2, Endian.little);
+    int output = 0;
+    for (int toneIndex = 0; toneIndex < tones.length; toneIndex++) {
+      final int frequency = tones[toneIndex];
+      for (int index = 0; index < toneSamples; index++) {
+        final int edge = math.max(1, toneSamples ~/ 10);
+        final double envelope = index < edge
+            ? index / edge
+            : index >= toneSamples - edge
+            ? (toneSamples - index - 1) / edge
+            : 1;
+        final double time = index / sampleRate;
+        final double fundamental = math.sin(2 * math.pi * frequency * time);
+        final double harmonic =
+            math.sin(2 * math.pi * frequency * 2 * time) * 0.32;
+        final double value =
+            (fundamental + harmonic) / 1.32 * volume * envelope;
+        wav.setInt16(44 + output * 2, (value * 32767).round(), Endian.little);
+        output++;
+      }
+      if (toneIndex < tones.length - 1) output += gapSamples;
     }
     return wav.buffer.asUint8List();
   }

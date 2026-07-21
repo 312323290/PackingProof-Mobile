@@ -43,7 +43,28 @@ class OrderInfo {
   final DateTime? pushTime;
   final bool isTest;
 
-  bool get hasRefundWarning => hasRefund || isPrintedRefund;
+  bool get hasRefundWarning {
+    if (hasRefund) return true;
+    if (!isPrintedRefund) return false;
+    final Set<String> statuses = refundStatus
+        .split(RegExp(r'[,，;；|]'))
+        .map((String value) => value.trim().toUpperCase())
+        .where((String value) => value.isNotEmpty)
+        .toSet();
+    return statuses.isEmpty ||
+        statuses.any((String value) => value != 'NO_REFUND');
+  }
+
+  String get announcementSignature => <String>[
+    trackingNumber,
+    orderId,
+    buyerMessage,
+    sellerMemo,
+    '$hasRefund',
+    refundStatus,
+    '$isPrintedRefund',
+    refundProductInfo,
+  ].join('|');
 
   String get refundStatusDisplay {
     final List<String> statuses = refundStatus

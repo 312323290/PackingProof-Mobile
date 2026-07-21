@@ -43,7 +43,9 @@ internal data class OrderInfoRecord(
     )
 
     fun mergePreservingConfirmedRefund(previous: OrderInfoRecord?): OrderInfoRecord {
-        if (previous?.isPrintedRefund != true || isPrintedRefund) return this
+        val sameOrder = previous != null &&
+            (orderId.isBlank() || previous.orderId.isBlank() || orderId == previous.orderId)
+        if (!sameOrder || !previous.isPrintedRefund || isPrintedRefund) return this
         return copy(
             hasRefund = true,
             isPrintedRefund = true,
@@ -53,6 +55,13 @@ internal data class OrderInfoRecord(
     }
 
     companion object {
+        fun latestByTrackingNumber(items: List<OrderInfoRecord>): List<OrderInfoRecord> {
+            val seen = mutableSetOf<String>()
+            return items.filter { item ->
+                item.trackingNumber.isNotBlank() && seen.add(item.trackingNumber)
+            }
+        }
+
         fun fromJson(value: JSONObject, nowMillis: Long = System.currentTimeMillis()): OrderInfoRecord {
             fun text(name: String, maxLength: Int): String {
                 val result = value.optString(name, "")

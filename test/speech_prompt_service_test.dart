@@ -176,6 +176,36 @@ void main() {
     await service.dispose();
   });
 
+  test('退款播报先播放一次电脑端同款工业警报音', () async {
+    final _FakeSpeechOutput output = _FakeSpeechOutput();
+    final SpeechPromptService service = SpeechPromptService(
+      output: output,
+      edgeGenerator: _FakeEdgeGenerator(null),
+      cache: SpeechPromptCache.inDirectory(root),
+      assetBundle: _MissingAssetBundle(),
+      onlineEdgeTtsEnabled: false,
+    );
+
+    service.enqueueText(
+      '退款提醒，退款完成',
+      priority: SpeechPromptPriority.warning,
+      incidentKey: 'order-refund:TRACK-1:ORDER-1:SUCCESS',
+      playWarningTone: true,
+    );
+    service.enqueueText(
+      '退款提醒，退款完成',
+      priority: SpeechPromptPriority.warning,
+      incidentKey: 'order-refund:TRACK-1:ORDER-1:SUCCESS',
+      playWarningTone: true,
+    );
+    await service.waitUntilIdle();
+
+    expect(output.warningToneCount, 1);
+    expect(output.remarkToneCount, 0);
+    expect(output.systemTexts, <String>['退款提醒，退款完成']);
+    await service.dispose();
+  });
+
   test('内置音频存在时不调用 Edge 在线生成', () async {
     final _FakeSpeechOutput output = _FakeSpeechOutput();
     final _FakeEdgeGenerator generator = _FakeEdgeGenerator(_mp3Bytes(200));
@@ -294,6 +324,7 @@ class _FakeSpeechOutput implements SpeechOutput {
   final List<String> systemTexts = <String>[];
   final List<bool> offlineOnlyRequests = <bool>[];
   int remarkToneCount = 0;
+  int warningToneCount = 0;
 
   @override
   Future<void> playAsset(String assetPath) async => assets.add(assetPath);
@@ -303,6 +334,9 @@ class _FakeSpeechOutput implements SpeechOutput {
 
   @override
   Future<void> playRemarkTone() async => remarkToneCount++;
+
+  @override
+  Future<void> playWarningTone() async => warningToneCount++;
 
   @override
   Future<void> speakSystem(String text, {bool offlineOnly = false}) async {

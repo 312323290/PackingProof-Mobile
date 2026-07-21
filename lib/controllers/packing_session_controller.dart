@@ -1276,13 +1276,7 @@ class PackingSessionController extends ChangeNotifier {
 
   void _announceOrderInfo(OrderInfo? info) {
     if (!_speechEnabled || !_orderSpeechEnabled || info == null) return;
-    final String signature = <String>[
-      info.trackingNumber,
-      info.buyerMessage,
-      info.sellerMemo,
-      info.refundStatus,
-      '${info.isPrintedRefund}',
-    ].join('|');
+    final String signature = info.announcementSignature;
     if (signature == _lastAnnouncedOrderSignature) return;
     _lastAnnouncedOrderSignature = signature;
     if (_speechService case final DynamicSpeechPromptSink speech) {
@@ -1293,9 +1287,10 @@ class PackingSessionController extends ChangeNotifier {
               ? SpeechPromptPriority.warning
               : SpeechPromptPriority.normal,
           incidentKey: message.warning
-              ? 'order-refund:${info.trackingNumber}:${info.refundStatus}'
+              ? 'order-refund:${info.trackingNumber}:${info.orderId}:${info.refundStatus}'
               : null,
           playRemarkTone: !message.warning,
+          playWarningTone: message.warning,
         );
       }
     }

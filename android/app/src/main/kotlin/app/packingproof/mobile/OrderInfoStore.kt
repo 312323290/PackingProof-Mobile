@@ -37,8 +37,7 @@ internal class OrderInfoStore(context: Context) : SQLiteOpenHelper(
         val stored = mutableListOf<OrderInfoRecord>()
         writableDatabase.beginTransaction()
         try {
-            for (incoming in items) {
-                if (incoming.trackingNumber.isBlank()) continue
+            for (incoming in OrderInfoRecord.latestByTrackingNumber(items)) {
                 val merged = incoming.mergePreservingConfirmedRefund(lookupInternal(incoming.trackingNumber))
                 val values = ContentValues().apply {
                     put("tracking_number", merged.trackingNumber)

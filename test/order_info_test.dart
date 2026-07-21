@@ -27,6 +27,31 @@ void main() {
     );
   });
 
+  test('明确无退款时不生成退款播报', () {
+    const OrderInfo info = OrderInfo(
+      trackingNumber: 'TRACK-1',
+      isPrintedRefund: true,
+      refundStatus: 'NO_REFUND',
+      buyerMessage: '请放门口',
+    );
+
+    expect(info.hasRefundWarning, isFalse);
+    expect(info.summary, '买家留言：请放门口');
+    expect(info.speechMessages.map((value) => value.text), <String>[
+      '买家留言，请放门口',
+    ]);
+  });
+
+  test('退款标记变化会生成新的播报签名', () {
+    const OrderInfo normal = OrderInfo(trackingNumber: 'TRACK-1');
+    const OrderInfo refund = OrderInfo(
+      trackingNumber: 'TRACK-1',
+      hasRefund: true,
+    );
+
+    expect(refund.announcementSignature, isNot(normal.announcementSignature));
+  });
+
   test('录像索引持久化订单快照', () {
     final RecordingSession session = RecordingSession(
       id: 'session-1',

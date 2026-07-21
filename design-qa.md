@@ -2,7 +2,7 @@
 
 - Source visual truth: `C:\Users\ADMINI~1\AppData\Local\Temp\codex-clipboard-bd97f2d2-faa8-4842-9fa5-f87067920932.png`
 - Device viewport: Android, 1200 × 2608 physical pixels
-- Installed build: standalone `0.3.1 (9002)`
+- Installed build: `0.3.1 (9002)`
 - Captures: `artifacts/device-qa/home.png`, `history.png`, `settings.png`, `search-scan.png`, `filter.png`
 
 ## Full-view comparison evidence
@@ -27,7 +27,7 @@
 ## Validation history
 
 - Release APK rebuilt after `flutter clean` to eliminate the stale Dart snapshot.
-- Installed from the stable path `dist/android/PackingProof-Mobile-standalone.apk`.
+- Installed from the stable path `dist/android/PackingProof-Mobile.apk`.
 - Confirmed package version `0.3.1`, version code `9002` on the connected device.
 - Captured and inspected the recording, history, settings, barcode-search, and source-filter states.
 

@@ -55,18 +55,6 @@ android {
             System.getenv("PACKING_PROOF_BUILD_TIMESTAMP") ?: "development"
     }
 
-    flavorDimensions += "edition"
-    productFlavors {
-        create("standard") {
-            dimension = "edition"
-            manifestPlaceholders["appEdition"] = "standard"
-        }
-        create("standalone") {
-            dimension = "edition"
-            manifestPlaceholders["appEdition"] = "standalone"
-        }
-    }
-
     signingConfigs {
         if (releaseSigningConfigured) {
             create("packingProofRelease") {

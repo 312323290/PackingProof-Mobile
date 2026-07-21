@@ -1,49 +1,13 @@
-enum AppEdition { standard, standalone }
-
-enum NetworkPolicy { publicAllowed, localOnly }
-
 class AppBuildConfig {
-  const AppBuildConfig({
-    required this.edition,
-    required this.onlineEdgeTtsEnabled,
-    required this.networkPolicy,
-    this.buildRevision = '',
-    this.buildTimestamp = '',
-  });
+  const AppBuildConfig({this.buildRevision = '', this.buildTimestamp = ''});
 
   static const AppBuildConfig environment = AppBuildConfig(
-    edition: String.fromEnvironment('APP_EDITION') == 'standalone'
-        ? AppEdition.standalone
-        : AppEdition.standard,
-    onlineEdgeTtsEnabled: bool.fromEnvironment(
-      'ONLINE_EDGE_TTS_ENABLED',
-      defaultValue: true,
-    ),
-    networkPolicy: String.fromEnvironment('NETWORK_POLICY') == 'localOnly'
-        ? NetworkPolicy.localOnly
-        : NetworkPolicy.publicAllowed,
     buildRevision: String.fromEnvironment('BUILD_REVISION'),
     buildTimestamp: String.fromEnvironment('BUILD_TIMESTAMP'),
   );
 
-  final AppEdition edition;
-  final bool onlineEdgeTtsEnabled;
-  final NetworkPolicy networkPolicy;
   final String buildRevision;
   final String buildTimestamp;
 
-  bool get isStandalone => edition == AppEdition.standalone;
-  String get appTitle => isStandalone ? '包裹留证-单机版' : '包裹留证';
-
-  void validate() {
-    if (isStandalone && onlineEdgeTtsEnabled) {
-      throw StateError('单机版不能启用在线 Edge TTS');
-    }
-    if (isStandalone && networkPolicy != NetworkPolicy.localOnly) {
-      throw StateError('单机版必须使用 localOnly 网络策略');
-    }
-    if (!isStandalone && networkPolicy != NetworkPolicy.publicAllowed) {
-      throw StateError('普通版必须使用 publicAllowed 网络策略');
-    }
-  }
+  String get appTitle => '包裹留证';
 }

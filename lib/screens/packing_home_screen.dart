@@ -52,10 +52,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     WidgetsBinding.instance.addObserver(this);
     _controller = PackingSessionController(
       repository: widget.repository,
-      speechService: SpeechPromptService(
-        onlineEdgeTtsEnabled: widget.buildConfig.onlineEdgeTtsEnabled,
-        offlineSystemTtsOnly: widget.buildConfig.isStandalone,
-      ),
+      speechService: SpeechPromptService(),
     );
     _watermarkClock = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _selectedTab == 1) setState(() {});

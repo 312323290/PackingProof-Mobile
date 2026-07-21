@@ -90,10 +90,6 @@ class _AboutScreenState extends State<AboutScreen> {
           'https://developer.android.com/topic/libraries/architecture/workmanager',
     ),
     (name: 'flutter_tts', url: 'https://pub.dev/packages/flutter_tts'),
-    (
-      name: 'flutter_edge_tts',
-      url: 'https://pub.dev/packages/flutter_edge_tts',
-    ),
     (name: 'audioplayers', url: 'https://pub.dev/packages/audioplayers'),
   ];
 

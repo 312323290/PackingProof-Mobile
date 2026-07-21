@@ -213,9 +213,6 @@ class PackingSessionController extends ChangeNotifier {
         );
         await _orderInfoReceiver.initialize();
       }
-      if (_speechService case final PreparableSpeechPromptSink speechService) {
-        unawaited(speechService.prepare());
-      }
       await _beginMaxVolumeIfNeeded();
       if (Platform.isAndroid) {
         final ContinuousCameraService nativeCamera = ContinuousCameraService();
@@ -1242,29 +1239,12 @@ class PackingSessionController extends ChangeNotifier {
       }
       return;
     }
-    _prepareOrderSpeech(info);
     if (_timeline.currentCode.isEmpty ||
         info.trackingNumber != _timeline.currentCode.trim().toUpperCase()) {
       return;
     }
     _setActiveOrderInfo(info, announce: false);
     _announceOrderInfo(info);
-  }
-
-  void _prepareOrderSpeech(OrderInfo info) {
-    if (!_speechEnabled || !_orderSpeechEnabled) return;
-    if (_speechService case final DynamicSpeechPromptSink speech) {
-      for (final message in info.speechMessages) {
-        unawaited(
-          speech.prepareText(
-            message.text,
-            priority: message.warning
-                ? SpeechPromptPriority.warning
-                : SpeechPromptPriority.normal,
-          ),
-        );
-      }
-    }
   }
 
   void _setActiveOrderInfo(OrderInfo? value, {required bool announce}) {

@@ -17,6 +17,7 @@
 - 应用退到后台时自动结束并保存当前录像
 - 录像期间保持屏幕常亮
 - 录像保留现场声音；启动后提示准备就绪，首次识别和切换面单时提示开始录制
+- 语音提示使用系统离线 TTS，退款提示音由应用本地生成
 
 ## 最短使用路径
 
@@ -35,10 +36,10 @@ flutter pub get
 flutter analyze
 flutter test -r expanded
 flutter build apk --debug
-flutter build apk --release --split-per-abi
+pwsh -NoProfile -File Tools\Build-Android.ps1
 ```
 
-Android 调试包输出到 `build/app/outputs/flutter-apk/app-debug.apk`。分架构构建时，现代 Android 手机通常安装 `app-arm64-v8a-release.apk`；当前工程仍使用调试签名，正式发布前需替换为产品签名。
+Android 调试包输出到 `build/app/outputs/flutter-apk/app-debug.apk`。发布脚本只生成一个统一安装包 `dist/android/PackingProof-Mobile.apk`；传入仓库外的签名目录时，会额外校验正式签名、版本信息和 SHA256。
 
 iOS 工程已配置最低版本 15.5 和摄像头用途说明，但必须在 macOS + Xcode 环境中完成签名、真机运行和打包验证。
 

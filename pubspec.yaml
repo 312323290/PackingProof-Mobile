@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.5.0+11000
+version: 0.5.1+11001
 
 environment:
   sdk: ^3.12.1
@@ -38,7 +38,6 @@ dependencies:
   video_player: ^2.13.0
   wakelock_plus: ^1.6.1
   camera_android: 0.10.11
-  flutter_edge_tts: 0.0.2
   flutter_tts: 4.2.5
   audioplayers: 6.8.1
   crypto: ^3.0.6
@@ -74,7 +73,6 @@ flutter:
     - assets/images/app-icon.png
     - assets/images/packing-preview.png
     - assets/design/selected-option.png
-    - assets/audio/tts/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

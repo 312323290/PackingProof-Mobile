@@ -30,7 +30,6 @@ class _PackingProofMobileAppState extends State<PackingProofMobileApp> {
   @override
   void initState() {
     super.initState();
-    widget.buildConfig.validate();
     _repository = widget.repository ?? SessionRepository();
     _settings = _repository.loadSettings();
   }

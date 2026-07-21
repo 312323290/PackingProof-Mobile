@@ -2,34 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/app/app_build_config.dart';
 
 void main() {
-  test('单机版拒绝在线 Edge TTS', () {
+  test('统一版本使用固定应用标题并保留构建信息', () {
     const AppBuildConfig config = AppBuildConfig(
-      edition: AppEdition.standalone,
-      onlineEdgeTtsEnabled: true,
-      networkPolicy: NetworkPolicy.localOnly,
+      buildRevision: 'abc1234',
+      buildTimestamp: '2026-07-22T00:00:00Z',
     );
-    expect(config.validate, throwsStateError);
-  });
 
-  test('单机版必须限制为局域网', () {
-    const AppBuildConfig config = AppBuildConfig(
-      edition: AppEdition.standalone,
-      onlineEdgeTtsEnabled: false,
-      networkPolicy: NetworkPolicy.publicAllowed,
-    );
-    expect(config.validate, throwsStateError);
-  });
-
-  test('两种正式配置均有效', () {
-    const AppBuildConfig(
-      edition: AppEdition.standard,
-      onlineEdgeTtsEnabled: true,
-      networkPolicy: NetworkPolicy.publicAllowed,
-    ).validate();
-    const AppBuildConfig(
-      edition: AppEdition.standalone,
-      onlineEdgeTtsEnabled: false,
-      networkPolicy: NetworkPolicy.localOnly,
-    ).validate();
+    expect(config.appTitle, '包裹留证');
+    expect(config.buildRevision, 'abc1234');
   });
 }

@@ -1,16 +1,10 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
-import 'package:crypto/crypto.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_edge_tts/flutter_edge_tts.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../models/speech_prompt.dart';
 
@@ -30,16 +24,7 @@ abstract interface class SpeechPromptSink {
   Future<void> dispose();
 }
 
-abstract interface class PreparableSpeechPromptSink {
-  Future<void> prepare();
-}
-
 abstract interface class DynamicSpeechPromptSink {
-  Future<void> prepareText(
-    String text, {
-    SpeechPromptPriority priority = SpeechPromptPriority.normal,
-  });
-
   void enqueueText(
     String text, {
     SpeechPromptPriority priority = SpeechPromptPriority.normal,
@@ -53,14 +38,12 @@ class _QueuedSpeechPrompt {
   _QueuedSpeechPrompt.fixed(SpeechPrompt value)
     : prompt = value,
       text = value.text,
-      voice = value.voice,
       priority = value.priority,
       playRemarkTone = false,
       playWarningTone = false;
 
   _QueuedSpeechPrompt.dynamic({
     required this.text,
-    required this.voice,
     required this.priority,
     required this.playRemarkTone,
     required this.playWarningTone,
@@ -68,17 +51,12 @@ class _QueuedSpeechPrompt {
 
   final SpeechPrompt? prompt;
   final String text;
-  final String voice;
   final SpeechPromptPriority priority;
   final bool playRemarkTone;
   final bool playWarningTone;
 }
 
 abstract interface class SpeechOutput {
-  Future<void> playAsset(String assetPath);
-
-  Future<void> playFile(String filePath);
-
   Future<void> playRemarkTone();
 
   Future<void> playWarningTone();
@@ -90,63 +68,19 @@ abstract interface class SpeechOutput {
   Future<void> dispose();
 }
 
-abstract interface class PreparableSpeechOutput {
-  Future<void> prepareAssets(Iterable<String> assetPaths);
-}
-
-abstract interface class EdgeSpeechGenerator {
-  Future<Uint8List> synthesize({required String text, required String voice});
-}
-
-class SpeechPromptService
-    implements
-        SpeechPromptSink,
-        PreparableSpeechPromptSink,
-        DynamicSpeechPromptSink {
-  SpeechPromptService({
-    SpeechOutput? output,
-    EdgeSpeechGenerator? edgeGenerator,
-    SpeechPromptCache? cache,
-    AssetBundle? assetBundle,
-    this.onlineEdgeTtsEnabled = true,
-    this.offlineSystemTtsOnly = false,
-  }) : _output = output ?? DeviceSpeechOutput(),
-       _edgeGenerator = edgeGenerator ?? FlutterEdgeSpeechGenerator(),
-       _cache = cache ?? SpeechPromptCache(),
-       _assetBundle = assetBundle ?? rootBundle;
+class SpeechPromptService implements SpeechPromptSink, DynamicSpeechPromptSink {
+  SpeechPromptService({SpeechOutput? output})
+    : _output = output ?? DeviceSpeechOutput();
 
   final SpeechOutput _output;
-  final EdgeSpeechGenerator _edgeGenerator;
-  final SpeechPromptCache _cache;
-  final AssetBundle _assetBundle;
-  final bool onlineEdgeTtsEnabled;
-  final bool offlineSystemTtsOnly;
   final ListQueue<_QueuedSpeechPrompt> _queue =
       ListQueue<_QueuedSpeechPrompt>();
   final Set<String> _activeIncidents = <String>{};
-  final Map<String, Future<File?>> _dynamicGenerations =
-      <String, Future<File?>>{};
 
   bool _enabled = true;
   bool _draining = false;
   bool _disposed = false;
   _QueuedSpeechPrompt? _activePrompt;
-  Future<void>? _prepareFuture;
-
-  @override
-  Future<void> prepare() {
-    return _prepareFuture ??= _prepareOutput();
-  }
-
-  Future<void> _prepareOutput() async {
-    if (_output case final PreparableSpeechOutput output) {
-      await output.prepareAssets(
-        SpeechPrompt.values.map(
-          (SpeechPrompt prompt) => prompt.audioPlayerAssetPath,
-        ),
-      );
-    }
-  }
 
   @override
   bool get enabled => _enabled;
@@ -223,51 +157,12 @@ class SpeechPromptService
     _queue.add(
       _QueuedSpeechPrompt.dynamic(
         text: normalized,
-        voice: priority == SpeechPromptPriority.warning
-            ? SpeechPrompt.warningVoice
-            : SpeechPrompt.normalVoice,
         priority: priority,
         playRemarkTone: playRemarkTone,
         playWarningTone: playWarningTone,
       ),
     );
     unawaited(_drain());
-  }
-
-  @override
-  Future<void> prepareText(
-    String text, {
-    SpeechPromptPriority priority = SpeechPromptPriority.normal,
-  }) async {
-    final String normalized = text.trim();
-    if (_disposed || normalized.isEmpty || !onlineEdgeTtsEnabled) return;
-    final String voice = priority == SpeechPromptPriority.warning
-        ? SpeechPrompt.warningVoice
-        : SpeechPrompt.normalVoice;
-    await _prepareDynamicText(normalized, voice);
-  }
-
-  Future<File?> _prepareDynamicText(String text, String voice) async {
-    final File? cached = await _cache.findText(text, voice);
-    if (cached != null || _disposed || !onlineEdgeTtsEnabled) return cached;
-    final String key = SpeechPromptCache.cacheKeyFor(text, voice);
-    final Future<File?>? active = _dynamicGenerations[key];
-    if (active != null) return active;
-    final Future<File?> generation = () async {
-      try {
-        final Uint8List bytes = await _edgeGenerator
-            .synthesize(text: text, voice: voice)
-            .timeout(const Duration(seconds: 10));
-        if (_disposed) return null;
-        return await _cache.storeText(text, voice, bytes);
-      } on Object {
-        return null;
-      } finally {
-        _dynamicGenerations.remove(key);
-      }
-    }();
-    _dynamicGenerations[key] = generation;
-    return generation;
   }
 
   @override
@@ -319,7 +214,6 @@ class SpeechPromptService
   }
 
   Future<void> _playWithFallback(_QueuedSpeechPrompt item) async {
-    await prepare();
     if (item.playRemarkTone) {
       try {
         await _output.playRemarkTone();
@@ -334,68 +228,10 @@ class SpeechPromptService
         // The warning cue is optional; speech should still continue.
       }
     }
-    final SpeechPrompt? prompt = item.prompt;
-    if (prompt != null && await _hasBundledAsset(prompt)) {
-      try {
-        await _output.playAsset(prompt.audioPlayerAssetPath);
-        return;
-      } on Object {
-        // A damaged package asset can still be repaired through the online cache.
-      }
-    }
-
-    final File? cached = await _cache.findText(item.text, item.voice);
-    if (cached != null) {
-      try {
-        await _output.playFile(cached.path);
-        return;
-      } on Object {
-        await _cache.remove(cached);
-      }
-    }
-
-    // 订单等动态文本必须立即响应。缓存缺失时在后台生成 Edge 音频，
-    // 当前这次直接使用系统语音，后续再次出现时再复用 Edge 缓存。
-    if (prompt == null) {
-      unawaited(_prepareDynamicText(item.text, item.voice));
-      try {
-        await _output.speakSystem(item.text, offlineOnly: offlineSystemTtsOnly);
-      } on Object {
-        // Speech must never interrupt or fail the recording workflow.
-      }
-      return;
-    }
-
-    if (onlineEdgeTtsEnabled) {
-      try {
-        final Uint8List bytes = await _edgeGenerator
-            .synthesize(text: item.text, voice: item.voice)
-            .timeout(const Duration(seconds: 10));
-        final File generated = await _cache.storeText(
-          item.text,
-          item.voice,
-          bytes,
-        );
-        await _output.playFile(generated.path);
-        return;
-      } on Object {
-        // Edge is best effort; Android system TTS is the final fallback.
-      }
-    }
-
     try {
-      await _output.speakSystem(item.text, offlineOnly: offlineSystemTtsOnly);
+      await _output.speakSystem(item.text, offlineOnly: true);
     } on Object {
       // Speech must never interrupt or fail the recording workflow.
-    }
-  }
-
-  Future<bool> _hasBundledAsset(SpeechPrompt prompt) async {
-    try {
-      final ByteData data = await _assetBundle.load(prompt.assetPath);
-      return data.lengthInBytes > SpeechPromptCache.minimumAudioBytes;
-    } on Object {
-      return false;
     }
   }
 
@@ -409,63 +245,13 @@ class SpeechPromptService
     _activeIncidents.clear();
     await _output.stop();
     await _output.dispose();
-    await _edgeGenerator.closeIfSupported();
   }
 }
 
-extension on EdgeSpeechGenerator {
-  Future<void> closeIfSupported() async {
-    if (this case final DisposableEdgeSpeechGenerator disposable) {
-      await disposable.close();
-    }
-  }
-}
-
-abstract interface class DisposableEdgeSpeechGenerator
-    implements EdgeSpeechGenerator {
-  Future<void> close();
-}
-
-class FlutterEdgeSpeechGenerator implements DisposableEdgeSpeechGenerator {
-  final Set<FlutterEdgeTts> _active = <FlutterEdgeTts>{};
-
-  @override
-  Future<Uint8List> synthesize({
-    required String text,
-    required String voice,
-  }) async {
-    final FlutterEdgeTts client = FlutterEdgeTts(
-      voice: voice,
-      outputFormat: EdgeTtsOutputFormat.audio24Khz48KbitrateMonoMp3,
-      connectionTimeout: const Duration(seconds: 8),
-    );
-    _active.add(client);
-    try {
-      final EdgeTtsSynthesisResult result = await client.synthesize(text);
-      return result.audioBytes;
-    } finally {
-      _active.remove(client);
-      await client.close();
-    }
-  }
-
-  @override
-  Future<void> close() async {
-    for (final FlutterEdgeTts client in List<FlutterEdgeTts>.of(_active)) {
-      await client.close();
-    }
-    _active.clear();
-  }
-}
-
-class DeviceSpeechOutput implements SpeechOutput, PreparableSpeechOutput {
-  DeviceSpeechOutput({
-    AudioPlayer? audioPlayer,
-    FlutterTts? systemTts,
-    AudioCache? audioCache,
-  }) : _audioPlayer = audioPlayer ?? AudioPlayer(),
-       _systemTts = systemTts ?? FlutterTts(),
-       _audioCache = audioCache ?? AudioCache(prefix: 'assets/') {
+class DeviceSpeechOutput implements SpeechOutput {
+  DeviceSpeechOutput({AudioPlayer? audioPlayer, FlutterTts? systemTts})
+    : _audioPlayer = audioPlayer ?? AudioPlayer(),
+      _systemTts = systemTts ?? FlutterTts() {
     _systemTts.setCompletionHandler(_completePlayback);
     _systemTts.setCancelHandler(_completePlayback);
     _systemTts.setErrorHandler((_) => _completePlayback());
@@ -473,38 +259,8 @@ class DeviceSpeechOutput implements SpeechOutput, PreparableSpeechOutput {
 
   final AudioPlayer _audioPlayer;
   final FlutterTts _systemTts;
-  final AudioCache _audioCache;
-  final Map<String, String> _preparedAssets = <String, String>{};
   Completer<void>? _activePlayback;
   bool _audioContextConfigured = false;
-
-  @override
-  Future<void> prepareAssets(Iterable<String> assetPaths) async {
-    await _configureAudioContext();
-    for (final String assetPath in assetPaths) {
-      if (_preparedAssets.containsKey(assetPath)) continue;
-      try {
-        _preparedAssets[assetPath] = await _audioCache.loadPath(assetPath);
-      } on Object {
-        // AssetSource remains available when the temporary cache cannot be prepared.
-      }
-    }
-  }
-
-  @override
-  Future<void> playAsset(String assetPath) async {
-    final String? preparedPath = _preparedAssets[assetPath];
-    await _play(
-      preparedPath == null
-          ? AssetSource(assetPath)
-          : DeviceFileSource(preparedPath),
-    );
-  }
-
-  @override
-  Future<void> playFile(String filePath) async {
-    await _play(DeviceFileSource(filePath));
-  }
 
   @override
   Future<void> playRemarkTone() => _play(BytesSource(_remarkToneWav()));
@@ -719,137 +475,5 @@ class DeviceSpeechOutput implements SpeechOutput, PreparableSpeechOutput {
   Future<void> dispose() async {
     await stop();
     await _audioPlayer.dispose();
-    try {
-      await _audioCache.clearAll();
-    } on Object {
-      // Temporary audio cache cleanup is best effort.
-    }
-  }
-}
-
-class SpeechPromptCache {
-  SpeechPromptCache({this.maxBytes = 64 * 1024 * 1024});
-
-  SpeechPromptCache.inDirectory(
-    this._directory, {
-    this.maxBytes = 64 * 1024 * 1024,
-  });
-
-  static const int minimumAudioBytes = 128;
-  static const String cacheVersion = 'v1';
-
-  Directory? _directory;
-  final int maxBytes;
-
-  static String cacheKey(SpeechPrompt prompt) {
-    return cacheKeyFor(prompt.text, prompt.voice);
-  }
-
-  static String cacheKeyFor(String text, String voice) {
-    final String input = '$cacheVersion|$text|$voice|24khz-48kbps-mono-mp3';
-    return sha256.convert(input.codeUnits).toString();
-  }
-
-  Future<Directory> _resolveDirectory() async {
-    _directory ??= Directory(
-      p.join((await getTemporaryDirectory()).path, 'speech_prompts'),
-    );
-    await _directory!.create(recursive: true);
-    return _directory!;
-  }
-
-  Future<File?> find(SpeechPrompt prompt) async {
-    return findText(prompt.text, prompt.voice);
-  }
-
-  Future<File?> findText(String text, String voice) async {
-    final Directory directory = await _resolveDirectory();
-    final File file = File(
-      p.join(directory.path, '${cacheKeyFor(text, voice)}.mp3'),
-    );
-    if (!await _isValid(file)) {
-      if (await file.exists()) {
-        await file.delete();
-      }
-      return null;
-    }
-    await file.setLastModified(DateTime.now());
-    return file;
-  }
-
-  Future<File> store(SpeechPrompt prompt, Uint8List bytes) async {
-    return storeText(prompt.text, prompt.voice, bytes);
-  }
-
-  Future<File> storeText(String text, String voice, Uint8List bytes) async {
-    if (!_hasMp3Header(bytes)) {
-      throw const FormatException('Edge 返回的语音不是有效 MP3');
-    }
-    final Directory directory = await _resolveDirectory();
-    final File file = File(
-      p.join(directory.path, '${cacheKeyFor(text, voice)}.mp3'),
-    );
-    final File temporary = File('${file.path}.tmp');
-    await temporary.writeAsBytes(bytes, flush: true);
-    if (await file.exists()) {
-      await file.delete();
-    }
-    await temporary.rename(file.path);
-    await cleanup();
-    return file;
-  }
-
-  Future<void> remove(File file) async {
-    if (await file.exists()) {
-      await file.delete();
-    }
-  }
-
-  Future<void> cleanup() async {
-    final Directory directory = await _resolveDirectory();
-    final List<File> files = await directory
-        .list()
-        .where((FileSystemEntity entity) => entity is File)
-        .cast<File>()
-        .where((File file) => p.extension(file.path).toLowerCase() == '.mp3')
-        .toList();
-    final List<({File file, FileStat stat})> entries =
-        <({File file, FileStat stat})>[];
-    int total = 0;
-    for (final File file in files) {
-      final FileStat stat = await file.stat();
-      total += stat.size;
-      entries.add((file: file, stat: stat));
-    }
-    entries.sort((a, b) => a.stat.modified.compareTo(b.stat.modified));
-    for (final entry in entries) {
-      if (total <= maxBytes) {
-        break;
-      }
-      await entry.file.delete();
-      total -= entry.stat.size;
-    }
-  }
-
-  Future<bool> _isValid(File file) async {
-    if (!await file.exists() || await file.length() <= minimumAudioBytes) {
-      return false;
-    }
-    final RandomAccessFile reader = await file.open();
-    try {
-      return _hasMp3Header(await reader.read(3), requirePayload: false);
-    } finally {
-      await reader.close();
-    }
-  }
-
-  static bool _hasMp3Header(List<int> bytes, {bool requirePayload = true}) {
-    if (bytes.length < 3 ||
-        (requirePayload && bytes.length <= minimumAudioBytes)) {
-      return false;
-    }
-    final bool id3 = bytes[0] == 0x49 && bytes[1] == 0x44 && bytes[2] == 0x33;
-    final bool frameSync = bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0;
-    return id3 || frameSync;
   }
 }

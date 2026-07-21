@@ -12,9 +12,6 @@ void main() {
         home: Scaffold(
           body: AboutSettings(
             buildConfig: const AppBuildConfig(
-              edition: AppEdition.standard,
-              onlineEdgeTtsEnabled: true,
-              networkPolicy: NetworkPolicy.publicAllowed,
               buildRevision: 'abc1234',
               buildTimestamp: '2026-07-19T14:00:00Z',
             ),
@@ -70,9 +67,7 @@ void main() {
     expect(find.text('无法打开链接，请稍后重试'), findsOneWidget);
   });
 
-  testWidgets('点击版本可重新查看首次说明且只显示关闭按钮', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('点击版本可重新查看首次说明且只显示关闭按钮', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: AboutScreen(

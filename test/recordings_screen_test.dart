@@ -11,6 +11,49 @@ import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/screens/recordings_screen.dart';
 
 void main() {
+  testWidgets('设置卡片按工作和语音关系排列', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          mode: RecordingsScreenMode.settings,
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    final double workModeY = tester
+        .getTopLeft(find.byKey(const Key('work-mode-settings')))
+        .dy;
+    final double retentionY = tester.getTopLeft(find.text('录像清理')).dy;
+    final double speechY = tester
+        .getTopLeft(find.byKey(const Key('speech-prompt-settings')))
+        .dy;
+    final double maxVolumeY = tester
+        .getTopLeft(find.byKey(const Key('max-volume-settings')))
+        .dy;
+    final double orderSpeechY = tester
+        .getTopLeft(find.byKey(const Key('order-speech-settings')))
+        .dy;
+
+    expect(workModeY, lessThan(retentionY));
+    expect(retentionY, lessThan(speechY));
+    expect(speechY, lessThan(maxVolumeY));
+    expect(maxVolumeY, lessThan(orderSpeechY));
+  });
+
   testWidgets('录像页面可切换工作模式', (WidgetTester tester) async {
     WorkMode selected = WorkMode.continuousScan;
     await tester.pumpWidget(

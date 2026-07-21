@@ -868,16 +868,17 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
           if (!historyMode) ...<Widget>[
             _WorkModeSettings(workMode: _workMode, onChanged: _setWorkMode),
             const SizedBox(height: 12),
+            _RetentionSettings(
+              unbackedRetention: _unbackedRetention,
+              backedRetention: _backedRetention,
+              onUnbackedRetentionChanged: _setUnbackedRetention,
+              onBackedRetentionChanged: _setBackedRetention,
+            ),
+            const SizedBox(height: 12),
             _SpeechPromptSettings(
               enabled: _speechEnabled,
               onChanged: _setSpeechEnabled,
               onPreview: widget.onSpeechPreview,
-            ),
-            const SizedBox(height: 12),
-            _OrderSpeechSettings(
-              enabled: _orderSpeechEnabled,
-              masterEnabled: _speechEnabled,
-              onChanged: _setOrderSpeechEnabled,
             ),
             const SizedBox(height: 12),
             _MaxVolumeSettings(
@@ -885,11 +886,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               onChanged: _setMaxVolumeEnabled,
             ),
             const SizedBox(height: 12),
-            _RetentionSettings(
-              unbackedRetention: _unbackedRetention,
-              backedRetention: _backedRetention,
-              onUnbackedRetentionChanged: _setUnbackedRetention,
-              onBackedRetentionChanged: _setBackedRetention,
+            _OrderSpeechSettings(
+              enabled: _orderSpeechEnabled,
+              masterEnabled: _speechEnabled,
+              onChanged: _setOrderSpeechEnabled,
             ),
             const SizedBox(height: 12),
             _OrderReceiverSettings(

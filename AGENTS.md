@@ -18,6 +18,9 @@ PackingProof-Mobile is a Flutter app for continuous package-recording and shippi
 
 - Maintain one unified app edition. Do not reintroduce standard/standalone flavors or multiple APK variants.
 - Generate fixed speech assets with Edge TTS on the build machine and bundle them in the APK. The app runtime must never call Edge TTS or require internet access; dynamic text and missing assets fall back to Android system TTS in offline-only mode.
+- Treat `assets/audio/tts/` and its manifest as tracked release assets, not disposable runtime cache. Reuse valid files and regenerate only missing or changed prompts.
+- Keep `flutter_edge_tts` build-tool-only. Do not import it from `lib/` or add any runtime Edge generation path.
+- Dynamic speech is not currently persisted. If a runtime speech cache is introduced, keep it separate from bundled assets and add bounded size, stale-entry cleanup, and regression tests.
 - The refund warning sound is generated locally and must remain consistent with the desktop warning behavior.
 - Barcode scanning and uninterrupted recording are the core workflow. Avoid changes that require touch interaction during normal scanning work.
 - Preserve local recordings and settings during upgrades. Never delete recordings based only on missing, stale, or partially matched metadata.
@@ -71,6 +74,7 @@ pwsh -NoProfile -File Tools\Build-Android.ps1 `
 ## Change Discipline
 
 - Keep changes focused and preserve the existing Flutter/Dart style.
+- Keep `README.md` product-facing: describe user value, setup, privacy, and download paths; put internal implementation rules in this file or focused developer documentation.
 - Do not mix unrelated fixes, features, refactors, documentation, or release maintenance in one commit.
 - Avoid broad formatting, generated-file churn, dependency upgrades, or platform changes unless required.
 - Inspect `git status`, the relevant diff, and the staged diff before committing.

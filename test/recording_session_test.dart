@@ -323,6 +323,31 @@ void main() {
     );
   });
 
+  test('启动时保全非空 pending 录像并保留零字节残留', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_pending_recovery_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final Directory pending = Directory('${root.path}/recordings/.pending');
+    await pending.create(recursive: true);
+    final File recoverable = File('${pending.path}/20260723_121314_123.mp4')
+      ..writeAsBytesSync(<int>[1, 2, 3, 4]);
+    final File empty = File('${pending.path}/20260723_121315_456.mp4')
+      ..writeAsBytesSync(const <int>[]);
+
+    final SessionRepository repository = testRepository(root);
+    final List<RecordingSession> sessions = await repository.loadSessions();
+
+    expect(sessions, hasLength(1));
+    expect(sessions.single.id, startsWith('recovered-'));
+    expect(sessions.single.startedAt, DateTime(2026, 7, 23, 12, 13, 14, 123));
+    expect(sessions.single.displayCode, '未识别面单');
+    expect(sessions.single.filePath, contains('异常恢复'));
+    expect(File(sessions.single.filePath).readAsBytesSync(), <int>[1, 2, 3, 4]);
+    expect(recoverable.existsSync(), isFalse);
+    expect(empty.existsSync(), isTrue);
+  });
+
   test('清理水印旧源前重新核对是否仍被录像记录引用', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'packing_proof_mobile_watermark_cleanup_test',

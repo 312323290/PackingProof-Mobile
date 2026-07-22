@@ -48,6 +48,112 @@ class SessionRepository {
     await _recordingDatabase.initialize();
     await _recordingDatabase.migrateLegacyIndex(_indexFile);
     _initialized = true;
+    await _recoverPendingRecordings();
+  }
+
+  Future<void> _recoverPendingRecordings() async {
+    final List<FileSystemEntity> entries = await _pendingRecordingsDirectory
+        .list(followLinks: false)
+        .toList();
+    for (final FileSystemEntity entry in entries) {
+      if (entry is! File ||
+          p.extension(entry.path).toLowerCase() != '.mp4' ||
+          !await entry.exists()) {
+        continue;
+      }
+      try {
+        if (await entry.length() <= 0) {
+          developer.log(
+            '发现零字节异常录像，已保留待诊断：${entry.path}',
+            name: 'PackingProof.VideoRecovery',
+          );
+          continue;
+        }
+        final FileStat stat = await entry.stat();
+        final DateTime startedAt =
+            _startedAtFromPendingName(p.basenameWithoutExtension(entry.path)) ??
+            stat.modified;
+        final DateTime endedAt = stat.modified.isAfter(startedAt)
+            ? stat.modified
+            : startedAt.add(const Duration(seconds: 1));
+        final Directory recoveryDirectory = Directory(
+          p.join(
+            _recordingsDirectory.path,
+            '异常恢复',
+            _dateDirectoryName(startedAt),
+          ),
+        );
+        await recoveryDirectory.create(recursive: true);
+        final String sourceStem = _sanitizeFileName(
+          p.basenameWithoutExtension(entry.path),
+        );
+        String destinationPath = p.join(
+          recoveryDirectory.path,
+          '未识别面单_${_timestamp(startedAt)}_异常恢复_$sourceStem.mp4',
+        );
+        var collisionIndex = 1;
+        while (await File(destinationPath).exists()) {
+          destinationPath = p.join(
+            recoveryDirectory.path,
+            '未识别面单_${_timestamp(startedAt)}_异常恢复_'
+            '${sourceStem}_$collisionIndex.mp4',
+          );
+          collisionIndex++;
+        }
+        final File recovered = await entry.rename(destinationPath);
+        final String sessionId =
+            'recovered-${p.basenameWithoutExtension(entry.path)}-'
+            '${stat.modified.microsecondsSinceEpoch}';
+        try {
+          await _recordingDatabase.upsertSessions(<RecordingSession>[
+            RecordingSession(
+              id: sessionId,
+              filePath: recovered.path,
+              startedAt: startedAt,
+              endedAt: endedAt,
+              markers: const [],
+            ),
+          ]);
+        } on Object {
+          try {
+            await recovered.rename(entry.path);
+          } on Object {
+            // The recovered file remains preserved even if indexing failed.
+          }
+          rethrow;
+        }
+        developer.log(
+          '已保全异常退出录像：${recovered.path}',
+          name: 'PackingProof.VideoRecovery',
+        );
+      } on Object catch (error) {
+        developer.log(
+          '异常录像保全失败，原文件已保留：${entry.path}',
+          name: 'PackingProof.VideoRecovery',
+          error: error,
+        );
+      }
+    }
+  }
+
+  static DateTime? _startedAtFromPendingName(String value) {
+    final RegExpMatch? match = RegExp(
+      r'^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_(\d{3})',
+    ).firstMatch(value);
+    if (match == null) return null;
+    try {
+      return DateTime(
+        int.parse(match.group(1)!),
+        int.parse(match.group(2)!),
+        int.parse(match.group(3)!),
+        int.parse(match.group(4)!),
+        int.parse(match.group(5)!),
+        int.parse(match.group(6)!),
+        int.parse(match.group(7)!),
+      );
+    } on Object {
+      return null;
+    }
   }
 
   Future<List<RecordingSession>> loadSessions({

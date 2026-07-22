@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/controllers/packing_session_controller.dart';
 import 'package:packing_proof_mobile/models/speech_prompt.dart';
 import 'package:packing_proof_mobile/services/session_repository.dart';
+
+import 'test_repository.dart';
 import 'package:packing_proof_mobile/services/max_volume_service.dart';
 import 'package:packing_proof_mobile/services/speech_prompt_service.dart';
 
@@ -23,7 +25,7 @@ void main() {
   test('摄像头未就绪时保持静音', () async {
     final _FakeSpeechSink speech = _FakeSpeechSink();
     final PackingSessionController controller = PackingSessionController(
-      repository: SessionRepository(rootDirectory: root),
+      repository: testRepository(root),
       speechService: speech,
     );
 
@@ -34,7 +36,7 @@ void main() {
 
   test('语音开关同步服务并持久化', () async {
     final _FakeSpeechSink speech = _FakeSpeechSink();
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     final PackingSessionController controller = PackingSessionController(
       repository: repository,
       speechService: speech,
@@ -48,7 +50,7 @@ void main() {
   });
 
   test('订单播报开关独立持久化', () async {
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     final PackingSessionController controller = PackingSessionController(
       repository: repository,
       speechService: _FakeSpeechSink(),
@@ -62,7 +64,7 @@ void main() {
 
   test('最大音量开关同步服务并持久化', () async {
     final _FakeMaxVolumeSink volume = _FakeMaxVolumeSink();
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     final PackingSessionController controller = PackingSessionController(
       repository: repository,
       speechService: _FakeSpeechSink(),

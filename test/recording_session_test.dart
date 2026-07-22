@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +6,8 @@ import 'package:packing_proof_mobile/models/barcode_marker.dart';
 import 'package:packing_proof_mobile/models/recording_session.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/services/session_repository.dart';
+
+import 'test_repository.dart';
 
 void main() {
   test('录像记录可持久化并读取', () async {
@@ -16,7 +19,7 @@ void main() {
       '${root.path}${Platform.pathSeparator}capture.mp4',
     );
     await source.writeAsBytes(<int>[0, 1, 2, 3]);
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     final DateTime startedAt = DateTime(2026, 7, 16, 10);
     final String videoPath = await repository.finalizeVideo(
       sourcePath: source.path,
@@ -143,7 +146,7 @@ void main() {
       '${root.path}${Platform.pathSeparator}capture.mp4',
     );
     await source.writeAsBytes(<int>[0, 1, 2, 3]);
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     final String videoPath = await repository.finalizeVideo(
       sourcePath: source.path,
       sessionId: 'shared-recording',
@@ -183,7 +186,7 @@ void main() {
       'packing_proof_mobile_session_race_test',
     );
     addTearDown(() => root.delete(recursive: true));
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     final DateTime startedAt = DateTime(2026, 7, 22, 10);
     final File firstFile = File('${root.path}/first.mp4')
       ..writeAsBytesSync(<int>[1]);
@@ -228,66 +231,61 @@ void main() {
     expect(File(secondPath).existsSync(), isTrue);
   });
 
-  test('录像索引替换中断后从备份恢复记录', () async {
+  test('首次启动将旧 sessions.json 事务迁移到 SQLite', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'packing_proof_mobile_session_recovery_test',
     );
     addTearDown(() => root.delete(recursive: true));
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
     final DateTime startedAt = DateTime(2026, 7, 22, 10, 30);
     final File video = File('${root.path}/recording.mp4')
       ..writeAsBytesSync(<int>[1, 2, 3]);
-    await repository.addSession(
-      RecordingSession(
-        id: 'recover-session',
-        filePath: video.path,
-        startedAt: startedAt,
-        endedAt: startedAt.add(const Duration(seconds: 1)),
-        markers: const <BarcodeMarker>[],
-      ),
+    final RecordingSession legacy = RecordingSession(
+      id: 'migrated-session',
+      filePath: video.path,
+      startedAt: startedAt,
+      endedAt: startedAt.add(const Duration(seconds: 1)),
+      markers: const <BarcodeMarker>[],
     );
     final File index = File('${root.path}/sessions.json');
-    final File backup = File('${index.path}.bak');
-    await index.rename(backup.path);
+    await index.writeAsString(jsonEncode(<Object?>[legacy.toJson()]));
 
-    final SessionRepository restarted = SessionRepository(rootDirectory: root);
-    final List<RecordingSession> recovered = await restarted.loadSessions();
+    final SessionRepository repository = testRepository(root);
+    final List<RecordingSession> recovered = await repository.loadSessions();
 
-    expect(recovered.single.id, 'recover-session');
+    expect(recovered.single.id, 'migrated-session');
+    expect(File('${root.path}/recordings.db').existsSync(), isTrue);
     expect(index.existsSync(), isTrue);
-    expect(backup.existsSync(), isFalse);
+    expect(File('${index.path}.migrated').existsSync(), isTrue);
     expect(video.existsSync(), isTrue);
   });
 
-  test('新录像索引损坏时回退到上一份有效索引', () async {
+  test('旧主索引损坏时从备份导入 SQLite', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'packing_proof_mobile_session_corrupt_recovery_test',
     );
     addTearDown(() => root.delete(recursive: true));
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
     final DateTime startedAt = DateTime(2026, 7, 22, 10, 45);
     final File video = File('${root.path}/recording.mp4')
       ..writeAsBytesSync(<int>[1, 2, 3]);
-    await repository.addSession(
-      RecordingSession(
-        id: 'recover-corrupt-session',
-        filePath: video.path,
-        startedAt: startedAt,
-        endedAt: startedAt.add(const Duration(seconds: 1)),
-        markers: const <BarcodeMarker>[],
-      ),
+    final RecordingSession legacy = RecordingSession(
+      id: 'backup-session',
+      filePath: video.path,
+      startedAt: startedAt,
+      endedAt: startedAt.add(const Duration(seconds: 1)),
+      markers: const <BarcodeMarker>[],
     );
     final File index = File('${root.path}/sessions.json');
     final File backup = File('${index.path}.bak');
-    await index.copy(backup.path);
     await index.writeAsString('{broken');
+    await backup.writeAsString(jsonEncode(<Object?>[legacy.toJson()]));
 
-    final SessionRepository restarted = SessionRepository(rootDirectory: root);
-    final List<RecordingSession> recovered = await restarted.loadSessions();
+    final SessionRepository repository = testRepository(root);
+    final List<RecordingSession> recovered = await repository.loadSessions();
 
-    expect(recovered.single.id, 'recover-corrupt-session');
+    expect(recovered.single.id, 'backup-session');
     expect(index.existsSync(), isTrue);
-    expect(backup.existsSync(), isFalse);
+    expect(backup.existsSync(), isTrue);
+    expect(File('${index.path}.migrated').existsSync(), isTrue);
     expect(video.existsSync(), isTrue);
   });
 
@@ -296,7 +294,7 @@ void main() {
       'packing_proof_mobile_watermark_cleanup_test',
     );
     addTearDown(() => root.delete(recursive: true));
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     final DateTime startedAt = DateTime(2026, 7, 22, 11);
     final File source = File('${root.path}/source.mp4')
       ..writeAsBytesSync(<int>[1, 2, 3]);
@@ -327,7 +325,7 @@ void main() {
       'packing_proof_mobile_name_test',
     );
     addTearDown(() => root.delete(recursive: true));
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     final DateTime startedAt = DateTime(2026, 7, 19, 9, 8, 7);
     final File firstSource = File('${root.path}/first.mp4')
       ..writeAsBytesSync(<int>[1]);
@@ -366,10 +364,123 @@ void main() {
       'packing_proof_mobile_mode_test',
     );
     addTearDown(() => root.delete(recursive: true));
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
 
     expect(await repository.loadWorkMode(), WorkMode.continuousScan);
     await repository.saveWorkMode(WorkMode.sameCodeStop);
     expect(await repository.loadWorkMode(), WorkMode.sameCodeStop);
+  });
+
+  test('手动删除保留软删除审计且只删除最后一个文件引用', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_delete_audit_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = testRepository(root);
+    final DateTime startedAt = DateTime(2026, 7, 23, 9);
+    final File source = File('${root.path}/audit.mp4')
+      ..writeAsBytesSync(<int>[1, 2, 3, 4]);
+    final String path = await repository.finalizeVideo(
+      sourcePath: source.path,
+      sessionId: 'audit-session',
+      startedAt: startedAt,
+      trackingNumber: 'AUDIT001',
+    );
+    await repository.addSession(
+      RecordingSession(
+        id: 'audit-session',
+        filePath: path,
+        startedAt: startedAt,
+        endedAt: startedAt.add(const Duration(seconds: 5)),
+        markers: <BarcodeMarker>[
+          BarcodeMarker(
+            code: 'AUDIT001',
+            occurredAt: startedAt,
+            offset: Duration.zero,
+          ),
+        ],
+      ),
+    );
+
+    await repository.deleteSessions(<String>{'audit-session'});
+
+    expect(await repository.loadSessions(includeMissingFiles: true), isEmpty);
+    expect(File(path).existsSync(), isFalse);
+    final logs = await repository.loadDeleteLogs();
+    expect(logs.single.sessionId, 'audit-session');
+    expect(logs.single.trackingNumber, 'AUDIT001');
+    expect(logs.single.reason, '手动删除');
+    expect(logs.single.fileSizeBytes, 4);
+  });
+
+  test('文件缺失只标记状态，不丢弃录像历史', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_missing_audit_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = testRepository(root);
+    final DateTime startedAt = DateTime(2026, 7, 23, 10);
+    final File video = File('${root.path}/missing.mp4')
+      ..writeAsBytesSync(<int>[1]);
+    await repository.addSession(
+      RecordingSession(
+        id: 'missing-session',
+        filePath: video.path,
+        startedAt: startedAt,
+        endedAt: startedAt.add(const Duration(seconds: 1)),
+        markers: const <BarcodeMarker>[],
+      ),
+    );
+    await video.delete();
+
+    final List<RecordingSession> sessions = await repository
+        .pruneMissingSessions();
+
+    expect(sessions.single.id, 'missing-session');
+    expect(
+      await repository.loadSessions(includeMissingFiles: true),
+      hasLength(1),
+    );
+    expect(await repository.loadSessions(), isEmpty);
+  });
+
+  test('一万条录像可按数据库关键词真实分页', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_large_history_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = testRepository(root);
+    final DateTime startedAt = DateTime(2026, 1, 1);
+    final List<RecordingSession> sessions = List<RecordingSession>.generate(
+      10000,
+      (int index) => RecordingSession(
+        id: 'large-$index',
+        filePath: '${root.path}/large-$index.mp4',
+        startedAt: startedAt.add(Duration(seconds: index)),
+        endedAt: startedAt.add(Duration(seconds: index + 1)),
+        markers: <BarcodeMarker>[
+          BarcodeMarker(
+            code: 'TRACK${index.toString().padLeft(5, '0')}',
+            occurredAt: startedAt.add(Duration(seconds: index)),
+            offset: Duration.zero,
+          ),
+        ],
+      ),
+      growable: false,
+    );
+    await repository.addSessions(sessions);
+
+    final first = await repository.querySessions(page: 1, pageSize: 5);
+    final searched = await repository.querySessions(
+      page: 1,
+      pageSize: 5,
+      keyword: 'TRACK09999',
+    );
+
+    expect(first.total, 10000);
+    expect(first.data, hasLength(5));
+    expect(first.data.first.id, 'large-9999');
+    expect(searched.total, 1);
+    expect(searched.data.single.id, 'large-9999');
   });
 }

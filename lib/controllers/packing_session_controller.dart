@@ -1561,6 +1561,7 @@ class PackingSessionController extends ChangeNotifier {
     unawaited(_orderInfoSubscription?.cancel());
     unawaited(_orderInfoReceiver.dispose());
     unawaited(_lanBackupService.dispose());
+    unawaited(_repository.dispose());
     super.dispose();
   }
 }

@@ -6,6 +6,8 @@ import 'package:packing_proof_mobile/models/backup_retention_policy.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/services/session_repository.dart';
 
+import 'test_repository.dart';
+
 void main() {
   late Directory root;
 
@@ -26,7 +28,7 @@ void main() {
         'futureOption': <String, Object>{'enabled': true},
       }),
     );
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
 
     final settings = await repository.loadSettings();
     expect(settings.workMode, WorkMode.sameCodeStop);
@@ -49,7 +51,7 @@ void main() {
   });
 
   test('双重保留策略相互独立并保留未知字段', () async {
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     await repository.saveBackupRetention(
       unbacked: UnbackedRetentionPolicy.days90,
       backed: BackedRetentionPolicy.immediately,
@@ -63,7 +65,7 @@ void main() {
   });
 
   test('首次说明版本在两个编译版本间共享且保留其他设置', () async {
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     await repository.saveSpeechEnabled(false);
     await repository.saveStartupNoticeVersion(1);
 
@@ -73,7 +75,7 @@ void main() {
   });
 
   test('音量设置默认开启并保留其他字段', () async {
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
 
     expect((await repository.loadSettings()).maxVolumeEnabled, isTrue);
     await repository.saveMaxVolumeEnabled(false);
@@ -85,7 +87,7 @@ void main() {
   });
 
   test('切换工作模式不会覆盖语音设置', () async {
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
     await repository.saveSpeechEnabled(false);
     await repository.saveWorkMode(WorkMode.sameCodeStop);
 
@@ -95,7 +97,7 @@ void main() {
   });
 
   test('删除本机记录后持久保留隐藏的电脑录像编号', () async {
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
 
     await repository.saveHiddenRemoteRecordingIds(<int>{8, 3});
     await repository.saveSpeechEnabled(false);
@@ -106,7 +108,7 @@ void main() {
   });
 
   test('并发更新设置不会覆盖录像保留策略', () async {
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
 
     await Future.wait(<Future<void>>[
       repository.saveBackupRetention(
@@ -124,7 +126,7 @@ void main() {
 
   test('设置索引损坏且无法恢复时禁用自动录像清理', () async {
     await File('${root.path}/settings.json').writeAsString('{broken');
-    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final SessionRepository repository = testRepository(root);
 
     final settings = await repository.loadSettings();
 

@@ -10,6 +10,7 @@ import '../models/app_settings.dart';
 import '../models/backup_retention_policy.dart';
 import '../models/recording_session.dart';
 import '../models/work_mode.dart';
+import 'recording_database.dart';
 
 class SessionRepository {
   SessionRepository({Directory? rootDirectory}) : this._(rootDirectory);
@@ -21,6 +22,7 @@ class SessionRepository {
   late Directory _pendingRecordingsDirectory;
   late File _indexFile;
   late File _settingsFile;
+  late RecordingDatabase _recordingDatabase;
   bool _initialized = false;
   Future<void> _sessionMutationTail = Future<void>.value();
   Future<void> _settingsMutationTail = Future<void>.value();
@@ -40,6 +42,11 @@ class SessionRepository {
     await _pendingRecordingsDirectory.create(recursive: true);
     _indexFile = File(p.join(_rootDirectory!.path, 'sessions.json'));
     _settingsFile = File(p.join(_rootDirectory!.path, 'settings.json'));
+    _recordingDatabase = RecordingDatabase(
+      path: p.join(_rootDirectory!.path, 'recordings.db'),
+    );
+    await _recordingDatabase.initialize();
+    await _recordingDatabase.migrateLegacyIndex(_indexFile);
     _initialized = true;
   }
 
@@ -53,58 +60,38 @@ class SessionRepository {
     required bool includeMissingFiles,
   }) async {
     await initialize();
-    final File backupFile = File('${_indexFile.path}.bak');
-    if (!await _indexFile.exists() && await backupFile.exists()) {
-      await backupFile.rename(_indexFile.path);
-    }
-    if (!await _indexFile.exists()) {
-      return <RecordingSession>[];
-    }
-
-    try {
-      return await _readSessionsIndex(includeMissingFiles);
-    } on Object {
-      await _archiveCorruptSessionIndex();
-      if (await backupFile.exists()) {
-        await backupFile.rename(_indexFile.path);
-        try {
-          return await _readSessionsIndex(includeMissingFiles);
-        } on Object {
-          await _archiveCorruptSessionIndex();
-        }
-      }
-      return <RecordingSession>[];
-    }
-  }
-
-  Future<List<RecordingSession>> _readSessionsIndex(
-    bool includeMissingFiles,
-  ) async {
-    final Object? decoded = jsonDecode(await _indexFile.readAsString());
-    final List<Object?> values = decoded! as List<Object?>;
-    final List<RecordingSession> sessions = values
-        .map(
-          (Object? value) => RecordingSession.fromJson(
-            Map<String, Object?>.from(value! as Map<Object?, Object?>),
-          ),
-        )
+    final List<RecordingSession> sessions = await _recordingDatabase
+        .loadActiveSessions();
+    if (includeMissingFiles) return sessions;
+    return sessions
         .where(
-          (RecordingSession session) =>
-              includeMissingFiles || File(session.filePath).existsSync(),
+          (RecordingSession session) => File(session.filePath).existsSync(),
         )
-        .toList();
-    sessions.sort(
-      (RecordingSession a, RecordingSession b) =>
-          b.startedAt.compareTo(a.startedAt),
-    );
-    return sessions;
+        .toList(growable: false);
   }
 
-  Future<void> _archiveCorruptSessionIndex() async {
-    if (!await _indexFile.exists()) return;
-    final String backupName =
-        'sessions-corrupt-${DateTime.now().microsecondsSinceEpoch}.json';
-    await _indexFile.rename(p.join(_rootDirectory!.path, backupName));
+  Future<LocalRecordingPage> querySessions({
+    required int page,
+    required int pageSize,
+    String keyword = '',
+  }) async {
+    await initialize();
+    return _recordingDatabase.queryActiveSessions(
+      page: page,
+      pageSize: pageSize,
+      keyword: keyword,
+    );
+  }
+
+  Future<List<RecordingDeleteLog>> loadDeleteLogs({int limit = 100}) async {
+    await initialize();
+    return _recordingDatabase.loadDeleteLogs(limit: limit);
+  }
+
+  Future<void> dispose() async {
+    if (!_initialized) return;
+    _initialized = false;
+    await _recordingDatabase.close();
   }
 
   Future<String> finalizeVideo({
@@ -207,37 +194,22 @@ class SessionRepository {
   Future<List<RecordingSession>> addSessions(
     List<RecordingSession> newSessions,
   ) => _serializeSessionMutation(() async {
-    final List<RecordingSession> sessions = await _loadSessionsUnlocked(
-      includeMissingFiles: true,
-    );
-    sessions.addAll(newSessions);
-    sessions.sort(
-      (RecordingSession a, RecordingSession b) =>
-          b.startedAt.compareTo(a.startedAt),
-    );
-    await _writeSessions(sessions);
-    return sessions;
+    await initialize();
+    await _recordingDatabase.upsertSessions(newSessions);
+    return _loadSessionsUnlocked(includeMissingFiles: true);
   });
 
   Future<List<RecordingSession>> updateSession(
     RecordingSession updatedSession,
   ) => _serializeSessionMutation(() async {
-    final List<RecordingSession> sessions = await _loadSessionsUnlocked(
-      includeMissingFiles: true,
-    );
-    final int index = sessions.indexWhere(
-      (RecordingSession item) => item.id == updatedSession.id,
-    );
-    if (index < 0) {
+    await initialize();
+    final List<RecordingSession> existing = await _recordingDatabase
+        .findActiveByIds(<String>{updatedSession.id});
+    if (existing.isEmpty) {
       throw StateError('找不到要更新的录像片段');
     }
-    sessions[index] = updatedSession;
-    sessions.sort(
-      (RecordingSession a, RecordingSession b) =>
-          b.startedAt.compareTo(a.startedAt),
-    );
-    await _writeSessions(sessions);
-    return sessions;
+    await _recordingDatabase.upsertSessions(<RecordingSession>[updatedSession]);
+    return _loadSessionsUnlocked(includeMissingFiles: true);
   });
 
   Future<List<RecordingSession>> deleteSessions(
@@ -246,25 +218,15 @@ class SessionRepository {
     if (sessionIds.isEmpty) {
       return _loadSessionsUnlocked(includeMissingFiles: true);
     }
-    final List<RecordingSession> sessions = await _loadSessionsUnlocked(
-      includeMissingFiles: true,
-    );
-    final List<RecordingSession> removed = sessions
-        .where((RecordingSession item) => sessionIds.contains(item.id))
-        .toList(growable: false);
-    final List<RecordingSession> remaining = sessions
-        .where((RecordingSession item) => !sessionIds.contains(item.id))
-        .toList(growable: false);
-    await _writeSessions(remaining);
-
-    final Set<String> retainedPaths = remaining
-        .map((RecordingSession item) => p.normalize(item.filePath))
-        .toSet();
+    await initialize();
+    final List<RecordingSession> removed = await _recordingDatabase
+        .findActiveByIds(sessionIds);
+    await _recordingDatabase.markDeleted(removed, reason: '手动删除');
     for (final String filePath
         in removed
             .map((RecordingSession item) => p.normalize(item.filePath))
             .toSet()) {
-      if (retainedPaths.contains(filePath) ||
+      if (await _recordingDatabase.activeReferenceCount(filePath) > 0 ||
           !p.isWithin(_recordingsDirectory.path, filePath)) {
         continue;
       }
@@ -277,20 +239,14 @@ class SessionRepository {
         }
       }
     }
-    return remaining;
+    return _loadSessionsUnlocked(includeMissingFiles: true);
   });
 
   Future<void> deleteFileIfUnreferenced(String filePath) =>
       _serializeSessionMutation(() async {
         await initialize();
         final String normalizedPath = p.normalize(filePath);
-        final List<RecordingSession> sessions = await _loadSessionsUnlocked(
-          includeMissingFiles: true,
-        );
-        if (sessions.any(
-              (RecordingSession session) =>
-                  p.normalize(session.filePath) == normalizedPath,
-            ) ||
+        if (await _recordingDatabase.activeReferenceCount(normalizedPath) > 0 ||
             !p.isWithin(_recordingsDirectory.path, normalizedPath)) {
           return;
         }
@@ -375,15 +331,11 @@ class SessionRepository {
   Future<List<RecordingSession>> pruneMissingSessions({
     Set<String> retainedMissingPaths = const <String>{},
   }) => _serializeSessionMutation(() async {
-    final List<RecordingSession> sessions =
-        (await _loadSessionsUnlocked(includeMissingFiles: true))
-            .where((RecordingSession session) {
-              return File(session.filePath).existsSync() ||
-                  retainedMissingPaths.contains(p.normalize(session.filePath));
-            })
-            .toList(growable: false);
-    await _writeSessions(sessions);
-    return sessions;
+    await initialize();
+    await _recordingDatabase.refreshMissingState(
+      retainedMissingPaths: retainedMissingPaths.map(p.normalize).toSet(),
+    );
+    return _loadSessionsUnlocked(includeMissingFiles: true);
   });
 
   Future<void> saveStartupNoticeVersion(int version) => _updateSettings(
@@ -438,34 +390,6 @@ class SessionRepository {
           !await _settingsFile.exists() &&
           await backupFile.exists()) {
         await backupFile.rename(_settingsFile.path);
-      }
-      rethrow;
-    }
-    if (await backupFile.exists()) {
-      await backupFile.delete();
-    }
-  }
-
-  Future<void> _writeSessions(List<RecordingSession> sessions) async {
-    await initialize();
-    final String contents = const JsonEncoder.withIndent(
-      '  ',
-    ).convert(sessions.map((RecordingSession item) => item.toJson()).toList());
-    final File tempFile = File('${_indexFile.path}.tmp');
-    final File backupFile = File('${_indexFile.path}.bak');
-    await tempFile.writeAsString(contents, flush: true);
-    if (await backupFile.exists()) {
-      await backupFile.delete();
-    }
-    final bool hadIndex = await _indexFile.exists();
-    if (hadIndex) {
-      await _indexFile.rename(backupFile.path);
-    }
-    try {
-      await tempFile.rename(_indexFile.path);
-    } on Object {
-      if (hadIndex && !await _indexFile.exists() && await backupFile.exists()) {
-        await backupFile.rename(_indexFile.path);
       }
       rethrow;
     }

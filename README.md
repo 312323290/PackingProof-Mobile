@@ -70,12 +70,22 @@ pwsh -NoProfile -File Tools\Build-Android.ps1
 生成正式签名 APK：
 
 ```powershell
-pwsh -NoProfile -File Tools\Build-Android.ps1 `
-  -VersionName <x.y.z> `
-  -VersionCode <递增版本号> `
+git tag v0.5.4+11004
+pwsh -NoProfile -File Tools\Publish-Android.ps1 `
   -SigningDirectory <仓库外的签名目录>
 ```
 
-脚本会生成或复用内置语音，依次运行静态检查和全部测试，再构建仅支持 `arm64-v8a` 的统一安装包。不传 `SigningDirectory` 时使用 Android 调试证书签名，可直接安装用于本地诊断，但不能覆盖正式签名版本，也不能用于正式发布。
+正式发布脚本要求当前提交已有版本标签且工作区干净。推荐标签使用 `v<版本名>+<递增 versionCode>` 格式；例如 `v0.5.4+11004` 会生成版本 `0.5.4`、版本号 `11004`。签名目录中需包含密钥文件及 UTF-8 编码的 `签名凭据.txt`，目录必须位于仓库外。
 
-产物位于 `dist/android/PackingProof-Mobile.apk`。
+`签名凭据.txt` 格式：
+
+```text
+密钥文件: app-release.jks
+别名: <密钥别名>
+密钥库密码: <密钥库密码>
+密钥密码: <密钥密码>
+```
+
+脚本会生成或复用内置语音，依次运行静态检查和全部测试，再构建仅支持 `arm64-v8a` 的统一安装包。本地诊断包使用 Android 调试证书签名，可以直接安装，但不能覆盖正式签名版本，也不能用于正式发布。
+
+产物位于 `dist/android/`，包括 `PackingProof-Mobile.apk`、`SHA256SUMS.txt` 和 `build-manifest.json`，不会生成 ZIP 压缩包。

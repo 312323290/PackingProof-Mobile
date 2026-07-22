@@ -11,7 +11,8 @@ PackingProof-Mobile is a Flutter app for continuous package-recording and shippi
 - `lib/screens/` and `lib/widgets/` contain the Flutter UI.
 - `test/` contains unit and widget regression tests; `integration_test/` contains device-level flows.
 - `android/` and `ios/` contain platform projects.
-- `Tools/Build-Android.ps1` is the only Android release packaging entry point.
+- `Tools/Publish-Android.ps1` is the formal Android release entry point. It resolves the version from the exact Git tag and delegates compilation and validation to `Tools/Build-Android.ps1`.
+- `Tools/Build-Android.ps1` is the underlying Android builder and may also produce a debug-signed local diagnostic APK.
 - `dist/android/` contains generated release artifacts and must not be committed.
 
 ## Product Constraints
@@ -49,27 +50,28 @@ dart format <changed-files>
 - Add or update focused tests for every behavior change.
 - Run the affected test file while iterating.
 - Before committing, run `flutter analyze` and the relevant tests.
-- Before a release, use `Tools/Build-Android.ps1`; it runs the full analysis and test suite before packaging.
+- Before a formal release, use `Tools/Publish-Android.ps1`; it runs the full analysis and test suite through `Tools/Build-Android.ps1` before packaging.
 - The release script must validate and reuse matching speech assets, generating only missing or changed fixed prompts before packaging.
 - Recording, camera, audio, permissions, background lifecycle, installation upgrades, and LAN backup changes still require real-device validation when affected.
 
 ## Android Release
 
-The release script generates one APK:
+Create an exact tag on a clean commit, then generate one formally signed APK:
 
 ```powershell
-pwsh -NoProfile -File Tools\Build-Android.ps1 `
-  -VersionName <x.y.z> `
-  -VersionCode <increasing-integer> `
+git tag v0.5.4+11004
+pwsh -NoProfile -File Tools\Publish-Android.ps1 `
   -SigningDirectory <external-signing-directory>
 ```
 
-- Keep the default version in `Tools/Build-Android.ps1` synchronized with `pubspec.yaml`.
-- Increase both `VersionName` and `VersionCode` for an installable upgrade.
+- Prefer release tags in the form `v<versionName>+<increasing-versionCode>`, for example `v0.5.4+11004`. A plain `v<versionName>` tag is accepted only when `pubspec.yaml` has the same version name and supplies the version code.
+- The formal release script must reject a dirty worktree, a missing or ambiguous tag, and a missing external signing configuration.
+- Keep diagnostic defaults in `Tools/Build-Android.ps1` synchronized with `pubspec.yaml`.
 - Release a single `arm64-v8a` APK; 32-bit ARM and x86 are intentionally unsupported and packaging must fail if either reappears.
 - Keep keystores and `签名凭据.txt` outside the repository.
 - Never print, commit, copy, or package signing credentials.
 - Release output is `dist/android/PackingProof-Mobile.apk`, with `SHA256SUMS.txt` and `build-manifest.json`.
+- Do not create a ZIP archive for the Android release.
 - Treat the build as successful only when bundled speech assets, metadata, Git revision, formal signature, and SHA256 validation all pass.
 
 ## Change Discipline

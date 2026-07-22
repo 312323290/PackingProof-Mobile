@@ -215,6 +215,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       onRetryBackup: _controller.retryBackup,
       onRefreshHistory: _controller.refreshSessions,
       onLoadRemoteRecordings: _controller.fetchRemoteRecordings,
+      onLoadLocalRecordings: _controller.loadLocalRecordings,
       onLoadRemoteRecordingStatuses: _controller.fetchRemoteRecordingStatuses,
       remotePlaybackHeaders: _controller.remotePlaybackHeaders,
       onConnectComputer: _beginComputerPairing,

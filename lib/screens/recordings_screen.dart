@@ -13,6 +13,7 @@ import '../models/work_mode.dart';
 import '../widgets/about_settings.dart';
 import '../widgets/two_button_confirm_dialog.dart';
 import '../services/recording_thumbnail_service.dart';
+import '../services/recording_database.dart';
 import 'video_playback_screen.dart';
 
 enum RecordingsScreenMode { history, settings }
@@ -48,6 +49,7 @@ class RecordingsScreen extends StatefulWidget {
     this.backedRetention = BackedRetentionPolicy.days7,
     this.onBackupRetentionChanged,
     this.onLoadRemoteRecordings,
+    this.onLoadLocalRecordings,
     this.onLoadRemoteRecordingStatuses,
     this.hiddenRemoteRecordingIds = const <int>{},
     this.onHideRemoteRecordings,
@@ -98,6 +100,12 @@ class RecordingsScreen extends StatefulWidget {
     String keyword,
   })?
   onLoadRemoteRecordings;
+  final Future<LocalRecordingPage> Function({
+    required int page,
+    required int pageSize,
+    String keyword,
+  })?
+  onLoadLocalRecordings;
   final Future<
     Map<int, ({RemoteRecordingStatus status, bool exists, String reason})>
   >
@@ -136,6 +144,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   final List<RemoteRecording> _remoteRecordings = <RemoteRecording>[];
   final Map<int, List<RemoteRecording>> _remotePages =
       <int, List<RemoteRecording>>{};
+  final Map<int, List<RecordingSession>> _localPages =
+      <int, List<RecordingSession>>{};
   final Map<int, ({RemoteRecordingStatus status, bool exists, String reason})>
   _remoteStatuses = {};
   late Set<int> _hiddenRemoteIds;
@@ -146,6 +156,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   DateTime? _lastManualRefreshAt;
   int _remoteTotal = 0;
   int _remoteDeviceTotal = 0;
+  int _localTotal = 0;
+  bool _loadingLocal = false;
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final Set<String> _selectedIds = <String>{};
@@ -155,6 +167,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   bool _managing = false;
   int _historyPage = 0;
   int _remoteRequestGeneration = 0;
+  int _localRequestGeneration = 0;
   RecordingSourceFilter _sourceFilter = RecordingSourceFilter.all;
 
   List<RecordingSession> get _filteredSessions {
@@ -195,18 +208,29 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _applyExternalSearch(widget.externalSearchQuery);
     widget.backupListenable?.addListener(_refreshBackupSnapshot);
     if (widget.mode == RecordingsScreenMode.history && widget.active) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _loadRemote(reset: true, pageNumber: 1, prefetchNext: true),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_loadLocal(reset: true, pageNumber: 1, prefetchNext: true));
+        unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));
+      });
     }
   }
 
   @override
   void didUpdateWidget(covariant RecordingsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.sessions, widget.sessions)) {
+    final bool sessionsChanged = !_sameSessionSnapshot(
+      oldWidget.sessions,
+      widget.sessions,
+    );
+    if (sessionsChanged && widget.onLoadLocalRecordings == null) {
       _sessions = List<RecordingSession>.of(widget.sessions);
       _refreshLocalRecordingStats();
+    } else if (sessionsChanged && widget.active) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => unawaited(
+          _loadLocal(reset: true, pageNumber: 1, prefetchNext: true),
+        ),
+      );
     }
     _workMode = widget.workMode;
     _speechEnabled = widget.speechEnabled;
@@ -230,18 +254,18 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     if (!oldWidget.active &&
         widget.active &&
         (_remoteRecordings.isEmpty || _remoteCacheDirty)) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _reloadRemoteAfterBackup(force: _remoteRecordings.isEmpty),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_loadLocal(reset: true, pageNumber: 1, prefetchNext: true));
+        _reloadRemoteAfterBackup(force: _remoteRecordings.isEmpty);
+      });
     }
     if (oldWidget.externalSearchQuery != widget.externalSearchQuery &&
         widget.externalSearchQuery.isNotEmpty) {
       _applyExternalSearch(widget.externalSearchQuery);
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => unawaited(
-          _loadRemote(reset: true, pageNumber: 1, prefetchNext: true),
-        ),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_loadLocal(reset: true, pageNumber: 1, prefetchNext: true));
+        unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));
+      });
     }
   }
 
@@ -335,6 +359,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     try {
       await widget.onRefreshHistory?.call();
       if (!mounted) return;
+      _localRequestGeneration++;
+      _loadingLocal = false;
+      await _loadLocal(reset: true, pageNumber: 1, prefetchNext: true);
+      if (!mounted) return;
       _remoteRequestGeneration++;
       _loadingRemote = false;
       _remoteCacheDirty = false;
@@ -344,6 +372,73 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     } finally {
       if (mounted) setState(() => _manualRefreshing = false);
     }
+  }
+
+  Future<void> _loadLocal({
+    bool reset = false,
+    required int pageNumber,
+    bool prefetchNext = false,
+  }) async {
+    final callback = widget.onLoadLocalRecordings;
+    if (callback == null || _loadingLocal || !widget.active) return;
+    final int generation = ++_localRequestGeneration;
+    setState(() {
+      _loadingLocal = true;
+      if (reset) {
+        _localPages.clear();
+        _sessions.clear();
+        _localTotal = 0;
+        _historyPage = 0;
+      }
+    });
+    try {
+      final LocalRecordingPage result = await callback(
+        page: pageNumber,
+        pageSize: _historyPageSize,
+        keyword: _query,
+      );
+      if (!mounted || generation != _localRequestGeneration) return;
+      setState(() {
+        _localPages[result.page] = result.data;
+        _localTotal = result.total;
+        _rebuildLocalRecordings();
+        _refreshLocalRecordingStats();
+      });
+      if (prefetchNext && result.page < result.pageCount) {
+        await _loadLocalPageWithoutBusy(result.page + 1, generation);
+      }
+    } on Object {
+      // Keep already loaded rows visible if the local database is unavailable.
+    } finally {
+      if (mounted && generation == _localRequestGeneration) {
+        setState(() => _loadingLocal = false);
+      }
+    }
+  }
+
+  Future<void> _loadLocalPageWithoutBusy(int pageNumber, int generation) async {
+    final callback = widget.onLoadLocalRecordings;
+    if (callback == null || _localPages.containsKey(pageNumber)) return;
+    final LocalRecordingPage page = await callback(
+      page: pageNumber,
+      pageSize: _historyPageSize,
+      keyword: _query,
+    );
+    if (!mounted || generation != _localRequestGeneration) return;
+    setState(() {
+      _localPages[page.page] = page.data;
+      _localTotal = page.total;
+      _rebuildLocalRecordings();
+      _refreshLocalRecordingStats();
+    });
+  }
+
+  void _rebuildLocalRecordings() {
+    final entries = _localPages.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    _sessions
+      ..clear()
+      ..addAll(entries.expand((entry) => entry.value));
   }
 
   List<_RecordingListItem> get _visibleItems {
@@ -567,12 +662,12 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       _historyPage = 0;
     });
     _remoteSearchTimer?.cancel();
-    _remoteSearchTimer = Timer(
-      const Duration(milliseconds: 300),
-      () => unawaited(
-        _loadRemote(reset: true, pageNumber: 1, prefetchNext: true),
-      ),
-    );
+    _remoteSearchTimer = Timer(const Duration(milliseconds: 300), () {
+      _localRequestGeneration++;
+      _loadingLocal = false;
+      unawaited(_loadLocal(reset: true, pageNumber: 1, prefetchNext: true));
+      unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));
+    });
   }
 
   Future<void> _setWorkMode(WorkMode mode) async {
@@ -789,6 +884,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         _backupSnapshot.connectionStatus == LanConnectionStatus.connected) {
       await _loadRemote(pageNumber: remotePage);
     }
+    if (!_localPages.containsKey(remotePage)) {
+      await _loadLocal(pageNumber: remotePage);
+    }
     if (!mounted) return;
     setState(() => _historyPage = nextHistoryPage);
     final int prefetchPage = remotePage + 1;
@@ -796,6 +894,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         !_remotePages.containsKey(prefetchPage) &&
         _backupSnapshot.connectionStatus == LanConnectionStatus.connected) {
       unawaited(_loadRemote(pageNumber: prefetchPage));
+    }
+    if (prefetchPage <= (_localTotal / _historyPageSize).ceil() &&
+        !_localPages.containsKey(prefetchPage)) {
+      unawaited(_loadLocal(pageNumber: prefetchPage));
     }
   }
 
@@ -817,11 +919,14 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     final int localCount = _filteredSessions
         .where((session) => File(session.filePath).existsSync())
         .length;
-    final int localLogicalCount = _filteredSessions.length;
+    final int localLogicalCount = widget.onLoadLocalRecordings == null
+        ? _filteredSessions.length
+        : _localTotal;
     final int estimatedCount = _managing
         ? visibleItems.length
         : switch (_sourceFilter) {
-            RecordingSourceFilter.local => localCount,
+            RecordingSourceFilter.local =>
+              widget.onLoadLocalRecordings == null ? localCount : _localTotal,
             RecordingSourceFilter.backedUp => _remoteDeviceTotal,
             RecordingSourceFilter.computer => _remoteTotal,
             RecordingSourceFilter.all =>
@@ -1128,7 +1233,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               _HistoryPagination(
                 currentPage: historyPage,
                 pageCount: historyPageCount,
-                loading: _loadingRemote,
+                loading: _loadingRemote || _loadingLocal,
                 offline:
                     _backupSnapshot.connected &&
                     _backupSnapshot.connectionStatus !=
@@ -2553,6 +2658,27 @@ _StatusChipTone _backupTone(LanBackupJob job) => switch (job.state) {
 
 String _dateTime(DateTime value) {
   return '${value.month}月${value.day}日 ${_two(value.hour)}:${_two(value.minute)}';
+}
+
+bool _sameSessionSnapshot(
+  List<RecordingSession> first,
+  List<RecordingSession> second,
+) {
+  if (identical(first, second)) return true;
+  if (first.length != second.length) return false;
+  for (var index = 0; index < first.length; index++) {
+    final RecordingSession left = first[index];
+    final RecordingSession right = second[index];
+    if (left.id != right.id ||
+        left.filePath != right.filePath ||
+        left.startedAt != right.startedAt ||
+        left.endedAt != right.endedAt ||
+        left.mediaStart != right.mediaStart ||
+        left.mediaEnd != right.mediaEnd) {
+      return false;
+    }
+  }
+  return true;
 }
 
 String _duration(Duration value) {

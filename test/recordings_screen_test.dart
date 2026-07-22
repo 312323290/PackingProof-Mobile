@@ -9,6 +9,7 @@ import 'package:packing_proof_mobile/models/lan_backup.dart';
 import 'package:packing_proof_mobile/models/recording_session.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/screens/recordings_screen.dart';
+import 'package:packing_proof_mobile/services/recording_database.dart';
 
 void main() {
   testWidgets('设置卡片按工作和语音关系排列', (WidgetTester tester) async {
@@ -696,6 +697,70 @@ void main() {
     expect(find.text('CODE-05'), findsOneWidget);
     expect(find.text('CODE-10'), findsNothing);
     expect(find.text('2 / 3 页'), findsOneWidget);
+  });
+
+  testWidgets('本机录像从数据库分页并用关键词重新查询', (WidgetTester tester) async {
+    final List<int> requestedPages = <int>[];
+    final List<String> requestedKeywords = <String>[];
+    Future<LocalRecordingPage> loadLocal({
+      required int page,
+      required int pageSize,
+      String keyword = '',
+    }) async {
+      requestedPages.add(page);
+      requestedKeywords.add(keyword);
+      final int start = (page - 1) * pageSize;
+      final DateTime startedAt = DateTime(2026, 7, 23, 12);
+      return LocalRecordingPage(
+        data: List<RecordingSession>.generate(
+          keyword.isEmpty ? pageSize : 1,
+          (int index) => _session(
+            keyword.isEmpty ? 'local-${start + index}' : 'local-search',
+            keyword.isEmpty ? 'LOCAL-${start + index}' : 'LOCAL-SEARCHED',
+            startedAt.subtract(Duration(minutes: start + index)),
+          ),
+        ),
+        page: page,
+        pageSize: pageSize,
+        total: keyword.isEmpty ? 20 : 1,
+      );
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          onLoadLocalRecordings: loadLocal,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(requestedPages, <int>[1, 2]);
+    expect(find.text('LOCAL-0'), findsOneWidget);
+
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('recording-search')),
+        matching: find.byType(EditableText),
+      ),
+      'SEARCHED',
+    );
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    expect(requestedKeywords.last, 'SEARCHED');
+    expect(find.text('LOCAL-SEARCHED'), findsOneWidget);
+    expect(find.text('LOCAL-0'), findsNothing);
   });
 
   testWidgets('电脑录像首次缓存两页且搜索重置分页', (WidgetTester tester) async {

@@ -88,6 +88,20 @@ class SessionRepository {
     return _recordingDatabase.loadDeleteLogs(limit: limit);
   }
 
+  Future<List<RecordingSession>> loadBackupBatch({
+    required int page,
+    int pageSize = 100,
+  }) async {
+    await initialize();
+    return _recordingDatabase.queryBackupBatch(page: page, pageSize: pageSize);
+  }
+
+  Future<List<RecordingSession>> _loadRecentSessionsUnlocked() async =>
+      (await _recordingDatabase.queryActiveSessions(
+        page: 1,
+        pageSize: 50,
+      )).data;
+
   Future<void> dispose() async {
     if (!_initialized) return;
     _initialized = false;
@@ -196,7 +210,7 @@ class SessionRepository {
   ) => _serializeSessionMutation(() async {
     await initialize();
     await _recordingDatabase.upsertSessions(newSessions);
-    return _loadSessionsUnlocked(includeMissingFiles: true);
+    return _loadRecentSessionsUnlocked();
   });
 
   Future<List<RecordingSession>> updateSession(
@@ -209,14 +223,15 @@ class SessionRepository {
       throw StateError('找不到要更新的录像片段');
     }
     await _recordingDatabase.upsertSessions(<RecordingSession>[updatedSession]);
-    return _loadSessionsUnlocked(includeMissingFiles: true);
+    return _loadRecentSessionsUnlocked();
   });
 
   Future<List<RecordingSession>> deleteSessions(
     Set<String> sessionIds,
   ) => _serializeSessionMutation(() async {
     if (sessionIds.isEmpty) {
-      return _loadSessionsUnlocked(includeMissingFiles: true);
+      await initialize();
+      return _loadRecentSessionsUnlocked();
     }
     await initialize();
     final List<RecordingSession> removed = await _recordingDatabase
@@ -239,7 +254,7 @@ class SessionRepository {
         }
       }
     }
-    return _loadSessionsUnlocked(includeMissingFiles: true);
+    return _loadRecentSessionsUnlocked();
   });
 
   Future<void> deleteFileIfUnreferenced(String filePath) =>
@@ -335,7 +350,7 @@ class SessionRepository {
     await _recordingDatabase.refreshMissingState(
       retainedMissingPaths: retainedMissingPaths.map(p.normalize).toSet(),
     );
-    return _loadSessionsUnlocked(includeMissingFiles: true);
+    return _loadRecentSessionsUnlocked();
   });
 
   Future<void> saveStartupNoticeVersion(int version) => _updateSettings(

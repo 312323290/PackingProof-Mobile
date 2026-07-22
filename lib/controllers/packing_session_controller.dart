@@ -25,6 +25,7 @@ import '../services/max_volume_service.dart';
 import '../services/order_info_receiver_service.dart';
 import '../services/nv21_center_crop.dart';
 import '../services/recording_timeline.dart';
+import '../services/recording_database.dart';
 import '../services/session_repository.dart';
 import '../services/speech_prompt_service.dart';
 import '../services/video_watermark_service.dart';
@@ -178,7 +179,7 @@ class PackingSessionController extends ChangeNotifier {
 
     try {
       await _repository.initialize();
-      _sessions = await _repository.loadSessions(includeMissingFiles: true);
+      await _reloadRecentSessions();
       final AppSettings settings = await _repository.loadSettings();
       _workMode = settings.workMode;
       _speechEnabled = settings.speechEnabled;
@@ -200,9 +201,9 @@ class PackingSessionController extends ChangeNotifier {
       );
       await _pruneDeletedBackupSessions(notify: false);
       if (_lanBackupService.snapshot.autoEnabled) {
-        unawaited(_lanBackupService.backupAll(_sessions));
+        unawaited(_backupAllRepositorySessions());
       } else {
-        unawaited(_registerSessionsForRetention(_sessions));
+        unawaited(_registerRepositorySessionsForRetention());
       }
       await _speechService.setEnabled(_speechEnabled);
       if (!_orderReceiverListenerAttached) {
@@ -461,7 +462,7 @@ class PackingSessionController extends ChangeNotifier {
     await _lanBackupService.setAutoEnabled(enabled);
     await _repository.saveLanBackupAutoEnabled(enabled);
     if (enabled) {
-      await _lanBackupService.backupAll(_sessions);
+      await _backupAllRepositorySessions();
     }
   }
 
@@ -516,14 +517,24 @@ class PackingSessionController extends ChangeNotifier {
 
   void clearHistoryScanResult() => _historyScanResult = null;
 
-  Future<void> backupAllSessions() => _lanBackupService.backupAll(_sessions);
+  Future<void> backupAllSessions() => _backupAllRepositorySessions();
+
+  Future<LocalRecordingPage> loadLocalRecordings({
+    required int page,
+    required int pageSize,
+    String keyword = '',
+  }) => _repository.querySessions(
+    page: page,
+    pageSize: pageSize,
+    keyword: keyword,
+  );
 
   Future<void> disconnectBackup() => _lanBackupService.disconnect();
 
   Future<void> retryBackupConnection() async {
     final bool connected = await _lanBackupService.retryConnection();
     if (connected && _lanBackupService.snapshot.autoEnabled) {
-      await _lanBackupService.backupAll(_sessions);
+      await _backupAllRepositorySessions();
     }
   }
 
@@ -794,7 +805,7 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<void> refreshSessions() async {
     await _lanBackupService.refresh();
-    _sessions = await _repository.loadSessions(includeMissingFiles: true);
+    await _reloadRecentSessions();
     notifyListeners();
   }
 
@@ -1311,7 +1322,7 @@ class PackingSessionController extends ChangeNotifier {
         _pairingMessage = null;
         notifyListeners();
       });
-      await _lanBackupService.backupAll(_sessions);
+      await _backupAllRepositorySessions();
       notifyListeners();
     } on FormatException catch (error) {
       if (isComputerQr) {
@@ -1351,6 +1362,30 @@ class PackingSessionController extends ChangeNotifier {
     }
     if (!_disposed) {
       notifyListeners();
+    }
+  }
+
+  Future<void> _reloadRecentSessions() async {
+    _sessions = (await _repository.querySessions(page: 1, pageSize: 50)).data;
+  }
+
+  Future<void> _backupAllRepositorySessions() =>
+      _forEachRepositoryBackupBatch(_lanBackupService.backupAll);
+
+  Future<void> _registerRepositorySessionsForRetention() =>
+      _forEachRepositoryBackupBatch(_registerSessionsForRetention);
+
+  Future<void> _forEachRepositoryBackupBatch(
+    Future<void> Function(List<RecordingSession> sessions) action,
+  ) async {
+    var page = 1;
+    while (!_disposed) {
+      final List<RecordingSession> sessions = await _repository.loadBackupBatch(
+        page: page,
+      );
+      if (sessions.isEmpty) return;
+      await action(sessions);
+      page++;
     }
   }
 

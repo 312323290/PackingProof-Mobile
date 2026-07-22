@@ -132,23 +132,15 @@ class RecordingDatabase {
 
     final File backupFile = File('${indexFile.path}.bak');
     File? source;
-    if (await indexFile.exists()) {
-      source = indexFile;
-    } else if (await backupFile.exists()) {
-      source = backupFile;
-    }
-
     List<RecordingSession> sessions = <RecordingSession>[];
-    if (source != null) {
+    for (final File candidate in <File>[indexFile, backupFile]) {
+      if (!await candidate.exists()) continue;
       try {
-        sessions = _decodeLegacySessions(await source.readAsString());
+        sessions = _decodeLegacySessions(await candidate.readAsString());
+        source = candidate;
+        break;
       } on Object {
-        if (source.path == indexFile.path && await backupFile.exists()) {
-          sessions = _decodeLegacySessions(await backupFile.readAsString());
-          source = backupFile;
-        } else {
-          rethrow;
-        }
+        await _archiveCorruptLegacyIndex(candidate, indexFile);
       }
     }
 
@@ -184,6 +176,18 @@ class RecordingDatabase {
           ),
         )
         .toList(growable: false);
+  }
+
+  static Future<void> _archiveCorruptLegacyIndex(
+    File source,
+    File indexFile,
+  ) async {
+    final String sourceLabel = source.path == indexFile.path ? '' : '-backup';
+    final String archivePath =
+        '${indexFile.parent.path}${Platform.pathSeparator}'
+        'sessions$sourceLabel-corrupt-'
+        '${DateTime.now().microsecondsSinceEpoch}.json';
+    await source.copy(archivePath);
   }
 
   Future<List<RecordingSession>> loadActiveSessions() async {
@@ -232,6 +236,36 @@ class RecordingDatabase {
       pageSize: normalizedSize,
       total: total,
     );
+  }
+
+  Future<List<RecordingSession>> queryBackupBatch({
+    required int page,
+    required int pageSize,
+  }) async {
+    final Database db = await _db;
+    final int normalizedPage = page < 1 ? 1 : page;
+    final int normalizedSize = pageSize.clamp(1, 100);
+    final List<Map<String, Object?>> pathRows = await db.rawQuery(
+      'SELECT DISTINCT file_path FROM recording_sessions '
+      'WHERE is_deleted = 0 ORDER BY file_path '
+      'LIMIT ? OFFSET ?',
+      <Object?>[normalizedSize, (normalizedPage - 1) * normalizedSize],
+    );
+    final List<String> paths = pathRows
+        .map((Map<String, Object?> row) => row['file_path']! as String)
+        .toList(growable: false);
+    if (paths.isEmpty) return <RecordingSession>[];
+    final String placeholders = List<String>.filled(
+      paths.length,
+      '?',
+    ).join(',');
+    final List<Map<String, Object?>> rows = await db.rawQuery(
+      'SELECT payload_json FROM recording_sessions '
+      'WHERE is_deleted = 0 AND file_path IN ($placeholders) '
+      'ORDER BY file_path, started_at, id',
+      paths,
+    );
+    return rows.map(_sessionFromRow).toList(growable: false);
   }
 
   Future<void> upsertSessions(List<RecordingSession> sessions) async {

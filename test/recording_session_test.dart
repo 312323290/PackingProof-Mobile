@@ -289,6 +289,40 @@ void main() {
     expect(video.existsSync(), isTrue);
   });
 
+  test('旧主索引和备份同时损坏时保留副本并正常启动', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_session_all_corrupt_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final File index = File('${root.path}/sessions.json');
+    final File backup = File('${index.path}.bak');
+    await index.writeAsString('{main-broken');
+    await backup.writeAsString('{backup-broken');
+
+    final SessionRepository repository = testRepository(root);
+    final List<RecordingSession> recovered = await repository.loadSessions();
+
+    expect(recovered, isEmpty);
+    expect(index.existsSync(), isTrue);
+    expect(backup.existsSync(), isTrue);
+    expect(
+      root.listSync().whereType<File>().where(
+        (File file) =>
+            file.path.contains('sessions-corrupt-') &&
+            file.path.endsWith('.json'),
+      ),
+      hasLength(1),
+    );
+    expect(
+      root.listSync().whereType<File>().where(
+        (File file) =>
+            file.path.contains('sessions-backup-corrupt-') &&
+            file.path.endsWith('.json'),
+      ),
+      hasLength(1),
+    );
+  });
+
   test('清理水印旧源前重新核对是否仍被录像记录引用', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'packing_proof_mobile_watermark_cleanup_test',
@@ -482,5 +516,45 @@ void main() {
     expect(first.data.first.id, 'large-9999');
     expect(searched.total, 1);
     expect(searched.data.single.id, 'large-9999');
+  });
+
+  test('备份分页不会拆散共享同一母视频的录像片段', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_backup_page_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = testRepository(root);
+    final DateTime startedAt = DateTime(2026, 7, 23, 11);
+    final String sharedPath = '${root.path}/a-shared.mp4';
+    final String otherPath = '${root.path}/b-other.mp4';
+    await repository.addSessions(<RecordingSession>[
+      RecordingSession(
+        id: 'shared-1',
+        filePath: sharedPath,
+        startedAt: startedAt,
+        endedAt: startedAt.add(const Duration(seconds: 1)),
+        markers: const <BarcodeMarker>[],
+      ),
+      RecordingSession(
+        id: 'shared-2',
+        filePath: sharedPath,
+        startedAt: startedAt.add(const Duration(seconds: 1)),
+        endedAt: startedAt.add(const Duration(seconds: 2)),
+        markers: const <BarcodeMarker>[],
+      ),
+      RecordingSession(
+        id: 'other',
+        filePath: otherPath,
+        startedAt: startedAt.add(const Duration(seconds: 2)),
+        endedAt: startedAt.add(const Duration(seconds: 3)),
+        markers: const <BarcodeMarker>[],
+      ),
+    ]);
+
+    final first = await repository.loadBackupBatch(page: 1, pageSize: 1);
+    final second = await repository.loadBackupBatch(page: 2, pageSize: 1);
+
+    expect(first.map((item) => item.id), <String>['shared-1', 'shared-2']);
+    expect(second.single.id, 'other');
   });
 }

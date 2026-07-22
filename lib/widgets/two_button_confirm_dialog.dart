@@ -18,6 +18,7 @@ class TwoButtonConfirmDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return AlertDialog(
       title: Text(title),
       content: ConstrainedBox(
@@ -33,8 +34,8 @@ class TwoButtonConfirmDialog extends StatelessWidget {
               child: FilledButton(
                 key: const Key('confirm-dialog-cancel'),
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFE7ECE9),
-                  foregroundColor: const Color(0xFF34413C),
+                  backgroundColor: colors.surfaceContainerHigh,
+                  foregroundColor: colors.onSurface,
                 ),
                 onPressed: () => Navigator.of(context).pop(false),
                 child: Text(cancelLabel),
@@ -46,7 +47,8 @@ class TwoButtonConfirmDialog extends StatelessWidget {
                 key: const Key('confirm-dialog-confirm'),
                 style: dangerous
                     ? FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFD92D20),
+                        backgroundColor: colors.error,
+                        foregroundColor: colors.onError,
                       )
                     : null,
                 onPressed: () => Navigator.of(context).pop(true),

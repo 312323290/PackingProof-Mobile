@@ -243,8 +243,11 @@ class _RemoteVideoTrimScreenState extends State<RemoteVideoTrimScreen> {
                             headers: widget.service.headers,
                             height: 58,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) =>
-                                const ColoredBox(color: Color(0xFFE1E5E3)),
+                            errorBuilder: (_, _, _) => ColoredBox(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
+                            ),
                           ),
                         ),
                       )

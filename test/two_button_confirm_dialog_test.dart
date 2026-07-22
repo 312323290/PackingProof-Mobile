@@ -34,13 +34,16 @@ void main() {
     final FilledButton confirmButton = tester.widget<FilledButton>(
       find.byKey(const Key('confirm-dialog-confirm')),
     );
+    final ColorScheme colors = Theme.of(
+      tester.element(find.byType(TwoButtonConfirmDialog)),
+    ).colorScheme;
     expect(
       cancelButton.style?.backgroundColor?.resolve(<WidgetState>{}),
-      const Color(0xFFE7ECE9),
+      colors.surfaceContainerHigh,
     );
     expect(
       confirmButton.style?.backgroundColor?.resolve(<WidgetState>{}),
-      const Color(0xFFD92D20),
+      colors.error,
     );
   });
 }

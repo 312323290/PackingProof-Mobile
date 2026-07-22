@@ -4,6 +4,7 @@ import '../models/app_settings.dart';
 import '../screens/packing_home_screen.dart';
 import '../services/session_repository.dart';
 import 'app_build_config.dart';
+import 'packing_proof_theme.dart';
 
 class PackingProofMobileApp extends StatefulWidget {
   const PackingProofMobileApp({
@@ -15,9 +16,10 @@ class PackingProofMobileApp extends StatefulWidget {
   final AppBuildConfig buildConfig;
   final SessionRepository? repository;
 
-  static const Color forest = Color(0xFF087454);
-  static const Color ink = Color(0xFF151918);
+  static const Color forest = PackingProofTheme.forest;
+  static const Color ink = PackingProofTheme.ink;
   static const Color mineral = Color(0xFFF4F5F2);
+  static const ThemeMode themeMode = ThemeMode.system;
 
   @override
   State<PackingProofMobileApp> createState() => _PackingProofMobileAppState();
@@ -36,46 +38,12 @@ class _PackingProofMobileAppState extends State<PackingProofMobileApp> {
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme colors = ColorScheme.fromSeed(
-      seedColor: PackingProofMobileApp.forest,
-      brightness: Brightness.light,
-      surface: Colors.white,
-    );
-
     return MaterialApp(
       title: widget.buildConfig.appTitle,
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: colors,
-        scaffoldBackgroundColor: Colors.white,
-        textTheme: ThemeData.light().textTheme.apply(
-          bodyColor: PackingProofMobileApp.ink,
-          displayColor: PackingProofMobileApp.ink,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: PackingProofMobileApp.ink,
-          surfaceTintColor: Colors.transparent,
-          centerTitle: false,
-          elevation: 0,
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: PackingProofMobileApp.forest,
-            foregroundColor: Colors.white,
-            minimumSize: const Size.fromHeight(58),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            textStyle: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ),
-      ),
+      theme: PackingProofTheme.light(),
+      darkTheme: PackingProofTheme.dark(),
+      themeMode: PackingProofMobileApp.themeMode,
       home: FutureBuilder<AppSettings>(
         future: _settings,
         builder: (BuildContext context, AsyncSnapshot<AppSettings> snapshot) {
@@ -149,6 +117,7 @@ class StartupNoticeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -178,8 +147,8 @@ class StartupNoticeScreen extends StatelessWidget {
                 key: const Key('startup-notice-card'),
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF2F6F4),
-                  border: Border.all(color: const Color(0xFFD5E0DB)),
+                  color: colors.surfaceContainer,
+                  border: Border.all(color: colors.outlineVariant),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Column(

@@ -29,9 +29,10 @@ class AboutSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Material(
       key: const Key('about-settings'),
-      color: const Color(0xFFF2F6F4),
+      color: colors.surfaceContainer,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       clipBehavior: Clip.antiAlias,
       child: ListTile(
@@ -118,15 +119,16 @@ class _AboutScreenState extends State<AboutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('关于')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
         children: <Widget>[
           Material(
-            color: const Color(0xFFF2F6F4),
+            color: colors.surfaceContainer,
             shape: RoundedRectangleBorder(
-              side: const BorderSide(color: Color(0xFFD5E0DB)),
+              side: BorderSide(color: colors.outlineVariant),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Padding(

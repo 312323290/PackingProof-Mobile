@@ -178,9 +178,12 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 '拖动两端选择要保留的内容，不会修改或复制原始视频',
-                style: TextStyle(color: Color(0xFF69716E), height: 1.45),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  height: 1.45,
+                ),
               ),
               const SizedBox(height: 12),
               RangeSlider(

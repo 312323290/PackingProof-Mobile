@@ -5,7 +5,6 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../app/packing_proof_mobile_app.dart';
 import '../app/app_build_config.dart';
 import '../controllers/packing_session_controller.dart';
 import '../models/barcode_marker.dart';
@@ -240,14 +239,15 @@ class _PackingBottomNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return NavigationBar(
       key: const Key('main-bottom-navigation'),
       selectedIndex: selectedIndex,
       onDestinationSelected: onSelected,
       height: 72,
       labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-      destinations: const <NavigationDestination>[
-        NavigationDestination(
+      destinations: <NavigationDestination>[
+        const NavigationDestination(
           icon: Icon(Icons.history_rounded),
           selectedIcon: Icon(Icons.history_rounded),
           label: '历史',
@@ -255,20 +255,20 @@ class _PackingBottomNavigation extends StatelessWidget {
         NavigationDestination(
           icon: CircleAvatar(
             radius: 22,
-            backgroundColor: Color(0xFFDDEDE7),
+            backgroundColor: colors.secondaryContainer,
             child: Icon(
               Icons.videocam_rounded,
-              color: PackingProofMobileApp.forest,
+              color: colors.onSecondaryContainer,
             ),
           ),
           selectedIcon: CircleAvatar(
             radius: 22,
-            backgroundColor: PackingProofMobileApp.forest,
-            child: Icon(Icons.videocam_rounded, color: Colors.white),
+            backgroundColor: colors.primary,
+            child: Icon(Icons.videocam_rounded, color: colors.onPrimary),
           ),
           label: '录制',
         ),
-        NavigationDestination(
+        const NavigationDestination(
           icon: Icon(Icons.settings_outlined),
           selectedIcon: Icon(Icons.settings_rounded),
           label: '设置',
@@ -350,7 +350,6 @@ class PackingHomeView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       body: SafeArea(
         bottom: false,
         child: LayoutBuilder(
@@ -446,7 +445,7 @@ class _CameraArea extends StatelessWidget {
 
     return ColoredBox(
       key: const Key('camera-preview-backing'),
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
@@ -928,10 +927,14 @@ class _ControlPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isError = view.phase == PackingSessionPhase.error;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final Color secondaryText = colors.brightness == Brightness.dark
+        ? colors.onSurfaceVariant
+        : const Color(0xFF767D7A);
     return PhysicalShape(
       key: const Key('recording-control-panel'),
       clipper: const _ShallowUpwardArcClipper(),
-      color: Colors.white,
+      color: colors.surface,
       shadowColor: const Color(0x44000000),
       elevation: 10,
       clipBehavior: Clip.antiAlias,
@@ -950,8 +953,8 @@ class _ControlPanel extends StatelessWidget {
                   maxLines: 1,
                   textAlign: TextAlign.center,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: PackingProofMobileApp.ink,
+                  style: TextStyle(
+                    color: colors.onSurface,
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
                     height: 1.2,
@@ -970,8 +973,8 @@ class _ControlPanel extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: view.orderInfo?.hasRefundWarning == true
-                          ? const Color(0xFFC43D32)
-                          : const Color(0xFF767D7A),
+                          ? colors.error
+                          : secondaryText,
                       fontSize: 12,
                       height: 1.25,
                       fontWeight: view.orderInfo == null
@@ -993,8 +996,8 @@ class _ControlPanel extends StatelessWidget {
                   maxLines: 1,
                   textAlign: TextAlign.center,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF767D7A),
+                  style: TextStyle(
+                    color: secondaryText,
                     fontSize: 14,
                     height: 1.3,
                   ),

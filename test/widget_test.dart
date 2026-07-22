@@ -43,7 +43,12 @@ void main() {
     final ColoredBox backing = tester.widget<ColoredBox>(
       find.byKey(const Key('camera-preview-backing')),
     );
-    expect(backing.color, Colors.white);
+    expect(
+      backing.color,
+      Theme.of(
+        tester.element(find.byKey(const Key('camera-preview-backing'))),
+      ).colorScheme.surface,
+    );
     expect(find.byType(TextField), findsNothing);
     expect(find.byKey(const Key('recording-button-shimmer')), findsNothing);
   });

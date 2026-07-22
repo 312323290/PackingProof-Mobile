@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../app/packing_proof_mobile_app.dart';
 import '../models/backup_retention_policy.dart';
 import '../models/barcode_marker.dart';
 import '../models/lan_backup.dart';
@@ -763,7 +762,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                             ? Icons.check_circle_rounded
                             : Icons.circle_outlined,
                         color: filter == _sourceFilter
-                            ? PackingProofMobileApp.forest
+                            ? Theme.of(context).colorScheme.primary
                             : null,
                       ),
                       title: Text(_sourceFilterLabel(filter)),
@@ -1308,11 +1307,12 @@ class _SummaryMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          color: const Color(0xFFF2F6F4),
+          color: colors.surfaceContainer,
           borderRadius: BorderRadius.circular(18),
         ),
         child: Column(
@@ -1322,18 +1322,15 @@ class _SummaryMetric extends StatelessWidget {
                 children: <InlineSpan>[
                   TextSpan(
                     text: value,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
                   ),
                   if (unit != null)
                     TextSpan(
                       text: ' $unit',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF69716E),
+                        color: colors.onSurfaceVariant,
                       ),
                     ),
                 ],
@@ -1341,7 +1338,7 @@ class _SummaryMetric extends StatelessWidget {
               maxLines: 1,
             ),
             const SizedBox(height: 2),
-            Text(label, style: const TextStyle(color: Color(0xFF69716E))),
+            Text(label, style: TextStyle(color: colors.onSurfaceVariant)),
           ],
         ),
       ),
@@ -1364,10 +1361,11 @@ class _RetentionSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F6F4),
+        color: colors.surfaceContainer,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -1405,6 +1403,7 @@ class _RetentionDropdowns extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Column(
       children: <Widget>[
         Row(
@@ -1457,13 +1456,9 @@ class _RetentionDropdowns extends StatelessWidget {
         if (unbackedRetention !=
             UnbackedRetentionPolicy.keepForever) ...<Widget>[
           const SizedBox(height: 8),
-          const Text(
+          Text(
             '超过保留时间且仍未完成电脑备份的录像将从本机永久删除',
-            style: TextStyle(
-              color: Color(0xFFD15B2A),
-              fontSize: 11,
-              height: 1.4,
-            ),
+            style: TextStyle(color: colors.error, fontSize: 11, height: 1.4),
           ),
         ],
       ],
@@ -1506,6 +1501,7 @@ class _ComputerBackupSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     final LanBackupJob? active = snapshot.jobs.cast<LanBackupJob?>().firstWhere(
       (LanBackupJob? job) => job?.state == LanBackupJobState.uploading,
       orElse: () => null,
@@ -1540,15 +1536,15 @@ class _ComputerBackupSettings extends StatelessWidget {
         ? '需重连'
         : '离线';
     final Color stateForeground = online
-        ? PackingProofMobileApp.forest
+        ? colors.primary
         : needsRepair
         ? const Color(0xFFA35A16)
-        : const Color(0xFF69716E);
+        : colors.onSurfaceVariant;
     final Color stateBackground = online
-        ? const Color(0xFFDDEDE7)
+        ? colors.secondaryContainer
         : needsRepair
         ? const Color(0xFFFFE8CF)
-        : const Color(0xFFE1E5E3);
+        : colors.surfaceContainerHighest;
     final String? status = !snapshot.connected
         ? '扫描电脑二维码后自动备份'
         : snapshot.connectionStatus == LanConnectionStatus.rePair
@@ -1573,7 +1569,7 @@ class _ComputerBackupSettings extends StatelessWidget {
       key: const Key('computer-backup-settings'),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F6F4),
+        color: colors.surfaceContainer,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -1589,19 +1585,22 @@ class _ComputerBackupSettings extends StatelessWidget {
               children: <Widget>[
                 Text(
                   remainingLabel,
-                  style: const TextStyle(
-                    color: PackingProofMobileApp.forest,
+                  style: TextStyle(
+                    color: colors.primary,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Expanded(
+                Expanded(
                   child: Text(
                     '连接电脑后自动备份录像',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Color(0xFF69716E), fontSize: 13),
+                    style: TextStyle(
+                      color: colors.onSurfaceVariant,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ],
@@ -1613,8 +1612,8 @@ class _ComputerBackupSettings extends StatelessWidget {
               child: FilledButton.icon(
                 key: const Key('connect-computer-button'),
                 style: FilledButton.styleFrom(
-                  backgroundColor: PackingProofMobileApp.forest,
-                  foregroundColor: Colors.white,
+                  backgroundColor: colors.primary,
+                  foregroundColor: colors.onPrimary,
                   minimumSize: const Size.fromHeight(54),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
@@ -1642,8 +1641,8 @@ class _ComputerBackupSettings extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(
                         remainingLabel,
-                        style: const TextStyle(
-                          color: Color(0xFF69716E),
+                        style: TextStyle(
+                          color: colors.onSurfaceVariant,
                           fontSize: 13,
                         ),
                       ),
@@ -1712,8 +1711,8 @@ class _ComputerBackupSettings extends StatelessWidget {
               status,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFF69716E),
+              style: TextStyle(
+                color: colors.onSurfaceVariant,
                 fontSize: 13,
                 height: 1.4,
               ),
@@ -1816,11 +1815,12 @@ class _WorkModeSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Container(
       key: const Key('work-mode-settings'),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F6F4),
+        color: colors.surfaceContainer,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -1852,8 +1852,8 @@ class _WorkModeSettings extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             workMode.description,
-            style: const TextStyle(
-              color: Color(0xFF69716E),
+            style: TextStyle(
+              color: colors.onSurfaceVariant,
               fontSize: 13,
               height: 1.5,
             ),
@@ -1877,16 +1877,17 @@ class _SpeechPromptSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Container(
       key: const Key('speech-prompt-settings'),
       padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F6F4),
+        color: colors.surfaceContainer,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         children: <Widget>[
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1898,7 +1899,7 @@ class _SpeechPromptSettings extends StatelessWidget {
                 Text(
                   '离线自动使用系统语音',
                   style: TextStyle(
-                    color: Color(0xFF69716E),
+                    color: colors.onSurfaceVariant,
                     fontSize: 13,
                     height: 1.4,
                   ),
@@ -1935,11 +1936,12 @@ class _OrderSpeechSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Container(
       key: const Key('order-speech-settings'),
       padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F6F4),
+        color: colors.surfaceContainer,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -1955,8 +1957,8 @@ class _OrderSpeechSettings extends StatelessWidget {
                 const SizedBox(height: 5),
                 Text(
                   masterEnabled ? '播报留言、备注和退款提醒' : '请先开启语音提示',
-                  style: const TextStyle(
-                    color: Color(0xFF69716E),
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
                     fontSize: 13,
                     height: 1.4,
                   ),
@@ -1984,11 +1986,12 @@ class _OrderReceiverSettings extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool ready = snapshot.running && snapshot.url.isNotEmpty;
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Container(
       key: const Key('order-receiver-settings'),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F6F4),
+        color: colors.surfaceContainer,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -2006,16 +2009,14 @@ class _OrderReceiverSettings extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: ready
-                      ? const Color(0xFFDDEDE7)
-                      : const Color(0xFFE1E5E3),
+                      ? colors.secondaryContainer
+                      : colors.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(99),
                 ),
                 child: Text(
                   ready ? '接收中' : '未启动',
                   style: TextStyle(
-                    color: ready
-                        ? PackingProofMobileApp.forest
-                        : const Color(0xFF69716E),
+                    color: ready ? colors.primary : colors.onSurfaceVariant,
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                   ),
@@ -2032,17 +2033,15 @@ class _OrderReceiverSettings extends StatelessWidget {
                 : snapshot.errorMessage,
             key: const Key('order-receiver-address'),
             style: TextStyle(
-              color: ready
-                  ? PackingProofMobileApp.forest
-                  : const Color(0xFF69716E),
+              color: ready ? colors.primary : colors.onSurfaceVariant,
               fontSize: 14,
               fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 5),
-          const Text(
+          Text(
             '在油猴脚本中将监控地址设为以上地址',
-            style: TextStyle(color: Color(0xFF69716E), fontSize: 13),
+            style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
           ),
           const SizedBox(height: 10),
           Row(
@@ -2088,16 +2087,17 @@ class _MaxVolumeSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Container(
       key: const Key('max-volume-settings'),
       padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F6F4),
+        color: colors.surfaceContainer,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         children: <Widget>[
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2109,7 +2109,7 @@ class _MaxVolumeSettings extends StatelessWidget {
                 Text(
                   '工作时自动提高媒体音量',
                   style: TextStyle(
-                    color: Color(0xFF69716E),
+                    color: colors.onSurfaceVariant,
                     fontSize: 13,
                     height: 1.4,
                   ),
@@ -2133,6 +2133,7 @@ class _EmptyRecordings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -2142,14 +2143,14 @@ class _EmptyRecordings extends StatelessWidget {
             Container(
               width: 76,
               height: 76,
-              decoration: const BoxDecoration(
-                color: Color(0xFFE7F2EE),
+              decoration: BoxDecoration(
+                color: colors.secondaryContainer,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.video_library_outlined,
                 size: 34,
-                color: PackingProofMobileApp.forest,
+                color: colors.primary,
               ),
             ),
             const SizedBox(height: 18),
@@ -2158,10 +2159,10 @@ class _EmptyRecordings extends StatelessWidget {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 7),
-            const Text(
+            Text(
               '返回首页点“开始工作”，录像会自动保存在这里',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF69716E), height: 1.5),
+              style: TextStyle(color: colors.onSurfaceVariant, height: 1.5),
             ),
           ],
         ),
@@ -2175,13 +2176,18 @@ class _NoSearchResults extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(Icons.search_off_rounded, size: 42, color: Color(0xFF7B8380)),
-          SizedBox(height: 12),
-          Text(
+          Icon(
+            Icons.search_off_rounded,
+            size: 42,
+            color: colors.onSurfaceVariant,
+          ),
+          const SizedBox(height: 12),
+          const Text(
             '没有找到匹配的录像',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
@@ -2206,19 +2212,18 @@ class _RecordingThumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     Widget placeholder() => Container(
       key: const Key('recording-thumbnail'),
       width: 56,
       height: 56,
       decoration: BoxDecoration(
-        color: const Color(0xFFDDE3E0),
+        color: colors.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(9),
       ),
       child: Icon(
         unavailable ? Icons.videocam_off_rounded : Icons.play_arrow_rounded,
-        color: unavailable
-            ? const Color(0xFF8B9290)
-            : PackingProofMobileApp.forest,
+        color: unavailable ? colors.onSurfaceVariant : colors.primary,
       ),
     );
 
@@ -2286,10 +2291,11 @@ class _RecordingTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return Opacity(
       opacity: unavailable ? 0.52 : 1,
       child: Material(
-        color: const Color(0xFFF5F6F3),
+        color: colors.surfaceContainerLow,
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           onTap: onTap,
@@ -2345,8 +2351,8 @@ class _RecordingTile extends StatelessWidget {
                               '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFF69716E),
+                              style: TextStyle(
+                                color: colors.onSurfaceVariant,
                                 fontSize: 12,
                               ),
                             ),
@@ -2373,9 +2379,9 @@ class _RecordingTile extends StatelessWidget {
                   ),
                 ),
                 if (!managing)
-                  const Icon(
+                  Icon(
                     Icons.chevron_right_rounded,
-                    color: Color(0xFF7B8380),
+                    color: colors.onSurfaceVariant,
                   ),
               ],
             ),
@@ -2465,22 +2471,20 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final _StatusChipTone resolvedTone = error ? _StatusChipTone.error : tone;
+    final ColorScheme colors = Theme.of(context).colorScheme;
     final (Color background, Color foreground) = switch (resolvedTone) {
       _StatusChipTone.local => (
-        const Color(0xFFDDEDE7),
-        PackingProofMobileApp.forest,
+        colors.secondaryContainer,
+        colors.onSecondaryContainer,
       ),
       _StatusChipTone.computer => (
-        const Color(0xFFE2EBF8),
-        const Color(0xFF295F9E),
+        colors.tertiaryContainer,
+        colors.onTertiaryContainer,
       ),
-      _StatusChipTone.error => (
-        const Color(0xFFFFE5E2),
-        const Color(0xFFD92D20),
-      ),
+      _StatusChipTone.error => (colors.errorContainer, colors.onErrorContainer),
       _StatusChipTone.neutral => (
-        const Color(0xFFDDEDE7),
-        PackingProofMobileApp.forest,
+        colors.secondaryContainer,
+        colors.onSecondaryContainer,
       ),
     };
     return DecoratedBox(

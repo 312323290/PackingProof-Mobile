@@ -2,7 +2,6 @@
 param(
     [string]$VersionName = '0.5.3',
     [int]$VersionCode = 11003,
-    [string]$OutputDirectory = 'dist/android',
     [string]$SigningDirectory = ''
 )
 
@@ -269,11 +268,8 @@ if (-not [string]::IsNullOrWhiteSpace($SigningDirectory)) {
     $apkSigner = Resolve-ApkSigner
 }
 
-$resolvedOutput = [IO.Path]::GetFullPath((Join-Path $repo $OutputDirectory))
+$resolvedOutput = [IO.Path]::GetFullPath((Join-Path $repo 'dist/android'))
 $resolvedRepo = [IO.Path]::GetFullPath($repo).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-if (-not $resolvedOutput.StartsWith($resolvedRepo, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'OutputDirectory 必须位于当前仓库内'
-}
 $outputParent = Split-Path -Parent $resolvedOutput
 $temporaryOutput = Join-Path $outputParent ".packing-proof-android-$([Guid]::NewGuid().ToString('N'))"
 if (-not ([IO.Path]::GetFullPath($temporaryOutput)).StartsWith($resolvedRepo, [StringComparison]::OrdinalIgnoreCase)) {

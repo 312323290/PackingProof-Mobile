@@ -896,6 +896,92 @@ void main() {
     );
   });
 
+  testWidgets('已备份、等待续传和未备份标签使用不同颜色', (WidgetTester tester) async {
+    final DateTime startedAt = DateTime(2026, 7, 18, 12);
+    final List<String> paths = <String>[
+      File('pubspec.yaml').absolute.path,
+      File('README.md').absolute.path,
+      File('AGENTS.md').absolute.path,
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: <RecordingSession>[
+            _session('completed', 'COMPLETED', startedAt, filePath: paths[0]),
+            _session(
+              'paused',
+              'PAUSED',
+              startedAt.subtract(const Duration(minutes: 1)),
+              filePath: paths[1],
+            ),
+            _session(
+              'pending',
+              'PENDING',
+              startedAt.subtract(const Duration(minutes: 2)),
+              filePath: paths[2],
+            ),
+          ],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            jobs: <LanBackupJob>[
+              LanBackupJob(
+                id: 'completed',
+                filePath: paths[0],
+                state: LanBackupJobState.completed,
+                uploadedBytes: 1,
+                totalBytes: 1,
+                remoteRecordIds: const <int>[1],
+              ),
+              LanBackupJob(
+                id: 'paused',
+                filePath: paths[1],
+                state: LanBackupJobState.paused,
+                uploadedBytes: 1,
+                totalBytes: 2,
+              ),
+              LanBackupJob(
+                id: 'pending',
+                filePath: paths[2],
+                state: LanBackupJobState.pending,
+                uploadedBytes: 0,
+                totalBytes: 2,
+              ),
+            ],
+          ),
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    await tester.drag(find.byType(ListView), const Offset(0, -460));
+    await tester.pump();
+
+    Color chipColor(String label) {
+      final DecoratedBox chip = tester.widget<DecoratedBox>(
+        find
+            .ancestor(of: find.text(label), matching: find.byType(DecoratedBox))
+            .first,
+      );
+      return (chip.decoration as BoxDecoration).color!;
+    }
+
+    expect(find.text('已备份'), findsOneWidget);
+    expect(find.text('等待续传'), findsOneWidget);
+    expect(find.text('未备份'), findsOneWidget);
+    expect(<Color>{
+      chipColor('已备份'),
+      chipColor('等待续传'),
+      chipColor('未备份'),
+    }, hasLength(3));
+  });
+
   testWidgets('已备份标签只匹配当前手机设备', (WidgetTester tester) async {
     final DateTime startedAt = DateTime(2026, 7, 18, 12);
     final String videoPath = File('pubspec.yaml').absolute.path;
@@ -1162,10 +1248,15 @@ void main() {
   });
 }
 
-RecordingSession _session(String id, String code, DateTime startedAt) {
+RecordingSession _session(
+  String id,
+  String code,
+  DateTime startedAt, {
+  String filePath = 'master.mp4',
+}) {
   return RecordingSession(
     id: id,
-    filePath: 'master.mp4',
+    filePath: filePath,
     startedAt: startedAt,
     endedAt: startedAt.add(const Duration(seconds: 8)),
     markers: <BarcodeMarker>[

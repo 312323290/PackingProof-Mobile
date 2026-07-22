@@ -2362,6 +2362,7 @@ class _RecordingTile extends StatelessWidget {
                             const _StatusChip(
                               key: Key('recording-backed-up-chip'),
                               label: '已备份',
+                              tone: _StatusChipTone.backupCompleted,
                             ),
                           ] else if (backupJob != null &&
                               backupJob!.state !=
@@ -2369,8 +2370,13 @@ class _RecordingTile extends StatelessWidget {
                             const SizedBox(width: 8),
                             _StatusChip(
                               label: _backupLabel(backupJob!),
-                              error:
-                                  backupJob!.state == LanBackupJobState.failed,
+                              tone: _backupTone(backupJob!),
+                            ),
+                          ] else if (sourceLabel == '本机') ...<Widget>[
+                            const SizedBox(width: 8),
+                            const _StatusChip(
+                              label: '未备份',
+                              tone: _StatusChipTone.backupPending,
                             ),
                           ],
                         ],
@@ -2454,25 +2460,31 @@ class _HistoryPagination extends StatelessWidget {
   }
 }
 
-enum _StatusChipTone { neutral, local, computer, error }
+enum _StatusChipTone {
+  neutral,
+  local,
+  computer,
+  backupCompleted,
+  backupPending,
+  backupPaused,
+  backupUploading,
+  error,
+}
 
 class _StatusChip extends StatelessWidget {
   const _StatusChip({
     required this.label,
-    this.error = false,
     this.tone = _StatusChipTone.neutral,
     super.key,
   });
 
   final String label;
-  final bool error;
   final _StatusChipTone tone;
 
   @override
   Widget build(BuildContext context) {
-    final _StatusChipTone resolvedTone = error ? _StatusChipTone.error : tone;
     final ColorScheme colors = Theme.of(context).colorScheme;
-    final (Color background, Color foreground) = switch (resolvedTone) {
+    final (Color background, Color foreground) = switch (tone) {
       _StatusChipTone.local => (
         colors.secondaryContainer,
         colors.onSecondaryContainer,
@@ -2480,6 +2492,22 @@ class _StatusChip extends StatelessWidget {
       _StatusChipTone.computer => (
         colors.tertiaryContainer,
         colors.onTertiaryContainer,
+      ),
+      _StatusChipTone.backupCompleted => (
+        colors.secondaryContainer,
+        colors.onSecondaryContainer,
+      ),
+      _StatusChipTone.backupPending => (
+        colors.surfaceContainerHighest,
+        colors.onSurfaceVariant,
+      ),
+      _StatusChipTone.backupPaused =>
+        colors.brightness == Brightness.dark
+            ? (const Color(0xFF4A2D0A), const Color(0xFFFFB86C))
+            : (const Color(0xFFFFE8CF), const Color(0xFFA35A16)),
+      _StatusChipTone.backupUploading => (
+        colors.primaryContainer,
+        colors.onPrimaryContainer,
       ),
       _StatusChipTone.error => (colors.errorContainer, colors.onErrorContainer),
       _StatusChipTone.neutral => (
@@ -2508,11 +2536,19 @@ class _StatusChip extends StatelessWidget {
 }
 
 String _backupLabel(LanBackupJob job) => switch (job.state) {
-  LanBackupJobState.pending => '待备份',
+  LanBackupJobState.pending => '未备份',
   LanBackupJobState.uploading => '备份中 ${(job.progress * 100).round()}%',
   LanBackupJobState.paused => '等待续传',
   LanBackupJobState.completed => '已备份',
   LanBackupJobState.failed => '备份失败',
+};
+
+_StatusChipTone _backupTone(LanBackupJob job) => switch (job.state) {
+  LanBackupJobState.pending => _StatusChipTone.backupPending,
+  LanBackupJobState.uploading => _StatusChipTone.backupUploading,
+  LanBackupJobState.paused => _StatusChipTone.backupPaused,
+  LanBackupJobState.completed => _StatusChipTone.backupCompleted,
+  LanBackupJobState.failed => _StatusChipTone.error,
 };
 
 String _dateTime(DateTime value) {

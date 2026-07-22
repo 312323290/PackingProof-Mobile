@@ -83,6 +83,11 @@ class SessionRepository {
     );
   }
 
+  Future<bool> hasRecentTrackingNumber(String trackingNumber) async {
+    await initialize();
+    return _recordingDatabase.hasRecentTrackingNumber(trackingNumber);
+  }
+
   Future<List<RecordingDeleteLog>> loadDeleteLogs({int limit = 100}) async {
     await initialize();
     return _recordingDatabase.loadDeleteLogs(limit: limit);

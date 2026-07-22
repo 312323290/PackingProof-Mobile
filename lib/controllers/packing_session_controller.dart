@@ -84,6 +84,7 @@ class PackingSessionController extends ChangeNotifier {
   DateTime _lastAnalysisAt = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _elapsedTimer;
   Timer? _feedbackTimer;
+  Timer? _scanWarningTimer;
   Timer? _initialPromptTimer;
   Timer? _pairingFeedbackTimer;
   Duration _elapsed = Duration.zero;
@@ -97,6 +98,7 @@ class PackingSessionController extends ChangeNotifier {
   BackedRetentionPolicy _backedRetention = BackedRetentionPolicy.days7;
   bool _appIsActive = true;
   String? _errorMessage;
+  String? _scanWarningMessage;
   bool _processingFrame = false;
   bool _handlingBarcode = false;
   bool _disposed = false;
@@ -156,6 +158,7 @@ class PackingSessionController extends ChangeNotifier {
       Platform.isAndroid && _nativeInitialization?.isFrontCamera == true;
   String? get historyScanResult => _historyScanResult;
   String? get errorMessage => _errorMessage;
+  String? get scanWarningMessage => _scanWarningMessage;
   bool get isRecording => _phase == PackingSessionPhase.recording;
   bool get isWorking => _workActive;
   Set<int> get hiddenRemoteRecordingIds =>
@@ -1024,10 +1027,12 @@ class PackingSessionController extends ChangeNotifier {
     if (!isRecording || !_timeline.isActive) {
       _handlingBarcode = true;
       try {
+        final bool duplicate = await _hasRecentTrackingNumber(code);
         final OrderInfo? orderInfo = await _orderInfoReceiver.lookup(code);
         _setActiveOrderInfo(orderInfo, announce: false);
         await _startRecording();
         _bindCurrentCode(code, _timeline.segmentStartedAt ?? now);
+        if (duplicate) _showDuplicateOrderWarning(code);
         _announceOrderInfo(orderInfo);
       } on Object catch (error) {
         _timeline.reset();
@@ -1066,6 +1071,7 @@ class PackingSessionController extends ChangeNotifier {
       case BarcodeWorkAction.startNextVideo:
         _handlingBarcode = true;
         try {
+          final bool duplicate = await _hasRecentTrackingNumber(code);
           final OrderInfo? nextOrderInfo = await _orderInfoReceiver.lookup(
             code,
           );
@@ -1088,7 +1094,10 @@ class PackingSessionController extends ChangeNotifier {
             _setActiveOrderInfo(nextOrderInfo, announce: false);
             announceSegmentStarted(marker);
           }
-          if (marker != null) _announceOrderInfo(nextOrderInfo);
+          if (marker != null) {
+            if (duplicate) _showDuplicateOrderWarning(code);
+            _announceOrderInfo(nextOrderInfo);
+          }
         } on Object catch (error) {
           _errorMessage = '录像分段保存失败\n$error';
           _speechService.enqueue(
@@ -1477,6 +1486,34 @@ class PackingSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _showDuplicateOrderWarning(String trackingNumber) {
+    _scanWarningMessage = '警告：重复单号，请确认';
+    _scanWarningTimer?.cancel();
+    _scanWarningTimer = Timer(const Duration(seconds: 3), () {
+      if (_disposed) return;
+      _scanWarningMessage = null;
+      notifyListeners();
+    });
+    if (_speechService case final DynamicSpeechPromptSink speech) {
+      speech.enqueueText(
+        '警告，重复单号，请确认',
+        priority: SpeechPromptPriority.warning,
+        incidentKey: 'duplicate-order-number:$trackingNumber',
+        playWarningTone: true,
+      );
+    }
+    notifyListeners();
+  }
+
+  Future<bool> _hasRecentTrackingNumber(String trackingNumber) async {
+    try {
+      return await _repository.hasRecentTrackingNumber(trackingNumber);
+    } on Object {
+      // Duplicate-order assistance must never prevent recording from starting.
+      return false;
+    }
+  }
+
   void _setCameraError(CameraException error) {
     _errorMessage = switch (error.code) {
       'CameraAccessDenied' ||
@@ -1575,6 +1612,7 @@ class PackingSessionController extends ChangeNotifier {
     _disposed = true;
     _elapsedTimer?.cancel();
     _feedbackTimer?.cancel();
+    _scanWarningTimer?.cancel();
     unawaited(WakelockPlus.disable());
     final CameraController? camera = _cameraController;
     if (camera != null) {

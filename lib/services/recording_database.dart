@@ -238,6 +238,22 @@ class RecordingDatabase {
     );
   }
 
+  Future<bool> hasRecentTrackingNumber(
+    String trackingNumber, {
+    Duration lookback = const Duration(days: 30),
+  }) async {
+    final String normalized = trackingNumber.trim().toUpperCase();
+    if (normalized.isEmpty) return false;
+    final Database db = await _db;
+    final int since = DateTime.now().subtract(lookback).millisecondsSinceEpoch;
+    final List<Map<String, Object?>> rows = await db.rawQuery(
+      'SELECT COUNT(1) FROM recording_sessions '
+      'WHERE is_deleted = 0 AND tracking_number = ? AND started_at >= ?',
+      <Object?>[normalized, since],
+    );
+    return (Sqflite.firstIntValue(rows) ?? 0) > 0;
+  }
+
   Future<List<RecordingSession>> queryBackupBatch({
     required int page,
     required int pageSize,

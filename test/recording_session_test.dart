@@ -518,6 +518,53 @@ void main() {
     expect(searched.data.single.id, 'large-9999');
   });
 
+  test('重复单号只核验最近三十天且忽略已删除记录', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_duplicate_tracking_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = testRepository(root);
+    final DateTime now = DateTime.now();
+    await repository.addSessions(<RecordingSession>[
+      RecordingSession(
+        id: 'recent',
+        filePath: '${root.path}/recent.mp4',
+        startedAt: now.subtract(const Duration(days: 29)),
+        endedAt: now
+            .subtract(const Duration(days: 29))
+            .add(const Duration(seconds: 1)),
+        markers: <BarcodeMarker>[
+          BarcodeMarker(
+            code: 'RECENT-TRACK',
+            occurredAt: now.subtract(const Duration(days: 29)),
+            offset: Duration.zero,
+          ),
+        ],
+      ),
+      RecordingSession(
+        id: 'old',
+        filePath: '${root.path}/old.mp4',
+        startedAt: now.subtract(const Duration(days: 31)),
+        endedAt: now
+            .subtract(const Duration(days: 31))
+            .add(const Duration(seconds: 1)),
+        markers: <BarcodeMarker>[
+          BarcodeMarker(
+            code: 'OLD-TRACK',
+            occurredAt: now.subtract(const Duration(days: 31)),
+            offset: Duration.zero,
+          ),
+        ],
+      ),
+    ]);
+
+    expect(await repository.hasRecentTrackingNumber('recent-track'), isTrue);
+    expect(await repository.hasRecentTrackingNumber('OLD-TRACK'), isFalse);
+
+    await repository.deleteSessions(<String>{'recent'});
+    expect(await repository.hasRecentTrackingNumber('RECENT-TRACK'), isFalse);
+  });
+
   test('备份分页不会拆散共享同一母视频的录像片段', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'packing_proof_mobile_backup_page_test',

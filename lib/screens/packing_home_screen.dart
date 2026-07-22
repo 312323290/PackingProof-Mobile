@@ -150,6 +150,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
                 orderInfo: _controller.activeOrderInfo,
                 workMode: _controller.workMode,
                 errorMessage: _controller.errorMessage,
+                scanWarningMessage: _controller.scanWarningMessage,
                 pairingScanActive: _controller.pairingScanActive,
                 pairingMessage: _controller.pairingMessage,
                 historyScanActive: _controller.historyScanActive,
@@ -294,6 +295,7 @@ class PackingHomeView extends StatelessWidget {
     this.orderInfo,
     this.workMode = WorkMode.continuousScan,
     this.errorMessage,
+    this.scanWarningMessage,
     this.pairingScanActive = false,
     this.pairingMessage,
     this.historyScanActive = false,
@@ -321,6 +323,7 @@ class PackingHomeView extends StatelessWidget {
   final OrderInfo? orderInfo;
   final WorkMode workMode;
   final String? errorMessage;
+  final String? scanWarningMessage;
   final bool pairingScanActive;
   final String? pairingMessage;
   final bool historyScanActive;
@@ -480,7 +483,14 @@ class _CameraArea extends StatelessWidget {
                 child: _RecordingDurationPill(elapsed: view.elapsed),
               ),
             ),
-          if (view.lastMarker != null)
+          if (view.scanWarningMessage != null)
+            Positioned(
+              left: 18,
+              right: 18,
+              bottom: 18,
+              child: _ScanWarningToast(message: view.scanWarningMessage!),
+            )
+          else if (view.lastMarker != null)
             Positioned(
               left: 20,
               right: 20,
@@ -911,6 +921,46 @@ class _RecognitionToast extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScanWarningToast extends StatelessWidget {
+  const _ScanWarningToast({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('scan-warning-toast'),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xEBB3261E),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x44000000),
+            blurRadius: 20,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.warning_amber_rounded, color: Colors.white),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],

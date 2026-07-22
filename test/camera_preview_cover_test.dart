@@ -25,6 +25,25 @@ void main() {
     expect((image.image as AssetImage).assetName, 'assets/images/app-icon.png');
   });
 
+  testWidgets('重复单号使用醒目的录像内警告', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.recording,
+          elapsed: const Duration(seconds: 5),
+          currentCode: 'TRACK-1',
+          scanWarningMessage: '警告：重复单号，请确认',
+          previewOverride: const ColoredBox(color: Colors.black),
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('scan-warning-toast')), findsOneWidget);
+    expect(find.text('警告：重复单号，请确认'), findsOneWidget);
+  });
+
   testWidgets('录像前后都完整显示竖屏画面', (WidgetTester tester) async {
     final ValueNotifier<CameraValue> cameraValue = ValueNotifier<CameraValue>(
       _cameraValue(previewSize: const Size(1920, 1080)),

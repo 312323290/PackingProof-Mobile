@@ -93,6 +93,23 @@ class SessionRepository {
     return _recordingDatabase.loadDeleteLogs(limit: limit);
   }
 
+  Future<void> recordAutomaticCleanup({
+    required String eventId,
+    required String filePath,
+    required int fileSizeBytes,
+    required DateTime deletedAt,
+    required String reason,
+  }) async {
+    await initialize();
+    await _recordingDatabase.recordAutomaticCleanup(
+      eventId: eventId,
+      filePath: filePath,
+      fileSizeBytes: fileSizeBytes,
+      deletedAt: deletedAt,
+      reason: reason,
+    );
+  }
+
   Future<List<RecordingSession>> loadBackupBatch({
     required int page,
     int pageSize = 100,

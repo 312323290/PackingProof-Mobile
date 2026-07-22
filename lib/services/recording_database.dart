@@ -355,6 +355,59 @@ class RecordingDatabase {
     });
   }
 
+  Future<void> recordAutomaticCleanup({
+    required String eventId,
+    required String filePath,
+    required int fileSizeBytes,
+    required DateTime deletedAt,
+    required String reason,
+  }) async {
+    final String normalizedEventId = eventId.trim();
+    if (normalizedEventId.isEmpty || filePath.trim().isEmpty) return;
+    final Database db = await _db;
+    final String metadataKey = 'cleanup_audit:$normalizedEventId';
+    await db.transaction((Transaction txn) async {
+      final List<Map<String, Object?>> audited = await txn.query(
+        'recording_metadata',
+        columns: <String>['value'],
+        where: 'key = ?',
+        whereArgs: <Object?>[metadataKey],
+        limit: 1,
+      );
+      if (audited.isNotEmpty) return;
+      final List<Map<String, Object?>> rows = await txn.query(
+        'recording_sessions',
+        columns: <String>['id', 'tracking_number'],
+        where: 'is_deleted = 0 AND file_path = ?',
+        whereArgs: <Object?>[filePath],
+      );
+      final int deletedAtMillis = deletedAt.millisecondsSinceEpoch;
+      for (final Map<String, Object?> row in rows) {
+        await txn.insert('recording_delete_logs', <String, Object?>{
+          'file_path': filePath,
+          'session_id': row['id']! as String,
+          'tracking_number': row['tracking_number']! as String,
+          'file_size_bytes': fileSizeBytes < 0 ? 0 : fileSizeBytes,
+          'deleted_at': deletedAtMillis,
+          'reason': reason,
+        });
+      }
+      await txn.update(
+        'recording_sessions',
+        <String, Object?>{
+          'missing_at': deletedAtMillis,
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        },
+        where: 'is_deleted = 0 AND file_path = ?',
+        whereArgs: <Object?>[filePath],
+      );
+      await txn.insert('recording_metadata', <String, Object?>{
+        'key': metadataKey,
+        'value': deletedAt.toUtc().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    });
+  }
+
   Future<int> activeReferenceCount(String filePath) async {
     final Database db = await _db;
     final List<Map<String, Object?>> rows = await db.rawQuery(

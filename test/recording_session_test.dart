@@ -478,6 +478,55 @@ void main() {
     expect(await repository.loadSessions(), isEmpty);
   });
 
+  test('保留策略自动清理写入审计但保留远端历史记录', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_retention_audit_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = testRepository(root);
+    final DateTime startedAt = DateTime(2026, 7, 23, 12);
+    final File video = File('${root.path}/retained-remote.mp4')
+      ..writeAsBytesSync(List<int>.filled(16, 1));
+    await repository.addSession(
+      RecordingSession(
+        id: 'retention-session',
+        filePath: video.path,
+        startedAt: startedAt,
+        endedAt: startedAt.add(const Duration(seconds: 1)),
+        markers: <BarcodeMarker>[
+          BarcodeMarker(
+            code: 'RETENTION-1',
+            occurredAt: startedAt,
+            offset: Duration.zero,
+          ),
+        ],
+      ),
+    );
+    await video.delete();
+    final DateTime deletedAt = DateTime(2026, 8, 1, 8);
+
+    for (var index = 0; index < 2; index++) {
+      await repository.recordAutomaticCleanup(
+        eventId: 'cleanup-job-1',
+        filePath: video.path,
+        fileSizeBytes: 16,
+        deletedAt: deletedAt,
+        reason: '已备份录像保留策略清理',
+      );
+    }
+
+    expect(
+      await repository.loadSessions(includeMissingFiles: true),
+      hasLength(1),
+    );
+    final logs = await repository.loadDeleteLogs();
+    expect(logs, hasLength(1));
+    expect(logs.single.sessionId, 'retention-session');
+    expect(logs.single.fileSizeBytes, 16);
+    expect(logs.single.deletedAt, deletedAt);
+    expect(logs.single.reason, '已备份录像保留策略清理');
+  });
+
   test('一万条录像可按数据库关键词真实分页', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'packing_proof_mobile_large_history_test',

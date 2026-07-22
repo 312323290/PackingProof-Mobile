@@ -1361,17 +1361,38 @@ class PackingSessionController extends ChangeNotifier {
   }
 
   void _handleBackupChanged() {
-    final Set<String> deletedJobs = _lanBackupService.snapshot.jobs
+    final List<LanBackupJob> newlyDeletedJobs = _lanBackupService.snapshot.jobs
         .where((LanBackupJob job) => job.localDeletedAt != null)
-        .map((LanBackupJob job) => job.id)
-        .toSet();
-    if (deletedJobs.difference(_handledDeletedBackupJobs).isNotEmpty) {
-      _handledDeletedBackupJobs.addAll(deletedJobs);
-      unawaited(_pruneDeletedBackupSessions());
+        .where(
+          (LanBackupJob job) => !_handledDeletedBackupJobs.contains(job.id),
+        )
+        .toList(growable: false);
+    if (newlyDeletedJobs.isNotEmpty) {
+      _handledDeletedBackupJobs.addAll(
+        newlyDeletedJobs.map((LanBackupJob job) => job.id),
+      );
+      unawaited(_recordDeletedBackupJobs(newlyDeletedJobs));
     }
     if (!_disposed) {
       notifyListeners();
     }
+  }
+
+  Future<void> _recordDeletedBackupJobs(List<LanBackupJob> jobs) async {
+    for (final LanBackupJob job in jobs) {
+      try {
+        await _repository.recordAutomaticCleanup(
+          eventId: job.id,
+          filePath: job.filePath,
+          fileSizeBytes: job.totalBytes,
+          deletedAt: job.localDeletedAt!,
+          reason: job.backupCompletedAt == null ? '未备份录像保留策略清理' : '已备份录像保留策略清理',
+        );
+      } on Object {
+        _handledDeletedBackupJobs.remove(job.id);
+      }
+    }
+    await _pruneDeletedBackupSessions();
   }
 
   Future<void> _reloadRecentSessions() async {

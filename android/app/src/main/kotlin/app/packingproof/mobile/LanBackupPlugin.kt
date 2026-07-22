@@ -16,6 +16,7 @@ import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.UUID
 
 internal class LanBackupPlugin(
     private val activity: Activity,
@@ -84,14 +85,37 @@ internal class LanBackupPlugin(
                         call.argument<List<Map<String, Any?>>>("sessions")
                             ?: emptyList<Map<String, Any?>>(),
                     )
-                    val job = store.upsertJob(path, sessions)
+                    var job = store.upsertJob(path, sessions)
                     val forceRestart = call.argument<Boolean>("forceRestart") == true
-                    if (forceRestart && job.optString("state") != "completed") {
-                        job.put("state", "pending").put("errorMessage", JSONObject.NULL)
-                        store.writeJob(job)
+                    val startUpload = call.argument<Boolean>("startUpload") != false
+                    val needsVerifiedRestart = forceRestart &&
+                        (job.optString("state") != "completed" ||
+                            LanBackupCleanupScheduler.nullableText(job, "contentSha256") == null)
+                    if (needsVerifiedRestart) {
+                        job = store.updateJob(
+                            job.getString("id"),
+                            LanBackupCleanupScheduler.nullableText(job, "generation"),
+                        ) { current ->
+                            current.put("generation", UUID.randomUUID().toString())
+                                .put("state", "pending")
+                                .put("uploadedBytes", 0L)
+                                .put("backupCompletedAt", JSONObject.NULL)
+                                .put("contentSha256", JSONObject.NULL)
+                                .put("remoteRecordIds", JSONArray())
+                                .put("errorMessage", JSONObject.NULL)
+                            true
+                        } ?: job
+                    } else if (!startUpload && job.optString("state") == "pending") {
+                        job = store.updateJob(
+                            job.getString("id"),
+                            LanBackupCleanupScheduler.nullableText(job, "generation"),
+                        ) { current ->
+                            current.put("state", "paused")
+                            true
+                        } ?: job
                     }
                     LanBackupCleanupScheduler.reschedule(context, store, job)
-                    if (call.argument<Boolean>("startUpload") != false) {
+                    if (startUpload) {
                         schedule(job.getString("id"), replace = forceRestart)
                     }
                     result.success(null)
@@ -106,18 +130,22 @@ internal class LanBackupPlugin(
                 }
                 "retry" -> {
                     val id = call.argument<String>("id") ?: error("缺少任务编号")
-                    val job = store.readJob(id) ?: error("找不到备份任务")
-                    job.put("state", "pending").put("errorMessage", JSONObject.NULL)
-                    store.writeJob(job)
+                    store.updateJob(id) { job ->
+                        job.put("generation", UUID.randomUUID().toString())
+                            .put("state", "pending")
+                            .put("errorMessage", JSONObject.NULL)
+                        true
+                    } ?: error("找不到备份任务")
                     schedule(id, replace = true)
                     result.success(null)
                 }
                 "cancel" -> {
                     val id = call.argument<String>("id") ?: error("缺少任务编号")
                     WorkManager.getInstance(context).cancelUniqueWork(WORK_PREFIX + id)
-                    store.readJob(id)?.let { job ->
-                        job.put("state", "paused")
-                        store.writeJob(job)
+                    store.updateJob(id) { job ->
+                        job.put("generation", UUID.randomUUID().toString())
+                            .put("state", "paused")
+                        true
                     }
                     result.success(null)
                 }

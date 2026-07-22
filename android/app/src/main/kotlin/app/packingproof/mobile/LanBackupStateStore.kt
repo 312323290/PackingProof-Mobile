@@ -1,9 +1,11 @@
 package app.packingproof.mobile
 
 import android.content.Context
+import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
@@ -13,10 +15,13 @@ internal class LanBackupStateStore(private val context: Context) {
         private const val PREFS = "lan_backup_connection"
         private const val RETENTION_PREFS = "lan_backup_retention"
         private const val DEVICE_PREFS = "lan_backup_device"
+        private val jobIoLock = Any()
 
         fun stableId(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
+
+        fun <T> withJobLock(action: () -> T): T = synchronized(jobIoLock, action)
     }
 
     private val jobsDirectory = File(context.filesDir, "lan_backup/jobs").apply { mkdirs() }
@@ -44,25 +49,27 @@ internal class LanBackupStateStore(private val context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
     }
 
-    fun retargetJobs(computerId: String) {
-        jobs().forEach { job ->
+    fun retargetJobs(computerId: String) = withJobLock {
+        jobsUnlocked().forEach { job ->
             if (job.optString("destinationComputerId") == computerId) return@forEach
             val file = File(job.optString("filePath"))
             if (!file.exists()) return@forEach
             job.put("destinationComputerId", computerId)
                 .put("state", "pending")
+                .put("generation", UUID.randomUUID().toString())
                 .put("uploadedBytes", 0L)
                 .put("backupCompletedAt", JSONObject.NULL)
+                .put("contentSha256", JSONObject.NULL)
                 .put("remoteRecordIds", JSONArray())
                 .put("errorMessage", JSONObject.NULL)
-            writeJob(job)
+            writeJobUnlocked(job)
         }
     }
 
-    fun upsertJob(filePath: String, sessions: JSONArray): JSONObject {
+    fun upsertJob(filePath: String, sessions: JSONArray): JSONObject = withJobLock {
         val file = File(filePath)
         val id = stableId(file.canonicalPath)
-        val existing = readJob(id)
+        val existing = readJobUnlocked(id)
         val destinationComputerId = connection()?.optString("computerId").orEmpty()
         if (existing != null &&
             existing.optLong("totalBytes") == file.length() &&
@@ -79,11 +86,16 @@ internal class LanBackupStateStore(private val context: Context) {
             if (!existing.has("localDeletedAt")) existing.put("localDeletedAt", JSONObject.NULL)
             if (!existing.has("waitingCleanup")) existing.put("waitingCleanup", false)
             if (!existing.has("remoteRecordIds")) existing.put("remoteRecordIds", JSONArray())
-            writeJob(existing)
-            return existing
+            if (!existing.has("contentSha256")) existing.put("contentSha256", JSONObject.NULL)
+            if (existing.optString("generation").isBlank()) {
+                existing.put("generation", UUID.randomUUID().toString())
+            }
+            writeJobUnlocked(existing)
+            return@withJobLock existing
         }
         val job = JSONObject()
             .put("id", id)
+            .put("generation", UUID.randomUUID().toString())
             .put("filePath", file.absolutePath)
             .put("fileName", file.name)
             .put("destinationComputerId", destinationComputerId)
@@ -97,38 +109,65 @@ internal class LanBackupStateStore(private val context: Context) {
             .put("localDeletedAt", JSONObject.NULL)
             .put("waitingCleanup", false)
             .put("remoteRecordIds", JSONArray())
+            .put("contentSha256", JSONObject.NULL)
             .put("errorMessage", JSONObject.NULL)
             .put("sessions", sessions)
-        writeJob(job)
-        return job
+        writeJobUnlocked(job)
+        job
     }
 
-    fun readJob(id: String): JSONObject? {
+    fun readJob(id: String): JSONObject? = withJobLock { readJobUnlocked(id) }
+
+    fun writeJob(job: JSONObject) = withJobLock { writeJobUnlocked(job) }
+
+    fun updateJob(
+        id: String,
+        expectedGeneration: String? = null,
+        update: (JSONObject) -> Boolean,
+    ): JSONObject? = withJobLock {
+        val job = readJobUnlocked(id) ?: return@withJobLock null
+        if (expectedGeneration != null && job.optString("generation") != expectedGeneration) {
+            return@withJobLock null
+        }
+        if (!update(job)) return@withJobLock null
+        writeJobUnlocked(job)
+        JSONObject(job.toString())
+    }
+
+    fun jobs(): List<JSONObject> = withJobLock { jobsUnlocked() }
+
+    private fun readJobUnlocked(id: String): JSONObject? {
         val file = File(jobsDirectory, "$id.json")
         return try {
-            if (file.exists()) JSONObject(file.readText(Charsets.UTF_8)) else null
+            if (!file.exists() && !File("${file.path}.bak").exists()) return null
+            AtomicFile(file).openRead().bufferedReader(Charsets.UTF_8).use { reader ->
+                JSONObject(reader.readText())
+            }
         } catch (_: Throwable) {
             null
         }
     }
 
-    @Synchronized
-    fun writeJob(job: JSONObject) {
+    private fun writeJobUnlocked(job: JSONObject) {
         val target = File(jobsDirectory, "${job.getString("id")}.json")
-        val temporary = File(target.path + ".tmp")
-        temporary.writeText(job.toString(), Charsets.UTF_8)
-        if (target.exists()) target.delete()
-        temporary.renameTo(target)
+        val atomicFile = AtomicFile(target)
+        var output: FileOutputStream? = null
+        try {
+            output = atomicFile.startWrite()
+            output.write(job.toString().toByteArray(Charsets.UTF_8))
+            atomicFile.finishWrite(output)
+        } catch (error: Throwable) {
+            output?.let(atomicFile::failWrite)
+            throw error
+        }
     }
 
-    fun jobs(): List<JSONObject> = jobsDirectory.listFiles { file -> file.extension == "json" }
-        ?.mapNotNull { file ->
-            try {
-                JSONObject(file.readText(Charsets.UTF_8))
-            } catch (_: Throwable) {
-                null
-            }
-        }
+    private fun jobsUnlocked(): List<JSONObject> = jobsDirectory.listFiles { file ->
+        file.name.endsWith(".json") || file.name.endsWith(".json.bak")
+    }
+        ?.map { file -> file.name.removeSuffix(".bak").removeSuffix(".json") }
+        ?.distinct()
+        ?.mapNotNull(::readJobUnlocked)
         ?.sortedByDescending { it.optLong("lastModified") }
         ?: emptyList()
 

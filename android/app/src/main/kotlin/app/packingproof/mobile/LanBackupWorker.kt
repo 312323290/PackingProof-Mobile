@@ -37,20 +37,34 @@ internal class LanBackupWorker(
 
     override suspend fun doWork(): Result {
         val id = inputData.getString("jobId") ?: return Result.failure()
-        val job = store.readJob(id) ?: return Result.failure()
-        val file = File(job.optString("filePath"))
+        val initialJob = store.readJob(id) ?: return Result.failure()
+        val generation = initialJob.optString("generation")
         val connection = store.connection()
         val accessKey = credentials.load()
-        if (!file.exists()) return fail(job, "录像文件不存在")
-        if (connection == null || accessKey.isNullOrBlank()) return fail(job, "请重新连接电脑")
-        if (job.optString("destinationComputerId") != connection.optString("computerId")) {
+        if (!File(initialJob.optString("filePath")).exists()) {
+            return fail(initialJob, generation, "录像文件不存在")
+        }
+        if (connection == null || accessKey.isNullOrBlank()) {
+            return fail(initialJob, generation, "请重新连接电脑")
+        }
+        if (initialJob.optString("destinationComputerId") != connection.optString("computerId")) {
             return Result.failure()
         }
+        val job = store.updateJob(id, generation) { current ->
+            val currentFile = File(current.optString("filePath"))
+            if (LanBackupCleanupScheduler.nullableText(current, "localDeletedAt") != null ||
+                !currentFile.exists()
+            ) {
+                false
+            } else {
+                current.put("state", "uploading").put("errorMessage", JSONObject.NULL)
+                true
+            }
+        } ?: return Result.failure()
+        val file = File(job.optString("filePath"))
 
         return try {
             Log.i(TAG, "Backup started id=${id.take(8)} file=${file.name} bytes=${file.length()}")
-            job.put("state", "uploading").put("errorMessage", JSONObject.NULL)
-            store.writeJob(job)
 
             val sha256 = file.sha256()
             val baseUrl = connection.getString("baseUrl").trimEnd('/')
@@ -74,10 +88,8 @@ internal class LanBackupWorker(
             RandomAccessFile(file, "r").use { input ->
                 while (offset < file.length()) {
                     if (isStopped) {
-                        job.put("state", "paused")
-                        store.writeJob(job)
                         clearBackupNotification(job)
-                        return Result.failure()
+                        return pause(job, generation, "备份已暂停")
                     }
                     val size = min(chunkSize.toLong(), file.length() - offset).toInt()
                     val bytes = ByteArray(size)
@@ -103,7 +115,10 @@ internal class LanBackupWorker(
                         Log.i(TAG, "Upload offset resynced id=${id.take(8)} from=$offset to=$expected")
                         offset = expected
                         job.put("uploadedBytes", offset)
-                        store.writeJob(job)
+                        if (!updateUploadedBytes(job, generation, offset)) {
+                            clearBackupNotification(job)
+                            return Result.success()
+                        }
                         continue
                     }
                     if (nextOffset <= offset || nextOffset > file.length()) {
@@ -113,7 +128,10 @@ internal class LanBackupWorker(
                     offset = nextOffset
                     Log.d(TAG, "Chunk accepted id=${id.take(8)} offset=$offset total=${file.length()}")
                     job.put("uploadedBytes", offset)
-                    store.writeJob(job)
+                    if (!updateUploadedBytes(job, generation, offset)) {
+                        clearBackupNotification(job)
+                        return Result.success()
+                    }
                     setForeground(foreground(job, ((offset * 100) / file.length()).toInt()))
                 }
             }
@@ -131,34 +149,45 @@ internal class LanBackupWorker(
                 completion.optString("fileSha256") != sha256 ||
                 recordIds.length() == 0
             ) {
-                return fail(job, "电脑未确认录像校验结果")
+                return fail(job, generation, "电脑未确认录像校验结果")
             }
-            complete(job, file.length(), recordIds)
+            complete(job, generation, file.length(), recordIds, sha256)
         } catch (error: BackupHttpException) {
             Log.w(TAG, "Backup HTTP failure id=${id.take(8)} status=${error.statusCode}", error)
             if (error.statusCode == 401 || error.statusCode == 403 || error.statusCode == 404) {
-                fail(job, friendlyError(error))
+                fail(job, generation, friendlyError(error))
             } else {
-                pause(job, friendlyError(error))
+                pause(job, generation, friendlyError(error))
             }
         } catch (error: IOException) {
             Log.w(TAG, "Backup network failure id=${id.take(8)}", error)
-            pause(job, "电脑离线，备份已暂停")
+            pause(job, generation, "电脑离线，备份已暂停")
         } catch (error: Throwable) {
             Log.e(TAG, "Backup failed id=${id.take(8)}", error)
-            fail(job, error.message ?: "备份失败")
+            fail(job, generation, error.message ?: "备份失败")
         }
     }
 
-    private fun complete(job: JSONObject, total: Long, recordIds: JSONArray): Result {
-        job.put("state", "completed")
-            .put("uploadedBytes", total)
-            .put("backupCompletedAt", java.time.Instant.now().toString())
-            .put("remoteRecordIds", recordIds)
-            .put("errorMessage", JSONObject.NULL)
-        store.writeJob(job)
+    private fun complete(
+        job: JSONObject,
+        generation: String,
+        total: Long,
+        recordIds: JSONArray,
+        contentSha256: String,
+    ): Result {
+        val current = store.updateJob(job.getString("id"), generation) { value ->
+            value.put("state", "completed")
+                .put("uploadedBytes", total)
+                .put("backupCompletedAt", java.time.Instant.now().toString())
+                .put("contentSha256", contentSha256)
+                .put("remoteRecordIds", recordIds)
+                .put("errorMessage", JSONObject.NULL)
+            true
+        }
         clearBackupNotification(job)
-        LanBackupCleanupScheduler.reschedule(applicationContext, store, job)
+        if (current != null) {
+            LanBackupCleanupScheduler.reschedule(applicationContext, store, current)
+        }
         return Result.success()
     }
 
@@ -185,19 +214,32 @@ internal class LanBackupWorker(
         return result
     }
 
-    private fun fail(job: JSONObject, message: String): Result {
-        job.put("state", "failed").put("errorMessage", message)
-        store.writeJob(job)
+    private fun fail(job: JSONObject, generation: String, message: String): Result {
+        store.updateJob(job.getString("id"), generation) { value ->
+            value.put("state", "failed").put("errorMessage", message)
+            true
+        }
         clearBackupNotification(job)
         return Result.failure()
     }
 
-    private fun pause(job: JSONObject, message: String): Result {
-        job.put("state", "paused").put("errorMessage", message)
-        store.writeJob(job)
+    private fun pause(job: JSONObject, generation: String, message: String): Result {
+        store.updateJob(job.getString("id"), generation) { value ->
+            value.put("state", "paused").put("errorMessage", message)
+            true
+        }
         clearBackupNotification(job)
         return Result.success()
     }
+
+    private fun updateUploadedBytes(
+        job: JSONObject,
+        generation: String,
+        uploadedBytes: Long,
+    ): Boolean = store.updateJob(job.getString("id"), generation) { value ->
+        value.put("uploadedBytes", uploadedBytes)
+        true
+    } != null
 
     private fun clearBackupNotification(job: JSONObject) {
         val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

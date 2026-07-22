@@ -12,12 +12,14 @@ abstract interface class VideoWatermarkSink {
 }
 
 class VideoWatermarkService implements VideoWatermarkSink {
-  VideoWatermarkService({MethodChannel? channel})
+  VideoWatermarkService({MethodChannel? channel, bool? isAndroid})
     : _channel =
           channel ??
-          const MethodChannel('app.packingproof.mobile/video_watermark');
+          const MethodChannel('app.packingproof.mobile/video_watermark'),
+      _isAndroid = isAndroid ?? Platform.isAndroid;
 
   final MethodChannel _channel;
+  final bool _isAndroid;
   Future<void> _tail = Future<void>.value();
 
   @override
@@ -48,7 +50,7 @@ class VideoWatermarkService implements VideoWatermarkSink {
     required DateTime startedAt,
     required String trackingNumber,
   }) async {
-    if (!Platform.isAndroid) return inputPath;
+    if (!_isAndroid) return inputPath;
     final int dot = inputPath.lastIndexOf('.');
     final String outputPath = dot > 0
         ? '${inputPath.substring(0, dot)}_watermarked.mp4'
@@ -61,9 +63,6 @@ class VideoWatermarkService implements VideoWatermarkSink {
     });
     if (result == null || result.isEmpty || !await File(result).exists()) {
       throw StateError('水印视频生成失败');
-    }
-    if (result != inputPath) {
-      await File(inputPath).delete().catchError((_) => File(inputPath));
     }
     return result;
   }

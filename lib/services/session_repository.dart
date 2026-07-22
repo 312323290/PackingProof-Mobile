@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -20,6 +22,8 @@ class SessionRepository {
   late File _indexFile;
   late File _settingsFile;
   bool _initialized = false;
+  Future<void> _sessionMutationTail = Future<void>.value();
+  Future<void> _settingsMutationTail = Future<void>.value();
 
   Future<void> initialize() async {
     if (_initialized) {
@@ -41,40 +45,83 @@ class SessionRepository {
 
   Future<List<RecordingSession>> loadSessions({
     bool includeMissingFiles = false,
+  }) => _serializeSessionMutation(
+    () => _loadSessionsUnlocked(includeMissingFiles: includeMissingFiles),
+  );
+
+  Future<List<RecordingSession>> _loadSessionsUnlocked({
+    required bool includeMissingFiles,
   }) async {
     await initialize();
+    final File backupFile = File('${_indexFile.path}.bak');
+    if (!await _indexFile.exists() && await backupFile.exists()) {
+      await backupFile.rename(_indexFile.path);
+    }
     if (!await _indexFile.exists()) {
       return <RecordingSession>[];
     }
 
     try {
-      final Object? decoded = jsonDecode(await _indexFile.readAsString());
-      final List<Object?> values = decoded! as List<Object?>;
-      final List<RecordingSession> sessions = values
-          .map(
-            (Object? value) => RecordingSession.fromJson(
-              Map<String, Object?>.from(value! as Map<Object?, Object?>),
-            ),
-          )
-          .where(
-            (RecordingSession session) =>
-                includeMissingFiles || File(session.filePath).existsSync(),
-          )
-          .toList();
-      sessions.sort(
-        (RecordingSession a, RecordingSession b) =>
-            b.startedAt.compareTo(a.startedAt),
-      );
-      return sessions;
+      return await _readSessionsIndex(includeMissingFiles);
     } on Object {
-      final String backupName =
-          'sessions-corrupt-${DateTime.now().millisecondsSinceEpoch}.json';
-      await _indexFile.rename(p.join(_rootDirectory!.path, backupName));
+      await _archiveCorruptSessionIndex();
+      if (await backupFile.exists()) {
+        await backupFile.rename(_indexFile.path);
+        try {
+          return await _readSessionsIndex(includeMissingFiles);
+        } on Object {
+          await _archiveCorruptSessionIndex();
+        }
+      }
       return <RecordingSession>[];
     }
   }
 
+  Future<List<RecordingSession>> _readSessionsIndex(
+    bool includeMissingFiles,
+  ) async {
+    final Object? decoded = jsonDecode(await _indexFile.readAsString());
+    final List<Object?> values = decoded! as List<Object?>;
+    final List<RecordingSession> sessions = values
+        .map(
+          (Object? value) => RecordingSession.fromJson(
+            Map<String, Object?>.from(value! as Map<Object?, Object?>),
+          ),
+        )
+        .where(
+          (RecordingSession session) =>
+              includeMissingFiles || File(session.filePath).existsSync(),
+        )
+        .toList();
+    sessions.sort(
+      (RecordingSession a, RecordingSession b) =>
+          b.startedAt.compareTo(a.startedAt),
+    );
+    return sessions;
+  }
+
+  Future<void> _archiveCorruptSessionIndex() async {
+    if (!await _indexFile.exists()) return;
+    final String backupName =
+        'sessions-corrupt-${DateTime.now().microsecondsSinceEpoch}.json';
+    await _indexFile.rename(p.join(_rootDirectory!.path, backupName));
+  }
+
   Future<String> finalizeVideo({
+    required String sourcePath,
+    required String sessionId,
+    required DateTime startedAt,
+    required String trackingNumber,
+  }) => _serializeSessionMutation(
+    () => _finalizeVideo(
+      sourcePath: sourcePath,
+      sessionId: sessionId,
+      startedAt: startedAt,
+      trackingNumber: trackingNumber,
+    ),
+  );
+
+  Future<String> _finalizeVideo({
     required String sourcePath,
     required String sessionId,
     required DateTime startedAt,
@@ -99,10 +146,20 @@ class SessionRepository {
       final String shortSuffix = suffix.length <= 8
           ? suffix
           : suffix.substring(suffix.length - 8);
-      destinationPath = p.join(
-        dateDirectory.path,
-        '${baseName}_${shortSuffix.isEmpty ? startedAt.millisecondsSinceEpoch : shortSuffix}.mp4',
-      );
+      final String collisionSuffix = shortSuffix.isEmpty
+          ? '${startedAt.millisecondsSinceEpoch}'
+          : shortSuffix;
+      var collisionIndex = 1;
+      do {
+        final String numberedSuffix = collisionIndex == 1
+            ? collisionSuffix
+            : '${collisionSuffix}_$collisionIndex';
+        destinationPath = p.join(
+          dateDirectory.path,
+          '${baseName}_$numberedSuffix.mp4',
+        );
+        collisionIndex++;
+      } while (await File(destinationPath).exists());
     }
     try {
       await source.rename(destinationPath);
@@ -149,8 +206,8 @@ class SessionRepository {
 
   Future<List<RecordingSession>> addSessions(
     List<RecordingSession> newSessions,
-  ) async {
-    final List<RecordingSession> sessions = await loadSessions(
+  ) => _serializeSessionMutation(() async {
+    final List<RecordingSession> sessions = await _loadSessionsUnlocked(
       includeMissingFiles: true,
     );
     sessions.addAll(newSessions);
@@ -160,12 +217,12 @@ class SessionRepository {
     );
     await _writeSessions(sessions);
     return sessions;
-  }
+  });
 
   Future<List<RecordingSession>> updateSession(
     RecordingSession updatedSession,
-  ) async {
-    final List<RecordingSession> sessions = await loadSessions(
+  ) => _serializeSessionMutation(() async {
+    final List<RecordingSession> sessions = await _loadSessionsUnlocked(
       includeMissingFiles: true,
     );
     final int index = sessions.indexWhere(
@@ -181,13 +238,15 @@ class SessionRepository {
     );
     await _writeSessions(sessions);
     return sessions;
-  }
+  });
 
-  Future<List<RecordingSession>> deleteSessions(Set<String> sessionIds) async {
+  Future<List<RecordingSession>> deleteSessions(
+    Set<String> sessionIds,
+  ) => _serializeSessionMutation(() async {
     if (sessionIds.isEmpty) {
-      return loadSessions(includeMissingFiles: true);
+      return _loadSessionsUnlocked(includeMissingFiles: true);
     }
-    final List<RecordingSession> sessions = await loadSessions(
+    final List<RecordingSession> sessions = await _loadSessionsUnlocked(
       includeMissingFiles: true,
     );
     final List<RecordingSession> removed = sessions
@@ -219,53 +278,105 @@ class SessionRepository {
       }
     }
     return remaining;
-  }
+  });
+
+  Future<void> deleteFileIfUnreferenced(String filePath) =>
+      _serializeSessionMutation(() async {
+        await initialize();
+        final String normalizedPath = p.normalize(filePath);
+        final List<RecordingSession> sessions = await _loadSessionsUnlocked(
+          includeMissingFiles: true,
+        );
+        if (sessions.any(
+              (RecordingSession session) =>
+                  p.normalize(session.filePath) == normalizedPath,
+            ) ||
+            !p.isWithin(_recordingsDirectory.path, normalizedPath)) {
+          return;
+        }
+        final File file = File(normalizedPath);
+        if (!await file.exists()) return;
+        try {
+          await file.delete();
+          developer.log(
+            '已清理完成水印替换的旧录像：$normalizedPath',
+            name: 'PackingProof.VideoCleanup',
+          );
+        } on FileSystemException {
+          // Keeping an unreferenced source is safer than removing a newer file.
+        }
+      });
 
   Future<WorkMode> loadWorkMode() async {
     return (await loadSettings()).workMode;
   }
 
-  Future<AppSettings> loadSettings() async {
+  Future<AppSettings> loadSettings() =>
+      _serializeSettingsMutation(_loadSettingsUnlocked);
+
+  Future<AppSettings> _loadSettingsUnlocked() async {
     await initialize();
+    final File backupFile = File('${_settingsFile.path}.bak');
+    if (!await _settingsFile.exists() && await backupFile.exists()) {
+      await backupFile.rename(_settingsFile.path);
+    }
     if (!await _settingsFile.exists()) {
       return const AppSettings();
     }
     try {
-      final Object? decoded = jsonDecode(await _settingsFile.readAsString());
-      final Map<String, Object?> values = Map<String, Object?>.from(
-        decoded! as Map<Object?, Object?>,
-      );
-      return AppSettings.fromJson(values);
+      return await _readSettingsFile();
     } on Object {
-      return const AppSettings();
+      await _archiveCorruptSettings();
+      if (await backupFile.exists()) {
+        await backupFile.rename(_settingsFile.path);
+        try {
+          return await _readSettingsFile();
+        } on Object {
+          await _archiveCorruptSettings();
+        }
+      }
+      return const AppSettings(
+        unbackedRetention: UnbackedRetentionPolicy.keepForever,
+        backedRetention: BackedRetentionPolicy.keepForever,
+      );
     }
   }
 
-  Future<void> saveWorkMode(WorkMode mode) async {
-    final AppSettings settings = await loadSettings();
-    await saveSettings(settings.copyWith(workMode: mode));
+  Future<AppSettings> _readSettingsFile() async {
+    final Object? decoded = jsonDecode(await _settingsFile.readAsString());
+    final Map<String, Object?> values = Map<String, Object?>.from(
+      decoded! as Map<Object?, Object?>,
+    );
+    return AppSettings.fromJson(values);
   }
 
-  Future<void> saveSpeechEnabled(bool enabled) async {
-    final AppSettings settings = await loadSettings();
-    await saveSettings(settings.copyWith(speechEnabled: enabled));
+  Future<void> _archiveCorruptSettings() async {
+    if (!await _settingsFile.exists()) return;
+    final String backupName =
+        'settings-corrupt-${DateTime.now().microsecondsSinceEpoch}.json';
+    await _settingsFile.rename(p.join(_rootDirectory!.path, backupName));
   }
 
-  Future<void> saveOrderSpeechEnabled(bool enabled) async {
-    final AppSettings settings = await loadSettings();
-    await saveSettings(settings.copyWith(orderSpeechEnabled: enabled));
-  }
+  Future<void> saveWorkMode(WorkMode mode) =>
+      _updateSettings((AppSettings value) => value.copyWith(workMode: mode));
 
-  Future<void> saveMaxVolumeEnabled(bool enabled) async {
-    final AppSettings settings = await loadSettings();
-    await saveSettings(settings.copyWith(maxVolumeEnabled: enabled));
-  }
+  Future<void> saveSpeechEnabled(bool enabled) => _updateSettings(
+    (AppSettings value) => value.copyWith(speechEnabled: enabled),
+  );
+
+  Future<void> saveOrderSpeechEnabled(bool enabled) => _updateSettings(
+    (AppSettings value) => value.copyWith(orderSpeechEnabled: enabled),
+  );
+
+  Future<void> saveMaxVolumeEnabled(bool enabled) => _updateSettings(
+    (AppSettings value) => value.copyWith(maxVolumeEnabled: enabled),
+  );
 
   Future<List<RecordingSession>> pruneMissingSessions({
     Set<String> retainedMissingPaths = const <String>{},
-  }) async {
+  }) => _serializeSessionMutation(() async {
     final List<RecordingSession> sessions =
-        (await loadSessions(includeMissingFiles: true))
+        (await _loadSessionsUnlocked(includeMissingFiles: true))
             .where((RecordingSession session) {
               return File(session.filePath).existsSync() ||
                   retainedMissingPaths.contains(p.normalize(session.filePath));
@@ -273,44 +384,66 @@ class SessionRepository {
             .toList(growable: false);
     await _writeSessions(sessions);
     return sessions;
-  }
+  });
 
-  Future<void> saveStartupNoticeVersion(int version) async {
-    final AppSettings settings = await loadSettings();
-    await saveSettings(settings.copyWith(startupNoticeVersion: version));
-  }
+  Future<void> saveStartupNoticeVersion(int version) => _updateSettings(
+    (AppSettings value) => value.copyWith(startupNoticeVersion: version),
+  );
 
-  Future<void> saveLanBackupAutoEnabled(bool enabled) async {
-    final AppSettings settings = await loadSettings();
-    await saveSettings(settings.copyWith(lanBackupAutoEnabled: enabled));
-  }
+  Future<void> saveLanBackupAutoEnabled(bool enabled) => _updateSettings(
+    (AppSettings value) => value.copyWith(lanBackupAutoEnabled: enabled),
+  );
 
-  Future<void> saveHiddenRemoteRecordingIds(Set<int> ids) async {
-    final AppSettings settings = await loadSettings();
-    await saveSettings(settings.copyWith(hiddenRemoteRecordingIds: ids));
-  }
+  Future<void> saveHiddenRemoteRecordingIds(Set<int> ids) => _updateSettings(
+    (AppSettings value) => value.copyWith(hiddenRemoteRecordingIds: ids),
+  );
 
   Future<void> saveBackupRetention({
     required UnbackedRetentionPolicy unbacked,
     required BackedRetentionPolicy backed,
-  }) async {
-    final AppSettings settings = await loadSettings();
-    await saveSettings(
-      settings.copyWith(unbackedRetention: unbacked, backedRetention: backed),
-    );
-  }
+  }) => _updateSettings(
+    (AppSettings value) =>
+        value.copyWith(unbackedRetention: unbacked, backedRetention: backed),
+  );
 
-  Future<void> saveSettings(AppSettings settings) async {
+  Future<void> saveSettings(AppSettings settings) =>
+      _serializeSettingsMutation(() => _writeSettingsUnlocked(settings));
+
+  Future<void> _updateSettings(
+    AppSettings Function(AppSettings value) update,
+  ) => _serializeSettingsMutation(() async {
+    final AppSettings settings = await _loadSettingsUnlocked();
+    await _writeSettingsUnlocked(update(settings));
+  });
+
+  Future<void> _writeSettingsUnlocked(AppSettings settings) async {
     await initialize();
     final String contents = const JsonEncoder.withIndent(
       '  ',
     ).convert(settings.toJson());
     final File tempFile = File('${_settingsFile.path}.tmp');
+    final File backupFile = File('${_settingsFile.path}.bak');
     await tempFile.writeAsString(contents, flush: true);
-    if (await _settingsFile.exists()) {
-      await _settingsFile.delete();
+    if (await backupFile.exists()) {
+      await backupFile.delete();
     }
-    await tempFile.rename(_settingsFile.path);
+    final bool hadSettings = await _settingsFile.exists();
+    if (hadSettings) {
+      await _settingsFile.rename(backupFile.path);
+    }
+    try {
+      await tempFile.rename(_settingsFile.path);
+    } on Object {
+      if (hadSettings &&
+          !await _settingsFile.exists() &&
+          await backupFile.exists()) {
+        await backupFile.rename(_settingsFile.path);
+      }
+      rethrow;
+    }
+    if (await backupFile.exists()) {
+      await backupFile.delete();
+    }
   }
 
   Future<void> _writeSessions(List<RecordingSession> sessions) async {
@@ -319,10 +452,53 @@ class SessionRepository {
       '  ',
     ).convert(sessions.map((RecordingSession item) => item.toJson()).toList());
     final File tempFile = File('${_indexFile.path}.tmp');
+    final File backupFile = File('${_indexFile.path}.bak');
     await tempFile.writeAsString(contents, flush: true);
-    if (await _indexFile.exists()) {
-      await _indexFile.delete();
+    if (await backupFile.exists()) {
+      await backupFile.delete();
     }
-    await tempFile.rename(_indexFile.path);
+    final bool hadIndex = await _indexFile.exists();
+    if (hadIndex) {
+      await _indexFile.rename(backupFile.path);
+    }
+    try {
+      await tempFile.rename(_indexFile.path);
+    } on Object {
+      if (hadIndex && !await _indexFile.exists() && await backupFile.exists()) {
+        await backupFile.rename(_indexFile.path);
+      }
+      rethrow;
+    }
+    if (await backupFile.exists()) {
+      await backupFile.delete();
+    }
+  }
+
+  Future<T> _serializeSessionMutation<T>(Future<T> Function() action) {
+    final Completer<T> result = Completer<T>();
+    _sessionMutationTail = _sessionMutationTail.catchError((Object _) {}).then((
+      _,
+    ) async {
+      try {
+        result.complete(await action());
+      } on Object catch (error, stackTrace) {
+        result.completeError(error, stackTrace);
+      }
+    });
+    return result.future;
+  }
+
+  Future<T> _serializeSettingsMutation<T>(Future<T> Function() action) {
+    final Completer<T> result = Completer<T>();
+    _settingsMutationTail = _settingsMutationTail
+        .catchError((Object _) {})
+        .then((_) async {
+          try {
+            result.complete(await action());
+          } on Object catch (error, stackTrace) {
+            result.completeError(error, stackTrace);
+          }
+        });
+    return result.future;
   }
 }

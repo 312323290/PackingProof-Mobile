@@ -104,4 +104,31 @@ void main() {
     expect(settings.hiddenRemoteRecordingIds, <int>{3, 8});
     expect(settings.speechEnabled, isFalse);
   });
+
+  test('并发更新设置不会覆盖录像保留策略', () async {
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+
+    await Future.wait(<Future<void>>[
+      repository.saveBackupRetention(
+        unbacked: UnbackedRetentionPolicy.keepForever,
+        backed: BackedRetentionPolicy.keepForever,
+      ),
+      repository.saveSpeechEnabled(false),
+    ]);
+
+    final settings = await repository.loadSettings();
+    expect(settings.unbackedRetention, UnbackedRetentionPolicy.keepForever);
+    expect(settings.backedRetention, BackedRetentionPolicy.keepForever);
+    expect(settings.speechEnabled, isFalse);
+  });
+
+  test('设置索引损坏且无法恢复时禁用自动录像清理', () async {
+    await File('${root.path}/settings.json').writeAsString('{broken');
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+
+    final settings = await repository.loadSettings();
+
+    expect(settings.unbackedRetention, UnbackedRetentionPolicy.keepForever);
+    expect(settings.backedRetention, BackedRetentionPolicy.keepForever);
+  });
 }

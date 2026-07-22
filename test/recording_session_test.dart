@@ -178,6 +178,150 @@ void main() {
     expect(await repository.loadSessions(), isEmpty);
   });
 
+  test('并发保存录像记录不会互相覆盖', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_session_race_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final DateTime startedAt = DateTime(2026, 7, 22, 10);
+    final File firstFile = File('${root.path}/first.mp4')
+      ..writeAsBytesSync(<int>[1]);
+    final File secondFile = File('${root.path}/second.mp4')
+      ..writeAsBytesSync(<int>[2]);
+    final String firstPath = await repository.finalizeVideo(
+      sourcePath: firstFile.path,
+      sessionId: 'race-first',
+      startedAt: startedAt,
+      trackingNumber: 'RACE1',
+    );
+    final String secondPath = await repository.finalizeVideo(
+      sourcePath: secondFile.path,
+      sessionId: 'race-second',
+      startedAt: startedAt.add(const Duration(seconds: 1)),
+      trackingNumber: 'RACE2',
+    );
+
+    await Future.wait(<Future<List<RecordingSession>>>[
+      repository.addSession(
+        RecordingSession(
+          id: 'race-first',
+          filePath: firstPath,
+          startedAt: startedAt,
+          endedAt: startedAt.add(const Duration(seconds: 1)),
+          markers: const <BarcodeMarker>[],
+        ),
+      ),
+      repository.addSession(
+        RecordingSession(
+          id: 'race-second',
+          filePath: secondPath,
+          startedAt: startedAt.add(const Duration(seconds: 1)),
+          endedAt: startedAt.add(const Duration(seconds: 2)),
+          markers: const <BarcodeMarker>[],
+        ),
+      ),
+    ]);
+
+    expect(await repository.loadSessions(), hasLength(2));
+    expect(File(firstPath).existsSync(), isTrue);
+    expect(File(secondPath).existsSync(), isTrue);
+  });
+
+  test('录像索引替换中断后从备份恢复记录', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_session_recovery_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final DateTime startedAt = DateTime(2026, 7, 22, 10, 30);
+    final File video = File('${root.path}/recording.mp4')
+      ..writeAsBytesSync(<int>[1, 2, 3]);
+    await repository.addSession(
+      RecordingSession(
+        id: 'recover-session',
+        filePath: video.path,
+        startedAt: startedAt,
+        endedAt: startedAt.add(const Duration(seconds: 1)),
+        markers: const <BarcodeMarker>[],
+      ),
+    );
+    final File index = File('${root.path}/sessions.json');
+    final File backup = File('${index.path}.bak');
+    await index.rename(backup.path);
+
+    final SessionRepository restarted = SessionRepository(rootDirectory: root);
+    final List<RecordingSession> recovered = await restarted.loadSessions();
+
+    expect(recovered.single.id, 'recover-session');
+    expect(index.existsSync(), isTrue);
+    expect(backup.existsSync(), isFalse);
+    expect(video.existsSync(), isTrue);
+  });
+
+  test('新录像索引损坏时回退到上一份有效索引', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_session_corrupt_recovery_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final DateTime startedAt = DateTime(2026, 7, 22, 10, 45);
+    final File video = File('${root.path}/recording.mp4')
+      ..writeAsBytesSync(<int>[1, 2, 3]);
+    await repository.addSession(
+      RecordingSession(
+        id: 'recover-corrupt-session',
+        filePath: video.path,
+        startedAt: startedAt,
+        endedAt: startedAt.add(const Duration(seconds: 1)),
+        markers: const <BarcodeMarker>[],
+      ),
+    );
+    final File index = File('${root.path}/sessions.json');
+    final File backup = File('${index.path}.bak');
+    await index.copy(backup.path);
+    await index.writeAsString('{broken');
+
+    final SessionRepository restarted = SessionRepository(rootDirectory: root);
+    final List<RecordingSession> recovered = await restarted.loadSessions();
+
+    expect(recovered.single.id, 'recover-corrupt-session');
+    expect(index.existsSync(), isTrue);
+    expect(backup.existsSync(), isFalse);
+    expect(video.existsSync(), isTrue);
+  });
+
+  test('清理水印旧源前重新核对是否仍被录像记录引用', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_watermark_cleanup_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final SessionRepository repository = SessionRepository(rootDirectory: root);
+    final DateTime startedAt = DateTime(2026, 7, 22, 11);
+    final File source = File('${root.path}/source.mp4')
+      ..writeAsBytesSync(<int>[1, 2, 3]);
+    final String sourcePath = await repository.finalizeVideo(
+      sourcePath: source.path,
+      sessionId: 'source-session',
+      startedAt: startedAt,
+      trackingNumber: 'SOURCE',
+    );
+    await repository.addSession(
+      RecordingSession(
+        id: 'published-session',
+        filePath: sourcePath,
+        startedAt: startedAt,
+        endedAt: startedAt.add(const Duration(seconds: 1)),
+        markers: const <BarcodeMarker>[],
+      ),
+    );
+
+    await repository.deleteFileIfUnreferenced(sourcePath);
+
+    expect(File(sourcePath).existsSync(), isTrue);
+    expect(await repository.loadSessions(), hasLength(1));
+  });
+
   test('未识别面单和非法字符使用安全业务文件名且冲突追加会话后缀', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'packing_proof_mobile_name_test',

@@ -685,6 +685,7 @@ class PackingSessionController extends ChangeNotifier {
           : _sessionWithPath(session, finalPath);
       if (finalized.filePath != session.filePath) {
         _sessions = await _repository.updateSession(finalized);
+        await _repository.deleteFileIfUnreferenced(savedPath);
       }
       await _enqueueBackupIfNeeded(finalPath, <RecordingSession>[finalized]);
     } on Object {

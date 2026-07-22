@@ -66,6 +66,7 @@ pwsh -NoProfile -File Tools\Build-Android.ps1 `
 
 - Keep the default version in `Tools/Build-Android.ps1` synchronized with `pubspec.yaml`.
 - Increase both `VersionName` and `VersionCode` for an installable upgrade.
+- Release a single `arm64-v8a` APK; 32-bit ARM and x86 are intentionally unsupported and packaging must fail if either reappears.
 - Keep keystores and `签名凭据.txt` outside the repository.
 - Never print, commit, copy, or package signing credentials.
 - Release output is `dist/android/PackingProof-Mobile.apk`, with `SHA256SUMS.txt` and `build-manifest.json`.

@@ -49,10 +49,19 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
         manifestPlaceholders["buildRevision"] =
             System.getenv("PACKING_PROOF_BUILD_REVISION") ?: "development"
         manifestPlaceholders["buildTimestamp"] =
             System.getenv("PACKING_PROOF_BUILD_TIMESTAMP") ?: "development"
+    }
+
+    packaging {
+        jniLibs {
+            excludes += setOf("**/armeabi-v7a/**", "**/x86/**", "**/x86_64/**")
+        }
     }
 
     signingConfigs {

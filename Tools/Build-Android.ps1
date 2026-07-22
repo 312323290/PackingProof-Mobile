@@ -12,6 +12,7 @@ Set-Location $repo
 
 if ($VersionName -notmatch '^\d+\.\d+\.\d+$') { throw 'VersionName 必须为 x.y.z 格式' }
 if ($VersionCode -le 0) { throw 'VersionCode 必须大于 0' }
+$supportedAbis = @('arm64-v8a')
 
 function Invoke-SpeechAssetGeneration {
     $generator = Join-Path $repo 'tool/generate_speech_assets.dart'
@@ -85,6 +86,31 @@ function Assert-ApkContainsSpeechAssets {
             if (-not $entries.ContainsKey($entryName) -or $entries[$entryName] -lt 128) {
                 throw "APK 缺少有效的内置语音：$name"
             }
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
+function Assert-ApkAbis {
+    param(
+        [Parameter(Mandatory)][string]$ApkPath,
+        [Parameter(Mandatory)][string[]]$ExpectedAbis
+    )
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($ApkPath)
+    try {
+        $actualAbis = @(
+            $archive.Entries |
+                Where-Object { $_.FullName -match '^lib/([^/]+)/[^/]+$' } |
+                ForEach-Object { [regex]::Match($_.FullName, '^lib/([^/]+)/').Groups[1].Value } |
+                Sort-Object -Unique
+        )
+        $expected = @($ExpectedAbis | Sort-Object -Unique)
+        $difference = @(Compare-Object -ReferenceObject $expected -DifferenceObject $actualAbis)
+        if ($difference.Count -ne 0) {
+            throw "APK 架构不符合要求：实际 [$($actualAbis -join ', ')]，预期 [$($expected -join ', ')]"
         }
     }
     finally {
@@ -266,6 +292,7 @@ try {
     flutter test
 
     flutter build apk --release `
+        --target-platform android-arm64 `
         --build-name $VersionName `
         --build-number $VersionCode `
         --dart-define="BUILD_REVISION=$revision" `
@@ -276,6 +303,7 @@ try {
     $speechAssetsAfter = Get-SpeechAssetState -ManifestPath $speechManifestPath
     Assert-SameSpeechAssetState -Before $speechAssetsBefore -After $speechAssetsAfter
     Assert-ApkContainsSpeechAssets -ApkPath $source -SpeechAssets $speechAssetsBefore
+    Assert-ApkAbis -ApkPath $source -ExpectedAbis $supportedAbis
     Assert-ApkMetadata -ApkPath $source -Revision $revision -Timestamp $buildTimestamp -BuildStartedAt $buildStartedAt -Analyzer $analyzer
     if ($signing) {
         Assert-ApkSignature -ApkPath $source -ApkSigner $apkSigner -ExpectedSha256 $signingCertificateSha256
@@ -297,6 +325,7 @@ try {
         releaseSigned = [bool]$signing
         signingCertificateSha256 = $signingCertificateSha256
         bundledSpeechAssetCount = $speechAssetsBefore.Count
+        supportedAbis = $supportedAbis
         artifacts = $artifacts
     }
     [IO.File]::WriteAllText(

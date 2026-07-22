@@ -61,7 +61,13 @@ flutter run
 flutter build apk --debug
 ```
 
-生成经过完整检查的统一 Release APK：
+生成本地诊断 APK：
+
+```powershell
+pwsh -NoProfile -File Tools\Build-Android.ps1
+```
+
+生成正式签名 APK：
 
 ```powershell
 pwsh -NoProfile -File Tools\Build-Android.ps1 `
@@ -69,5 +75,7 @@ pwsh -NoProfile -File Tools\Build-Android.ps1 `
   -VersionCode <递增版本号> `
   -SigningDirectory <仓库外的签名目录>
 ```
+
+脚本会生成或复用内置语音，依次运行静态检查和全部测试，再构建仅支持 `arm64-v8a` 的统一安装包。不传 `SigningDirectory` 时使用 Android 调试证书签名，可直接安装用于本地诊断，但不能覆盖正式签名版本，也不能用于正式发布。
 
 产物位于 `dist/android/PackingProof-Mobile.apk`。

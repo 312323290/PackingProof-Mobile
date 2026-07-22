@@ -72,8 +72,6 @@ flutter:
 
   assets:
     - assets/images/app-icon.png
-    - assets/images/packing-preview.png
-    - assets/design/selected-option.png
     - assets/audio/tts/
 
   # To add assets to your application, add an assets section, like this:

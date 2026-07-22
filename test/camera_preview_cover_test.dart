@@ -2,10 +2,29 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:packing_proof_mobile/controllers/packing_session_controller.dart';
 import 'package:packing_proof_mobile/screens/packing_home_screen.dart';
 import 'package:packing_proof_mobile/services/preview_cover_transform.dart';
 
 void main() {
+  testWidgets('相机加载时仅显示轻量应用图标', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.initializing,
+          elapsed: Duration.zero,
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+
+    final Image image = tester.widget<Image>(
+      find.byKey(const Key('camera-loading-app-icon')),
+    );
+    expect((image.image as AssetImage).assetName, 'assets/images/app-icon.png');
+  });
+
   testWidgets('录像前后都完整显示竖屏画面', (WidgetTester tester) async {
     final ValueNotifier<CameraValue> cameraValue = ValueNotifier<CameraValue>(
       _cameraValue(previewSize: const Size(1920, 1080)),

@@ -433,9 +433,14 @@ class _CameraArea extends StatelessWidget {
         mirrored: view.frontCameraActive,
       );
     } else {
-      preview = Image.asset(
-        'assets/images/packing-preview.png',
-        fit: BoxFit.cover,
+      preview = Center(
+        child: Image.asset(
+          'assets/images/app-icon.png',
+          key: const Key('camera-loading-app-icon'),
+          width: 96,
+          height: 96,
+          fit: BoxFit.contain,
+        ),
       );
     }
 

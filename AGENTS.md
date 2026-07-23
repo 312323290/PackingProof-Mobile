@@ -56,6 +56,7 @@ dart format <changed-files>
 - Run the affected test file while iterating.
 - Before committing, run `flutter analyze` and the relevant tests.
 - Before a formal release, use `Tools/Publish-Android.ps1`; it runs the full analysis and test suite through `Tools/Build-Android.ps1` before packaging.
+- Before every release, compare the About page credits with direct runtime dependencies in `pubspec.yaml` and `android/app/build.gradle.kts`; update the credits and their widget assertions when a credited dependency is added, replaced, or removed.
 - The release script must validate and reuse matching speech assets, generating only missing or changed fixed prompts before packaging.
 - Recording, camera, audio, permissions, background lifecycle, installation upgrades, and LAN backup changes still require real-device validation when affected.
 

@@ -84,12 +84,19 @@ class _AboutScreenState extends State<AboutScreen> {
     (name: 'Flutter', url: 'https://github.com/flutter/flutter'),
     (name: 'camera', url: 'https://pub.dev/packages/camera'),
     (name: 'Google ML Kit', url: 'https://developers.google.com/ml-kit'),
+    (name: 'SQLite / sqflite', url: 'https://pub.dev/packages/sqflite'),
     (name: 'video_player', url: 'https://pub.dev/packages/video_player'),
+    (
+      name: 'AndroidX Media3',
+      url: 'https://developer.android.com/media/media3',
+    ),
     (
       name: 'WorkManager',
       url:
           'https://developer.android.com/topic/libraries/architecture/workmanager',
     ),
+    (name: 'NanoHTTPD', url: 'https://github.com/NanoHttpd/nanohttpd'),
+    (name: 'wakelock_plus', url: 'https://pub.dev/packages/wakelock_plus'),
     (name: 'flutter_tts', url: 'https://pub.dev/packages/flutter_tts'),
     (name: 'audioplayers', url: 'https://pub.dev/packages/audioplayers'),
     (name: 'Microsoft Edge TTS', url: 'https://www.microsoft.com/edge'),

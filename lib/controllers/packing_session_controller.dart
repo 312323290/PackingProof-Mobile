@@ -14,6 +14,7 @@ import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/order_info.dart';
 import '../models/speech_prompt.dart';
+import '../models/storage_notice.dart';
 import '../models/work_mode.dart';
 import '../services/barcode_candidate_policy.dart';
 import '../services/barcode_stability_tracker.dart';
@@ -87,6 +88,7 @@ class PackingSessionController extends ChangeNotifier {
   Timer? _scanWarningTimer;
   Timer? _initialPromptTimer;
   Timer? _pairingFeedbackTimer;
+  Timer? _storageMonitorTimer;
   Duration _elapsed = Duration.zero;
   BarcodeMarker? _lastMarker;
   String _candidateCode = '';
@@ -99,6 +101,7 @@ class PackingSessionController extends ChangeNotifier {
   bool _appIsActive = true;
   String? _errorMessage;
   String? _scanWarningMessage;
+  String? _storageWarningMessage;
   bool _processingFrame = false;
   bool _handlingBarcode = false;
   bool _disposed = false;
@@ -120,6 +123,11 @@ class PackingSessionController extends ChangeNotifier {
   StreamSubscription<OrderInfo>? _orderInfoSubscription;
   OrderInfo? _activeOrderInfo;
   String _lastAnnouncedOrderSignature = '';
+  bool _storageCheckRunning = false;
+  int _queuedStorageNoticePriority = -1;
+  StorageNotice? _storageNoticeToShow;
+  int _storageNoticeRevision = 0;
+  bool _storageStopRequested = false;
 
   CameraController? get cameraController => _cameraController;
   int? get nativeTextureId => _nativeInitialization?.textureId;
@@ -158,7 +166,9 @@ class PackingSessionController extends ChangeNotifier {
       Platform.isAndroid && _nativeInitialization?.isFrontCamera == true;
   String? get historyScanResult => _historyScanResult;
   String? get errorMessage => _errorMessage;
-  String? get scanWarningMessage => _scanWarningMessage;
+  String? get scanWarningMessage =>
+      _storageWarningMessage ?? _scanWarningMessage;
+  int get storageNoticeRevision => _storageNoticeRevision;
   bool get isRecording => _phase == PackingSessionPhase.recording;
   bool get isWorking => _workActive;
   Set<int> get hiddenRemoteRecordingIds =>
@@ -239,6 +249,9 @@ class PackingSessionController extends ChangeNotifier {
           if (!_disposed) {
             notifyListeners();
           }
+        };
+        nativeCamera.onStorageCritical = () {
+          unawaited(_handleNativeStorageCritical());
         };
         _nativeCamera = nativeCamera;
         _nativeInitialization = await nativeCamera.initialize().timeout(
@@ -341,6 +354,16 @@ class PackingSessionController extends ChangeNotifier {
     if (cameraUnavailable || isBusy || isWorking) {
       return;
     }
+    _queuedStorageNoticePriority = -1;
+    _storageWarningMessage = null;
+    final StorageSpaceResult storage = await _checkAndHandleStorage(
+      allowStop: false,
+    );
+    if (storage.insufficient) {
+      _errorMessage = '存储空间不足 2GB，请清理空间或连接电脑完成录像备份';
+      notifyListeners();
+      return;
+    }
 
     await _boostMaxVolumeIfNeeded();
 
@@ -358,6 +381,7 @@ class PackingSessionController extends ChangeNotifier {
       await WakelockPlus.enable();
       await _setNativeWorkScanEnabled(true);
       _workActive = true;
+      _startStorageMonitor();
       await _orderInfoReceiver.setBackgroundKeepAlive(false);
       _elapsed = Duration.zero;
       _setPhase(PackingSessionPhase.waitingForBarcode);
@@ -366,6 +390,7 @@ class PackingSessionController extends ChangeNotifier {
       await _setNativeWorkScanEnabled(false);
       _cancelInitialPromptFlow();
       _workActive = false;
+      _stopStorageMonitor();
       _activeOrderInfo = null;
       _timeline.reset();
       await WakelockPlus.disable();
@@ -374,6 +399,7 @@ class PackingSessionController extends ChangeNotifier {
       await _setNativeWorkScanEnabled(false);
       _cancelInitialPromptFlow();
       _workActive = false;
+      _stopStorageMonitor();
       _activeOrderInfo = null;
       _timeline.reset();
       await WakelockPlus.disable();
@@ -387,6 +413,7 @@ class PackingSessionController extends ChangeNotifier {
     if (!isWorking) {
       return null;
     }
+    final bool silentStorageStop = _storageStopRequested;
     final CameraController? camera = _cameraController;
     final DateTime? startedAt = _timeline.recordingStartedAt;
     final bool recordingUnavailable = Platform.isAndroid
@@ -396,11 +423,13 @@ class PackingSessionController extends ChangeNotifier {
       _cancelInitialPromptFlow();
       await _setNativeWorkScanEnabled(false);
       _workActive = false;
+      _stopStorageMonitor();
       _candidateCode = '';
       _setActiveOrderInfo(null, announce: false);
       _stabilityTracker.reset();
       await WakelockPlus.disable();
       _setPhase(PackingSessionPhase.ready);
+      await _releaseStorageNoticeAfterWork();
       return null;
     }
     if (recordingUnavailable) {
@@ -419,22 +448,162 @@ class PackingSessionController extends ChangeNotifier {
       _candidateCode = '';
       _stabilityTracker.reset();
       _workActive = false;
+      _stopStorageMonitor();
       await WakelockPlus.disable();
       await Future<void>.delayed(transitionSettleDelay);
       _setPhase(PackingSessionPhase.ready);
       _speechService.resetIncidents();
-      _speechService.enqueue(SpeechPrompt.recordingStopped);
+      if (!silentStorageStop) {
+        _speechService.enqueue(SpeechPrompt.recordingStopped);
+      }
       _setActiveOrderInfo(null, announce: false);
+      await _releaseStorageNoticeAfterWork();
       return savedSessions.isEmpty ? null : savedSessions.last;
     } on Object catch (error) {
       _timeline.reset();
       _workActive = false;
+      _stopStorageMonitor();
       await WakelockPlus.disable();
       _errorMessage = '录像保存失败，请保留应用并重试\n$error';
       _setPhase(PackingSessionPhase.error);
-      _speakErrorMessage(error.toString());
+      if (!silentStorageStop) {
+        _speakErrorMessage(error.toString());
+      }
       return null;
     }
+  }
+
+  StorageNotice? takeStorageNoticeForDisplay() {
+    final StorageNotice? notice = _storageNoticeToShow;
+    _storageNoticeToShow = null;
+    return notice;
+  }
+
+  void _startStorageMonitor() {
+    _storageMonitorTimer?.cancel();
+    _storageMonitorTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => unawaited(_checkAndHandleStorage(allowStop: true)),
+    );
+  }
+
+  void _stopStorageMonitor() {
+    _storageMonitorTimer?.cancel();
+    _storageMonitorTimer = null;
+  }
+
+  Future<StorageSpaceResult> _checkAndHandleStorage({
+    required bool allowStop,
+  }) async {
+    if (_storageCheckRunning || _disposed) {
+      return const StorageSpaceResult(
+        availableBytes: 1 << 62,
+        availableBytesBefore: 1 << 62,
+        freedBytes: 0,
+        deletedCount: 0,
+        warning: false,
+        insufficient: false,
+      );
+    }
+    _storageCheckRunning = true;
+    try {
+      final StorageSpaceResult result = await _lanBackupService
+          .checkAndReclaimStorage();
+      if (result.deletedCount > 0) {
+        final String message =
+            '存储空间不足，已提前清理 ${result.deletedCount} 个已备份录像，'
+            '释放 ${_formatStorageBytes(result.freedBytes)}。建议缩短本机保留时间';
+        await _queueStorageNotice(
+          StorageNotice(
+            severity: StorageNoticeSeverity.reclaimed,
+            message: message,
+          ),
+        );
+        _storageWarningMessage = '空间不足，已清理已备份录像';
+      } else if (result.warning) {
+        await _queueStorageNotice(
+          const StorageNotice(
+            severity: StorageNoticeSeverity.warning,
+            message: '手机剩余空间不足 3GB，建议连接电脑备份或缩短本机录像保留时间',
+          ),
+        );
+        _storageWarningMessage = '手机存储空间不足 3GB';
+      }
+      if (result.insufficient) {
+        await _queueStorageNotice(
+          const StorageNotice(
+            severity: StorageNoticeSeverity.stopped,
+            message: '已备份录像不足以释放空间，录像已停止。请清理手机空间或连接电脑完成备份',
+          ),
+        );
+        _storageWarningMessage = '存储空间不足 2GB，正在停止录像';
+        notifyListeners();
+        if (allowStop && isWorking && !isBusy) {
+          _storageStopRequested = true;
+          try {
+            await stopWork();
+          } finally {
+            _storageStopRequested = false;
+          }
+        }
+      } else if (!_disposed) {
+        notifyListeners();
+      }
+      return result;
+    } on Object {
+      return const StorageSpaceResult(
+        availableBytes: 1 << 62,
+        availableBytesBefore: 1 << 62,
+        freedBytes: 0,
+        deletedCount: 0,
+        warning: false,
+        insufficient: false,
+      );
+    } finally {
+      _storageCheckRunning = false;
+    }
+  }
+
+  Future<void> _queueStorageNotice(StorageNotice notice) async {
+    if (notice.priority <= _queuedStorageNoticePriority) return;
+    _queuedStorageNoticePriority = notice.priority;
+    await _repository.queueStorageNotice(notice);
+  }
+
+  Future<void> _handleNativeStorageCritical() async {
+    await _checkAndHandleStorage(allowStop: false);
+    await _queueStorageNotice(
+      const StorageNotice(
+        severity: StorageNoticeSeverity.stopped,
+        message: '存储空间不足导致录像写入失败，当前录像已停止。请清理手机空间或连接电脑完成备份',
+      ),
+    );
+    _storageWarningMessage = '存储空间不足，正在停止录像';
+    if (!_disposed) notifyListeners();
+    if (!isWorking || isBusy) return;
+    _storageStopRequested = true;
+    try {
+      await stopWork();
+    } finally {
+      _storageStopRequested = false;
+    }
+  }
+
+  Future<void> _releaseStorageNoticeAfterWork() async {
+    final StorageNotice? notice = await _repository.takeStorageNoticeAfterWork(
+      DateTime.now(),
+    );
+    _storageWarningMessage = null;
+    if (notice == null || _disposed) return;
+    _storageNoticeToShow = notice;
+    _storageNoticeRevision++;
+    notifyListeners();
+  }
+
+  static String _formatStorageBytes(int bytes) {
+    final double gigabytes = bytes / (1024 * 1024 * 1024);
+    if (gigabytes >= 1) return '${gigabytes.toStringAsFixed(1)}GB';
+    return '${(bytes / (1024 * 1024)).round()}MB';
   }
 
   Future<void> setWorkMode(WorkMode mode) async {
@@ -1173,6 +1342,10 @@ class PackingSessionController extends ChangeNotifier {
     if (camera == null || recordingId == null || completedId == null) {
       return null;
     }
+    final StorageSpaceResult storage = await _checkAndHandleStorage(
+      allowStop: true,
+    );
+    if (storage.insufficient || !isWorking) return null;
     final int nextIndex = _segmentIndex + 1;
     final OrderInfo? completedOrderInfo = _activeOrderInfo;
     final String nextId =
@@ -1404,7 +1577,9 @@ class PackingSessionController extends ChangeNotifier {
           filePath: job.filePath,
           fileSizeBytes: job.totalBytes,
           deletedAt: job.localDeletedAt!,
-          reason: job.backupCompletedAt == null ? '未备份录像保留策略清理' : '已备份录像保留策略清理',
+          reason:
+              job.cleanupReason ??
+              (job.backupCompletedAt == null ? '未备份录像保留策略清理' : '已备份录像保留策略清理'),
         );
       } on Object {
         _handledDeletedBackupJobs.remove(job.id);
@@ -1652,6 +1827,7 @@ class PackingSessionController extends ChangeNotifier {
     _elapsedTimer?.cancel();
     _feedbackTimer?.cancel();
     _scanWarningTimer?.cancel();
+    _storageMonitorTimer?.cancel();
     unawaited(WakelockPlus.disable());
     final CameraController? camera = _cameraController;
     if (camera != null) {

@@ -1,5 +1,6 @@
 import 'backup_retention_policy.dart';
 import 'work_mode.dart';
+import 'storage_notice.dart';
 
 class AppSettings {
   const AppSettings({
@@ -12,6 +13,7 @@ class AppSettings {
     this.unbackedRetention = UnbackedRetentionPolicy.days30,
     this.backedRetention = BackedRetentionPolicy.days7,
     this.hiddenRemoteRecordingIds = const <int>{},
+    this.storageNoticeState = const StorageNoticeState(),
     this.extraValues = const <String, Object?>{},
   });
 
@@ -25,6 +27,7 @@ class AppSettings {
       ..remove('lanBackupAutoEnabled')
       ..remove('unbackedRetention')
       ..remove('backedRetention');
+    extraValues.remove('storageNoticeState');
     final Set<int> hiddenRemoteRecordingIds =
         ((json['hiddenRemoteRecordingIds'] as List<Object?>?) ?? const [])
             .whereType<num>()
@@ -54,6 +57,9 @@ class AppSettings {
       ),
       backedRetention: backedRetentionFromStorage(json['backedRetention']),
       hiddenRemoteRecordingIds: hiddenRemoteRecordingIds,
+      storageNoticeState: StorageNoticeState.fromJson(
+        json['storageNoticeState'],
+      ),
       extraValues: extraValues,
     );
   }
@@ -67,6 +73,7 @@ class AppSettings {
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
   final Set<int> hiddenRemoteRecordingIds;
+  final StorageNoticeState storageNoticeState;
   final Map<String, Object?> extraValues;
 
   AppSettings copyWith({
@@ -79,6 +86,7 @@ class AppSettings {
     UnbackedRetentionPolicy? unbackedRetention,
     BackedRetentionPolicy? backedRetention,
     Set<int>? hiddenRemoteRecordingIds,
+    StorageNoticeState? storageNoticeState,
   }) {
     return AppSettings(
       workMode: workMode ?? this.workMode,
@@ -91,6 +99,7 @@ class AppSettings {
       backedRetention: backedRetention ?? this.backedRetention,
       hiddenRemoteRecordingIds:
           hiddenRemoteRecordingIds ?? this.hiddenRemoteRecordingIds,
+      storageNoticeState: storageNoticeState ?? this.storageNoticeState,
       extraValues: extraValues,
     );
   }
@@ -106,5 +115,6 @@ class AppSettings {
     'unbackedRetention': unbackedRetention.storageValue,
     'backedRetention': backedRetention.storageValue,
     'hiddenRemoteRecordingIds': hiddenRemoteRecordingIds.toList()..sort(),
+    'storageNoticeState': storageNoticeState.toJson(),
   };
 }

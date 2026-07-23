@@ -10,6 +10,7 @@ import '../models/app_settings.dart';
 import '../models/backup_retention_policy.dart';
 import '../models/recording_session.dart';
 import '../models/work_mode.dart';
+import '../models/storage_notice.dart';
 import 'recording_database.dart';
 
 class SessionRepository {
@@ -500,6 +501,22 @@ class SessionRepository {
     (AppSettings value) =>
         value.copyWith(unbackedRetention: unbacked, backedRetention: backed),
   );
+
+  Future<void> queueStorageNotice(StorageNotice notice) => _updateSettings(
+    (AppSettings value) => value.copyWith(
+      storageNoticeState: value.storageNoticeState.queue(notice),
+    ),
+  );
+
+  Future<StorageNotice?> takeStorageNoticeAfterWork(DateTime now) =>
+      _serializeSettingsMutation(() async {
+        final AppSettings settings = await _loadSettingsUnlocked();
+        final result = settings.storageNoticeState.take(now);
+        await _writeSettingsUnlocked(
+          settings.copyWith(storageNoticeState: result.state),
+        );
+        return result.notice;
+      });
 
   Future<void> saveSettings(AppSettings settings) =>
       _serializeSettingsMutation(() => _writeSettingsUnlocked(settings));

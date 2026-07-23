@@ -60,6 +60,7 @@ class LanBackupJob {
     this.waitingCleanup = false,
     this.remoteRecordIds = const <int>[],
     this.destinationComputerId = '',
+    this.cleanupReason,
   });
 
   factory LanBackupJob.fromMap(Map<Object?, Object?> map) {
@@ -83,6 +84,7 @@ class LanBackupJob {
           .map((num value) => value.toInt())
           .toList(growable: false),
       destinationComputerId: '${map['destinationComputerId'] ?? ''}',
+      cleanupReason: map['cleanupReason'] as String?,
     );
   }
 
@@ -99,8 +101,38 @@ class LanBackupJob {
   final bool waitingCleanup;
   final List<int> remoteRecordIds;
   final String destinationComputerId;
+  final String? cleanupReason;
 
   double get progress => totalBytes <= 0 ? 0 : uploadedBytes / totalBytes;
+}
+
+class StorageSpaceResult {
+  const StorageSpaceResult({
+    required this.availableBytes,
+    required this.availableBytesBefore,
+    required this.freedBytes,
+    required this.deletedCount,
+    required this.warning,
+    required this.insufficient,
+  });
+
+  factory StorageSpaceResult.fromMap(Map<Object?, Object?> map) {
+    return StorageSpaceResult(
+      availableBytes: (map['availableBytes'] as num?)?.toInt() ?? 0,
+      availableBytesBefore: (map['availableBytesBefore'] as num?)?.toInt() ?? 0,
+      freedBytes: (map['freedBytes'] as num?)?.toInt() ?? 0,
+      deletedCount: (map['deletedCount'] as num?)?.toInt() ?? 0,
+      warning: map['warning'] == true,
+      insufficient: map['insufficient'] == true,
+    );
+  }
+
+  final int availableBytes;
+  final int availableBytesBefore;
+  final int freedBytes;
+  final int deletedCount;
+  final bool warning;
+  final bool insufficient;
 }
 
 class LanBackupSnapshot {

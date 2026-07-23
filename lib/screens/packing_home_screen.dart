@@ -10,6 +10,7 @@ import '../controllers/packing_session_controller.dart';
 import '../models/barcode_marker.dart';
 import '../models/work_mode.dart';
 import '../models/order_info.dart';
+import '../models/storage_notice.dart';
 import '../services/preview_cover_transform.dart';
 import '../services/session_repository.dart';
 import '../services/speech_prompt_service.dart';
@@ -43,6 +44,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   int _selectedTab = 1;
   String _historySearchQuery = '';
   int _handledPairingSuccessRevision = 0;
+  int _handledStorageNoticeRevision = 0;
   Timer? _watermarkClock;
 
   @override
@@ -122,6 +124,18 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
             unawaited(_controller.setPreviewActive(false));
           });
         }
+        final int storageNoticeRevision = _controller.storageNoticeRevision;
+        if (storageNoticeRevision > _handledStorageNoticeRevision) {
+          _handledStorageNoticeRevision = storageNoticeRevision;
+          final StorageNotice? notice = _controller
+              .takeStorageNoticeForDisplay();
+          if (notice != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted || _controller.isWorking) return;
+              unawaited(_showStorageNotice(notice));
+            });
+          }
+        }
         final String? scanned = _controller.historyScanResult;
         if (scanned != null) {
           _controller.clearHistoryScanResult();
@@ -178,6 +192,20 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       },
     );
   }
+
+  Future<void> _showStorageNotice(StorageNotice notice) => showDialog<void>(
+    context: context,
+    builder: (BuildContext context) => AlertDialog(
+      title: const Text('手机存储空间提醒'),
+      content: Text(notice.message),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('知道了'),
+        ),
+      ],
+    ),
+  );
 
   Widget _buildRecordingsScreen(RecordingsScreenMode mode) {
     return RecordingsScreen(

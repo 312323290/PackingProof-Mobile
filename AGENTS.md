@@ -28,6 +28,7 @@ PackingProof-Mobile is a Flutter app for continuous package-recording and shippi
 - Preserve local recordings and settings during upgrades. Never delete recordings based only on missing, stale, or partially matched metadata.
 - Keep LAN backup and remote-recording cleanup semantics distinct from deleting local source recordings.
 - Keep the LAN backup device ID derived anonymously from Android ID so the same formally signed app can identify the physical phone again after uninstall/reinstall. Do not expose the raw Android ID.
+- Keep at least 2 GB free for recording. Storage-pressure cleanup may remove only computer-verified backups, must reuse guarded file deletion, and must never remove unbacked recordings. Storage notices remain silent and modal reminders are deferred until work ends, at most twice per local day.
 
 ## Development Commands
 

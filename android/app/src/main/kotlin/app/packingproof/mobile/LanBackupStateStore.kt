@@ -98,6 +98,7 @@ internal class LanBackupStateStore(private val context: Context) {
             if (!existing.has("waitingCleanup")) existing.put("waitingCleanup", false)
             if (!existing.has("remoteRecordIds")) existing.put("remoteRecordIds", JSONArray())
             if (!existing.has("contentSha256")) existing.put("contentSha256", JSONObject.NULL)
+            if (!existing.has("cleanupReason")) existing.put("cleanupReason", JSONObject.NULL)
             if (existing.optString("generation").isBlank()) {
                 existing.put("generation", UUID.randomUUID().toString())
             }
@@ -121,6 +122,7 @@ internal class LanBackupStateStore(private val context: Context) {
             .put("waitingCleanup", false)
             .put("remoteRecordIds", JSONArray())
             .put("contentSha256", JSONObject.NULL)
+            .put("cleanupReason", JSONObject.NULL)
             .put("errorMessage", JSONObject.NULL)
             .put("sessions", sessions)
         writeJobUnlocked(job)

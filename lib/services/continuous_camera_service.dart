@@ -135,6 +135,7 @@ class ContinuousCameraService {
 
   void Function(List<NativeBarcodeCandidate> candidates)? onBarcodeFrame;
   void Function(String message)? onError;
+  void Function()? onStorageCritical;
 
   Future<ContinuousCameraInitialization> initialize() async {
     final Map<Object?, Object?> values = (await _channel
@@ -199,6 +200,7 @@ class ContinuousCameraService {
   Future<void> dispose() async {
     onBarcodeFrame = null;
     onError = null;
+    onStorageCritical = null;
     _channel.setMethodCallHandler(null);
     await _channel.invokeMethod<void>('dispose');
   }
@@ -224,6 +226,8 @@ class ContinuousCameraService {
         );
       case 'nativeError':
         onError?.call(call.arguments?.toString() ?? '原生录像发生未知错误');
+      case 'storageCritical':
+        onStorageCritical?.call();
     }
   }
 }

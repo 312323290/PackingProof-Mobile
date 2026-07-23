@@ -29,6 +29,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
+import android.os.StatFs
 import android.util.Range
 import android.util.Size
 import android.view.Surface
@@ -132,6 +133,7 @@ class ContinuousSegmentCamera(
     private var lastAudioPtsUs = -1L
     private var lastMediaPtsUs = 0L
     private var audioToVideoPtsOffsetUs: Long? = null
+    private var storageFailureReported = false
 
     private var scannerBusy = false
     private var pairingScanEnabled = false
@@ -194,7 +196,12 @@ class ContinuousSegmentCamera(
                 replyError(result, "already_recording", "录像已经开始")
                 return@post
             }
+            if (!hasRecordingReserve(path)) {
+                replyError(result, "storage_low", "存储空间不足 2GB，无法开始录像")
+                return@post
+            }
             ensureParent(path)
+            storageFailureReported = false
             recordingRequested = true
             refreshCaptureRequest()
             pendingStartPath = path
@@ -226,6 +233,14 @@ class ContinuousSegmentCamera(
             }
             if (splitResult != null) {
                 replyError(result, "split_pending", "上一段录像正在保存")
+                return@post
+            }
+            if (!hasRecordingReserve(path)) {
+                replyError(result, "storage_low", "存储空间不足 2GB，无法创建下一段录像")
+                if (!storageFailureReported) {
+                    storageFailureReported = true
+                    emit("storageCritical", mapOf("message" to "存储空间不足"))
+                }
                 return@post
             }
             ensureParent(path)
@@ -431,7 +446,7 @@ class ContinuousSegmentCamera(
                         handleVideoSample(buffer, info)
                     }
                 } catch (error: Throwable) {
-                    notifyNativeError("视频写入失败", error)
+                    notifyWriteError("视频写入失败", error)
                 } finally {
                     try {
                         codec.releaseOutputBuffer(index, false)
@@ -930,15 +945,19 @@ class ContinuousSegmentCamera(
     }
 
     private fun handleAudioSample(sample: EncodedSample) {
-        if (!recordingActive || muxer == null) {
-            if (recordingRequested) pendingAudio.add(sample)
-            return
+        try {
+            if (!recordingActive || muxer == null) {
+                if (recordingRequested) pendingAudio.add(sample)
+                return
+            }
+            if (splitResult != null) {
+                pendingAudio.add(sample)
+                return
+            }
+            writeAudio(sample)
+        } catch (error: Throwable) {
+            notifyWriteError("声音写入失败", error)
         }
-        if (splitResult != null) {
-            pendingAudio.add(sample)
-            return
-        }
-        writeAudio(sample)
     }
 
     private fun rotateMuxerAtKeyFrame(buffer: ByteBuffer, info: MediaCodec.BufferInfo) {
@@ -1141,6 +1160,26 @@ class ContinuousSegmentCamera(
         emit("nativeError", error?.let { "$message：${it.message}" } ?: message)
     }
 
+    private fun notifyWriteError(message: String, error: Throwable) {
+        val availableBytes = runCatching {
+            StatFs(activity.filesDir.path).availableBytes
+        }.getOrDefault(Long.MAX_VALUE)
+        if (availableBytes < RecordingStoragePolicy.MINIMUM_BYTES) {
+            if (!storageFailureReported) {
+                storageFailureReported = true
+                emit(
+                    "storageCritical",
+                    mapOf(
+                        "availableBytes" to availableBytes,
+                        "message" to "存储空间不足，录像写入已停止",
+                    ),
+                )
+            }
+            return
+        }
+        notifyNativeError(message, error)
+    }
+
     private fun initializationMap(): Map<String, Any> = mapOf(
         "textureId" to (textureEntry?.id() ?: -1L),
         "previewWidth" to videoSize.width,
@@ -1158,6 +1197,11 @@ class ContinuousSegmentCamera(
     private fun ensureParent(path: String) {
         File(path).parentFile?.mkdirs()
     }
+
+    private fun hasRecordingReserve(path: String): Boolean = runCatching {
+        val parent = File(path).parentFile ?: activity.filesDir
+        StatFs(parent.path).availableBytes >= RecordingStoragePolicy.MINIMUM_BYTES
+    }.getOrDefault(false)
 
     private fun replySuccess(result: MethodChannel.Result, value: Any?) {
         mainHandler.post { result.success(value) }

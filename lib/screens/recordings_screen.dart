@@ -1487,6 +1487,16 @@ class _RetentionSettings extends StatelessWidget {
             onUnbackedRetentionChanged: onUnbackedRetentionChanged,
             onBackedRetentionChanged: onBackedRetentionChanged,
           ),
+          const SizedBox(height: 10),
+          Text(
+            '保留时间仅在空间充足时生效。剩余不足 2GB 时会提前清理已完成电脑校验的录像，'
+            '不会自动删除未备份录像。建议保持电脑备份连接或缩短保留时间',
+            style: TextStyle(
+              color: colors.onSurfaceVariant,
+              fontSize: 11,
+              height: 1.4,
+            ),
+          ),
         ],
       ),
     );

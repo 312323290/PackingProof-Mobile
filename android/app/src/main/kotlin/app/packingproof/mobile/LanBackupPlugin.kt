@@ -30,6 +30,7 @@ internal class LanBackupPlugin(
     private val context: Context = activity.applicationContext
     private val channel = MethodChannel(messenger, CHANNEL)
     private val store = LanBackupStateStore(context)
+    private val storageManager = RecordingStorageManager(context, store)
     private val credentials = LanBackupCredentialStore(context)
     private val workObserver = Observer<List<WorkInfo>> {
         notifySnapshotChanged()
@@ -127,6 +128,10 @@ internal class LanBackupPlugin(
                     )
                     LanBackupCleanupScheduler.rescheduleAll(context, store)
                     result.success(null)
+                }
+                "checkAndReclaimStorage" -> {
+                    result.success(storageManager.checkAndReclaim())
+                    notifySnapshotChanged()
                 }
                 "retry" -> {
                     val id = call.argument<String>("id") ?: error("缺少任务编号")

@@ -53,6 +53,7 @@ void main() {
     expect(retentionY, lessThan(speechY));
     expect(speechY, lessThan(maxVolumeY));
     expect(maxVolumeY, lessThan(orderSpeechY));
+    expect(find.textContaining('不会自动删除未备份录像'), findsOneWidget);
   });
 
   testWidgets('录像页面可切换工作模式', (WidgetTester tester) async {

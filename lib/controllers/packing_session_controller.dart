@@ -197,11 +197,17 @@ class PackingSessionController extends ChangeNotifier {
         _lanBackupService.addListener(_handleBackupChanged);
         _backupListenerAttached = true;
       }
-      await _lanBackupService.initialize(
-        autoEnabled: settings.lanBackupAutoEnabled,
-        unbackedRetention: settings.unbackedRetention,
-        backedRetention: settings.backedRetention,
-      );
+      try {
+        await _lanBackupService
+            .initialize(
+              autoEnabled: settings.lanBackupAutoEnabled,
+              unbackedRetention: settings.unbackedRetention,
+              backedRetention: settings.backedRetention,
+            )
+            .timeout(const Duration(seconds: 8));
+      } on Object {
+        // Backup is optional and must never hold camera startup indefinitely.
+      }
       await _pruneDeletedBackupSessions(notify: false);
       if (_lanBackupService.snapshot.autoEnabled) {
         unawaited(_backupAllRepositorySessions());
@@ -215,7 +221,13 @@ class PackingSessionController extends ChangeNotifier {
         _orderInfoSubscription = _orderInfoReceiver.received.listen(
           _handleReceivedOrderInfo,
         );
-        await _orderInfoReceiver.initialize();
+        try {
+          await _orderInfoReceiver.initialize().timeout(
+            const Duration(seconds: 8),
+          );
+        } on Object {
+          // Order push can be retried from settings after recording is ready.
+        }
       }
       await _beginMaxVolumeIfNeeded();
       if (Platform.isAndroid) {
@@ -229,7 +241,10 @@ class PackingSessionController extends ChangeNotifier {
           }
         };
         _nativeCamera = nativeCamera;
-        _nativeInitialization = await nativeCamera.initialize();
+        _nativeInitialization = await nativeCamera.initialize().timeout(
+          const Duration(seconds: 15),
+          onTimeout: () => throw TimeoutException('摄像头初始化超过 15 秒'),
+        );
         _speechService.resetIncidents();
         _setPhase(PackingSessionPhase.ready);
         return;
@@ -253,7 +268,10 @@ class PackingSessionController extends ChangeNotifier {
             : ImageFormatGroup.bgra8888,
       );
       _cameraController = controller;
-      await controller.initialize();
+      await controller.initialize().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw TimeoutException('摄像头初始化超过 15 秒'),
+      );
       await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
       try {
         await controller.setFlashMode(FlashMode.off);

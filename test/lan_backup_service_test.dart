@@ -121,6 +121,43 @@ void main() {
     expect(arguments['forceRestart'], isTrue);
   });
 
+  test('空录像不会创建无法完成的备份任务', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing-proof-empty-backup-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final File video = File('${root.path}/empty.mp4');
+    await video.create();
+    final MethodChannel channel = MethodChannel(
+      'app.packingproof.mobile/lan_backup_empty_test_${root.path.hashCode}',
+    );
+    int enqueueCount = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          if (call.method == 'enqueue') enqueueCount++;
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    final LanBackupService service = LanBackupService(channel: channel);
+    addTearDown(service.dispose);
+    final DateTime startedAt = DateTime.utc(2026, 7, 24, 10);
+
+    await service.backupAll(<RecordingSession>[
+      RecordingSession(
+        id: 'empty-session',
+        filePath: video.path,
+        startedAt: startedAt,
+        endedAt: startedAt.add(const Duration(seconds: 1)),
+        markers: const <BarcodeMarker>[],
+      ),
+    ]);
+
+    expect(enqueueCount, 0);
+  });
+
   test('取消连接后延迟完成的请求不会写入连接配置', () async {
     final MethodChannel channel = MethodChannel(
       'app.packingproof.mobile/lan_backup_cancel_test',

@@ -14,6 +14,7 @@ import androidx.work.WorkerParameters
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.File
+import java.io.EOFException
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.net.HttpURLConnection
@@ -41,8 +42,9 @@ internal class LanBackupWorker(
         val generation = initialJob.optString("generation")
         val connection = store.connection()
         val accessKey = credentials.load()
-        if (!File(initialJob.optString("filePath")).exists()) {
-            return fail(initialJob, generation, "录像文件不存在")
+        val initialSourceStatus = sourceStatus(initialJob)
+        if (initialSourceStatus != LanBackupSourceStatus.AVAILABLE) {
+            return discard(initialJob, generation, initialSourceStatus)
         }
         if (connection == null || accessKey.isNullOrBlank()) {
             return fail(initialJob, generation, "请重新连接电脑")
@@ -60,13 +62,26 @@ internal class LanBackupWorker(
                 current.put("state", "uploading").put("errorMessage", JSONObject.NULL)
                 true
             }
-        } ?: return Result.failure()
+        } ?: run {
+            val status = sourceStatus(initialJob)
+            return if (status == LanBackupSourceStatus.AVAILABLE) {
+                Result.success()
+            } else {
+                discard(initialJob, generation, status)
+            }
+        }
         val file = File(job.optString("filePath"))
 
         return try {
             Log.i(TAG, "Backup started id=${id.take(8)} file=${file.name} bytes=${file.length()}")
 
-            val sha256 = file.sha256()
+            requireAvailable(job)
+            val sha256 = try {
+                file.sha256()
+            } catch (error: IOException) {
+                throw BackupSourceUnavailableException("无法读取录像文件", error)
+            }
+            requireAvailable(job)
             val baseUrl = connection.getString("baseUrl").trimEnd('/')
             val createResponse = postJson(
                 "$baseUrl/api/mobile-backup/uploads",
@@ -93,8 +108,16 @@ internal class LanBackupWorker(
                     }
                     val size = min(chunkSize.toLong(), file.length() - offset).toInt()
                     val bytes = ByteArray(size)
-                    input.seek(offset)
-                    input.readFully(bytes)
+                    requireAvailable(job)
+                    try {
+                        input.seek(offset)
+                        input.readFully(bytes)
+                    } catch (error: EOFException) {
+                        throw BackupSourceUnavailableException("录像文件读取不完整", error)
+                    } catch (error: IOException) {
+                        throw BackupSourceUnavailableException("无法读取录像文件", error)
+                    }
+                    requireAvailable(job)
                     val nextOffset = try {
                         putChunk(
                             "$baseUrl/api/mobile-backup/uploads/$encodedUploadId/chunks",
@@ -135,6 +158,7 @@ internal class LanBackupWorker(
                     setForeground(foreground(job, ((offset * 100) / file.length()).toInt()))
                 }
             }
+            requireAvailable(job)
             val completion = postJson(
                 "$baseUrl/api/mobile-backup/uploads/$encodedUploadId/complete",
                 accessKey,
@@ -152,6 +176,12 @@ internal class LanBackupWorker(
                 return fail(job, generation, "电脑未确认录像校验结果")
             }
             complete(job, generation, file.length(), recordIds, sha256)
+        } catch (error: BackupSourceUnavailableException) {
+            Log.w(TAG, "Backup source unavailable id=${id.take(8)}", error)
+            val status = sourceStatus(job).takeIf {
+                it != LanBackupSourceStatus.AVAILABLE
+            } ?: LanBackupSourceStatus.UNREADABLE
+            discard(job, generation, status)
         } catch (error: BackupHttpException) {
             Log.w(TAG, "Backup HTTP failure id=${id.take(8)} status=${error.statusCode}", error)
             if (error.statusCode == 401 || error.statusCode == 403 || error.statusCode == 404) {
@@ -221,6 +251,37 @@ internal class LanBackupWorker(
         }
         clearBackupNotification(job)
         return Result.failure()
+    }
+
+    private fun discard(
+        job: JSONObject,
+        generation: String,
+        status: LanBackupSourceStatus,
+    ): Result {
+        if (store.deleteJob(job.getString("id"), generation)) {
+            Log.w(
+                TAG,
+                "Discard unavailable backup job " +
+                    "id=${job.getString("id").take(8)} " +
+                    "path=${job.optString("filePath")} reason=${status.reason}",
+            )
+        }
+        clearBackupNotification(job)
+        return Result.success()
+    }
+
+    private fun sourceStatus(job: JSONObject): LanBackupSourceStatus =
+        LanBackupSourcePolicy.inspect(
+            file = File(job.optString("filePath")),
+            expectedBytes = job.optLong("totalBytes", -1L),
+            expectedLastModified = job.optLong("lastModified", -1L),
+        )
+
+    private fun requireAvailable(job: JSONObject) {
+        val status = sourceStatus(job)
+        if (status != LanBackupSourceStatus.AVAILABLE) {
+            throw BackupSourceUnavailableException(status.reason)
+        }
     }
 
     private fun pause(job: JSONObject, generation: String, message: String): Result {
@@ -352,6 +413,11 @@ private class BackupHttpException(
     val expectedOffset: Long? = null,
     message: String,
 ) : IOException(message)
+
+private class BackupSourceUnavailableException(
+    message: String,
+    cause: Throwable? = null,
+) : IOException(message, cause)
 
 private fun File.sha256(): String {
     val digest = MessageDigest.getInstance("SHA-256")

@@ -342,7 +342,10 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     required bool startUpload,
     bool forceRestart = false,
   }) async {
-    if (!File(filePath).existsSync()) {
+    final File source = File(filePath);
+    try {
+      if (!source.existsSync() || source.lengthSync() <= 0) return;
+    } on FileSystemException {
       return;
     }
     await _channel.invokeMethod<void>('enqueue', <String, Object?>{

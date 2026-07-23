@@ -3,6 +3,7 @@ package app.packingproof.mobile
 import android.content.Context
 import android.provider.Settings
 import android.util.AtomicFile
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -16,6 +17,7 @@ internal class LanBackupStateStore(private val context: Context) {
         private const val PREFS = "lan_backup_connection"
         private const val RETENTION_PREFS = "lan_backup_retention"
         private const val DEVICE_PREFS = "lan_backup_device"
+        private const val TAG = "PackingProofBackup"
         private val jobIoLock = Any()
 
         fun stableId(value: String): String = MessageDigest.getInstance("SHA-256")
@@ -149,6 +151,44 @@ internal class LanBackupStateStore(private val context: Context) {
 
     fun jobs(): List<JSONObject> = withJobLock { jobsUnlocked() }
 
+    fun discardUnavailableJobs() = withJobLock {
+        jobsUnlocked()
+            .filter { it.optString("state") != "completed" }
+            .forEach { job ->
+                val status = sourceStatus(job)
+                if (status == LanBackupSourceStatus.AVAILABLE) return@forEach
+                if (deleteJobUnlocked(job.getString("id"), job.optString("generation"))) {
+                    Log.w(
+                        TAG,
+                        "Discard unavailable backup job " +
+                            "id=${job.getString("id").take(8)} " +
+                            "path=${job.optString("filePath")} reason=${status.reason}",
+                    )
+                }
+            }
+    }
+
+    fun discardJobIfUnavailable(id: String): LanBackupSourceStatus? = withJobLock {
+        val job = readJobUnlocked(id) ?: return@withJobLock null
+        if (job.optString("state") == "completed") {
+            return@withJobLock LanBackupSourceStatus.AVAILABLE
+        }
+        val status = sourceStatus(job)
+        if (status == LanBackupSourceStatus.AVAILABLE) return@withJobLock status
+        if (deleteJobUnlocked(id, job.optString("generation"))) {
+            Log.w(
+                TAG,
+                "Discard unavailable backup job " +
+                    "id=${id.take(8)} path=${job.optString("filePath")} reason=${status.reason}",
+            )
+        }
+        status
+    }
+
+    fun deleteJob(id: String, expectedGeneration: String): Boolean = withJobLock {
+        deleteJobUnlocked(id, expectedGeneration)
+    }
+
     private fun readJobUnlocked(id: String): JSONObject? {
         val file = File(jobsDirectory, "$id.json")
         return try {
@@ -174,6 +214,21 @@ internal class LanBackupStateStore(private val context: Context) {
             throw error
         }
     }
+
+    private fun deleteJobUnlocked(id: String, expectedGeneration: String): Boolean {
+        val current = readJobUnlocked(id) ?: return false
+        if (current.optString("generation") != expectedGeneration) return false
+        if (current.optString("state") == "completed") return false
+        AtomicFile(File(jobsDirectory, "$id.json")).delete()
+        return true
+    }
+
+    private fun sourceStatus(job: JSONObject): LanBackupSourceStatus =
+        LanBackupSourcePolicy.inspect(
+            file = File(job.optString("filePath")),
+            expectedBytes = job.optLong("totalBytes", -1L),
+            expectedLastModified = job.optLong("lastModified", -1L),
+        )
 
     private fun jobsUnlocked(): List<JSONObject> = jobsDirectory.listFiles { file ->
         file.name.endsWith(".json") || file.name.endsWith(".json.bak")

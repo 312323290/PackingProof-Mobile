@@ -48,6 +48,7 @@ internal class LanBackupPlugin(
             when (call.method) {
                 "initialize", "snapshot" -> {
                     if (call.method == "initialize") {
+                        store.discardUnavailableJobs()
                         store.saveRetentionPolicies(
                             call.argument<Int>("unbackedRetentionDays"),
                             call.argument<Int>("backedRetentionDays"),
@@ -81,7 +82,16 @@ internal class LanBackupPlugin(
                 }
                 "enqueue" -> {
                     val path = call.argument<String>("filePath") ?: error("缺少录像路径")
-                    if (!File(path).exists()) error("录像文件不存在")
+                    val source = File(path)
+                    val sourceStatus = LanBackupSourcePolicy.inspect(source, -1L, -1L)
+                    if (sourceStatus != LanBackupSourceStatus.AVAILABLE) {
+                        store.discardJobIfUnavailable(
+                            LanBackupStateStore.stableId(source.canonicalPath),
+                        )
+                        notifySnapshotChanged()
+                        result.success(null)
+                        return
+                    }
                     val sessions = JSONArray(
                         call.argument<List<Map<String, Any?>>>("sessions")
                             ?: emptyList<Map<String, Any?>>(),
@@ -135,6 +145,15 @@ internal class LanBackupPlugin(
                 }
                 "retry" -> {
                     val id = call.argument<String>("id") ?: error("缺少任务编号")
+                    val sourceStatus = store.discardJobIfUnavailable(id)
+                    if (sourceStatus != null &&
+                        sourceStatus != LanBackupSourceStatus.AVAILABLE
+                    ) {
+                        WorkManager.getInstance(context).cancelUniqueWork(WORK_PREFIX + id)
+                        notifySnapshotChanged()
+                        result.success(null)
+                        return
+                    }
                     store.updateJob(id) { job ->
                         job.put("generation", UUID.randomUUID().toString())
                             .put("state", "pending")

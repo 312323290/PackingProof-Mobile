@@ -34,6 +34,7 @@ migrate_working_dir/
 /coverage/
 /artifacts/
 /dist/
+.env
 
 # Symbolication related
 app.*.symbols

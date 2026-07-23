@@ -13,6 +13,7 @@ PackingProof-Mobile is a Flutter app for continuous package-recording and shippi
 - `android/` and `ios/` contain platform projects.
 - `Tools/Publish-Android.ps1` is the formal Android release entry point. It resolves the version from the exact Git tag and delegates compilation and validation to `Tools/Build-Android.ps1`.
 - `Tools/Build-Android.ps1` is the underlying Android builder and may also produce a debug-signed local diagnostic APK.
+- `双击构建Release调试版.bat` builds a formally signed Release test APK from the `pubspec.yaml` version and overwrites the fixed `dist/android/PackingProof-Mobile.apk` output so it can replace an installed app with the same signing certificate.
 - `dist/android/` contains generated release artifacts and must not be committed.
 
 ## Product Constraints

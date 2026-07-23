@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -119,4 +120,86 @@ void main() {
     expect(arguments['startUpload'], isTrue);
     expect(arguments['forceRestart'], isTrue);
   });
+
+  test('取消连接后延迟完成的请求不会写入连接配置', () async {
+    final MethodChannel channel = MethodChannel(
+      'app.packingproof.mobile/lan_backup_cancel_test',
+    );
+    int savedConnections = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          if (call.method == 'saveConnection') savedConnections++;
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    final _PendingHttpClient httpClient = _PendingHttpClient();
+    final LanBackupService service = LanBackupService(
+      channel: channel,
+      httpClient: httpClient,
+    );
+    addTearDown(service.dispose);
+
+    final Future<void> pairing = service.pair(
+      'http://192.168.1.20:5280/?key=0123456789abcdef',
+    );
+    await httpClient.request.closed;
+    service.cancelPairing();
+    await pairing;
+
+    expect(httpClient.request.aborted, isTrue);
+    expect(savedConnections, 0);
+    expect(service.snapshot.endpoint, isNull);
+    expect(service.snapshot.connectionStatus, LanConnectionStatus.disconnected);
+  });
+}
+
+class _PendingHttpClient extends Fake implements HttpClient {
+  final _PendingHttpClientRequest request = _PendingHttpClientRequest();
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async => request;
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _PendingHttpClientRequest extends Fake implements HttpClientRequest {
+  final Completer<void> _closed = Completer<void>();
+  final Completer<HttpClientResponse> _response =
+      Completer<HttpClientResponse>();
+  final HttpHeaders _headers = _IgnoringHttpHeaders();
+  bool aborted = false;
+
+  Future<void> get closed => _closed.future;
+
+  @override
+  HttpHeaders get headers => _headers;
+
+  @override
+  set followRedirects(bool value) {}
+
+  @override
+  Future<HttpClientResponse> close() {
+    if (!_closed.isCompleted) _closed.complete();
+    return _response.future;
+  }
+
+  @override
+  void abort([Object? exception, StackTrace? stackTrace]) {
+    aborted = true;
+    if (!_response.isCompleted) {
+      _response.completeError(
+        exception ?? const HttpException('pairing cancelled'),
+        stackTrace,
+      );
+    }
+  }
+}
+
+class _IgnoringHttpHeaders extends Fake implements HttpHeaders {
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {}
 }

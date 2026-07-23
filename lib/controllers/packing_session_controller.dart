@@ -108,6 +108,7 @@ class PackingSessionController extends ChangeNotifier {
   bool _pairingScanActive = false;
   bool _historyScanActive = false;
   bool _pairingBusy = false;
+  int _pairingAttemptRevision = 0;
   bool _backupListenerAttached = false;
   bool _orderReceiverListenerAttached = false;
   final Set<String> _handledDeletedBackupJobs = <String>{};
@@ -674,6 +675,7 @@ class PackingSessionController extends ChangeNotifier {
     if (isWorking || isBusy) {
       return;
     }
+    _pairingAttemptRevision++;
     _pairingScanActive = true;
     _pairingMessage = '将电脑上的二维码放入框内';
     _stabilityTracker.reset();
@@ -683,9 +685,10 @@ class PackingSessionController extends ChangeNotifier {
 
   void cancelComputerPairing() {
     _pairingFeedbackTimer?.cancel();
+    _pairingAttemptRevision++;
     _pairingScanActive = false;
-    _pairingBusy = false;
     _pairingMessage = null;
+    _lanBackupService.cancelPairing();
     unawaited(_nativeCamera?.setPairingScanEnabled(false));
     notifyListeners();
   }
@@ -1501,6 +1504,7 @@ class PackingSessionController extends ChangeNotifier {
     if (_pairingBusy || !_pairingScanActive) {
       return;
     }
+    final int revision = _pairingAttemptRevision;
     _pairingBusy = true;
     final bool isComputerQr = _looksLikeComputerPairingQr(value);
     if (isComputerQr) {
@@ -1509,6 +1513,7 @@ class PackingSessionController extends ChangeNotifier {
     }
     try {
       await _lanBackupService.pair(value);
+      if (revision != _pairingAttemptRevision || !_pairingScanActive) return;
       _pairingScanActive = false;
       _pairingSuccessRevision++;
       await _nativeCamera?.setPairingScanEnabled(false);
@@ -1525,12 +1530,14 @@ class PackingSessionController extends ChangeNotifier {
       await _backupAllRepositorySessions();
       notifyListeners();
     } on FormatException catch (error) {
+      if (revision != _pairingAttemptRevision) return;
       if (isComputerQr) {
         _pairingMessage = error.message;
         notifyListeners();
       }
       // Ordinary waybill barcodes remain silent while waiting for a computer QR.
     } on Object catch (error) {
+      if (revision != _pairingAttemptRevision) return;
       _pairingScanActive = false;
       await _nativeCamera?.setPairingScanEnabled(false);
       _pairingMessage = error.toString().replaceFirst('Exception: ', '');

@@ -25,6 +25,7 @@ abstract interface class LanBackupSink implements Listenable {
     required BackedRetentionPolicy backedRetention,
   });
   Future<void> pair(String qrValue);
+  void cancelPairing();
   Future<void> disconnect();
   Future<bool> retryConnection();
   Future<void> setAutoEnabled(bool enabled);
@@ -69,6 +70,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   bool _nativeHandlerAttached = false;
   String _accessKey = '';
   LanBackupSnapshot _snapshot = const LanBackupSnapshot();
+  int _pairingRevision = 0;
+  HttpClientRequest? _activePairingRequest;
+  LanBackupSnapshot? _pairingRestoreSnapshot;
 
   @override
   LanBackupSnapshot get snapshot => _snapshot;
@@ -129,6 +133,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   @override
   Future<void> pair(String qrValue) async {
     final LanBackupEndpoint candidate = parsePairingQr(qrValue);
+    final int revision = ++_pairingRevision;
+    final LanBackupSnapshot restoreSnapshot = _snapshot;
+    _pairingRestoreSnapshot = restoreSnapshot;
     _snapshot = _snapshot.copyWith(
       connectionStatus: LanConnectionStatus.connecting,
     );
@@ -140,12 +147,18 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       final HttpClientRequest request = await _httpClient
           .getUrl(capabilityUri)
           .timeout(const Duration(seconds: 5));
+      if (revision != _pairingRevision) {
+        request.abort();
+        return;
+      }
+      _activePairingRequest = request;
       request.followRedirects = false;
       request.headers.set('X-EPM-Access-Key', candidate.accessKey);
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 8),
       );
       final String body = await utf8.decoder.bind(response).join();
+      if (revision != _pairingRevision) return;
       if (response.statusCode == HttpStatus.notFound) {
         throw const LanBackupUnsupportedException();
       }
@@ -170,12 +183,17 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         computerName: '${capabilities['computerName'] ?? '已连接电脑'}',
         lastConnectedAt: DateTime.now(),
       );
+      if (revision != _pairingRevision) return;
       await _channel.invokeMethod<void>('saveConnection', <String, Object?>{
         'baseUrl': candidate.baseUri.toString(),
         'accessKey': candidate.accessKey,
         'computerId': connectedEndpoint.computerId,
         'computerName': connectedEndpoint.computerName,
       });
+      if (revision != _pairingRevision) {
+        await _restorePersistedConnection(restoreSnapshot);
+        return;
+      }
       _accessKey = candidate.accessKey;
       _snapshot = _snapshot.copyWith(
         endpoint: connectedEndpoint,
@@ -185,18 +203,53 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       notifyListeners();
       unawaited(refresh());
     } on FormatException {
+      if (revision != _pairingRevision) return;
       _snapshot = _snapshot.copyWith(
         connectionStatus: LanConnectionStatus.rePair,
       );
       notifyListeners();
       rethrow;
     } on Object {
+      if (revision != _pairingRevision) return;
       _snapshot = _snapshot.copyWith(
         connectionStatus: LanConnectionStatus.offline,
       );
       notifyListeners();
       rethrow;
+    } finally {
+      if (revision == _pairingRevision) {
+        _activePairingRequest = null;
+        _pairingRestoreSnapshot = null;
+      }
     }
+  }
+
+  @override
+  void cancelPairing() {
+    final LanBackupSnapshot? restoreSnapshot = _pairingRestoreSnapshot;
+    if (restoreSnapshot == null) return;
+    _pairingRevision++;
+    _activePairingRequest?.abort();
+    _activePairingRequest = null;
+    _pairingRestoreSnapshot = null;
+    _snapshot = restoreSnapshot;
+    notifyListeners();
+  }
+
+  Future<void> _restorePersistedConnection(
+    LanBackupSnapshot restoreSnapshot,
+  ) async {
+    final LanBackupEndpoint? endpoint = restoreSnapshot.endpoint;
+    if (endpoint == null || _accessKey.isEmpty) {
+      await _channel.invokeMethod<void>('disconnect');
+      return;
+    }
+    await _channel.invokeMethod<void>('saveConnection', <String, Object?>{
+      'baseUrl': endpoint.baseUri.toString(),
+      'accessKey': _accessKey,
+      'computerId': endpoint.computerId,
+      'computerName': endpoint.computerName,
+    });
   }
 
   @override

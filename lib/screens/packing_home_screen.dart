@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app/app_build_config.dart';
 import '../controllers/packing_session_controller.dart';
@@ -22,6 +23,40 @@ bool shouldSuspendPackingSession(AppLifecycleState state) {
   return state == AppLifecycleState.hidden ||
       state == AppLifecycleState.paused ||
       state == AppLifecycleState.detached;
+}
+
+enum PackingBackAction {
+  cancelPairing,
+  cancelHistoryScan,
+  keepWorking,
+  showHome,
+  armExit,
+  exitApp,
+}
+
+@visibleForTesting
+PackingBackAction resolvePackingBackAction({
+  required bool pairingActive,
+  required bool pairingMessageVisible,
+  required bool historyScanActive,
+  required bool workInProgress,
+  required int selectedTab,
+  required DateTime now,
+  DateTime? exitArmedAt,
+}) {
+  if (pairingActive || pairingMessageVisible) {
+    return PackingBackAction.cancelPairing;
+  }
+  if (historyScanActive) return PackingBackAction.cancelHistoryScan;
+  if (workInProgress) return PackingBackAction.keepWorking;
+  if (selectedTab != 1) return PackingBackAction.showHome;
+  if (exitArmedAt != null) {
+    final Duration elapsed = now.difference(exitArmedAt);
+    if (!elapsed.isNegative && elapsed <= const Duration(seconds: 2)) {
+      return PackingBackAction.exitApp;
+    }
+  }
+  return PackingBackAction.armExit;
 }
 
 class PackingHomeScreen extends StatefulWidget {
@@ -45,6 +80,8 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   String _historySearchQuery = '';
   int _handledPairingSuccessRevision = 0;
   int _handledStorageNoticeRevision = 0;
+  int _transientReturnTab = 1;
+  DateTime? _exitArmedAt;
   Timer? _watermarkClock;
 
   @override
@@ -84,6 +121,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   }
 
   Future<void> _toggleWork() async {
+    _resetExitIntent();
     if (_controller.isWorking) {
       await _controller.stopWork();
       return;
@@ -93,21 +131,104 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
 
   void _selectTab(int value) {
     if ((_controller.isWorking || _controller.isBusy) && value != 1) return;
+    _resetExitIntent();
     setState(() => _selectedTab = value);
     unawaited(_controller.setPreviewActive(value == 1));
     if (value == 0) unawaited(_controller.refreshSessions());
   }
 
   void _beginComputerPairing() {
-    setState(() => _selectedTab = 1);
+    _resetExitIntent();
+    setState(() {
+      _transientReturnTab = _selectedTab;
+      _selectedTab = 1;
+    });
     unawaited(_controller.setPreviewActive(true));
     _controller.beginComputerPairing();
   }
 
   void _beginHistorySearchScan() {
-    setState(() => _selectedTab = 1);
+    _resetExitIntent();
+    setState(() {
+      _transientReturnTab = _selectedTab;
+      _selectedTab = 1;
+    });
     unawaited(_controller.setPreviewActive(true));
     _controller.beginHistoryBarcodeScan();
+  }
+
+  void _cancelComputerPairingAndReturn() {
+    _controller.cancelComputerPairing();
+    _returnFromTransientScan();
+  }
+
+  void _cancelHistoryScanAndReturn() {
+    _controller.cancelHistoryBarcodeScan();
+    _returnFromTransientScan();
+  }
+
+  void _returnFromTransientScan() {
+    final int targetTab = _transientReturnTab;
+    _resetExitIntent();
+    setState(() {
+      _selectedTab = targetTab;
+      _transientReturnTab = 1;
+    });
+    unawaited(_controller.setPreviewActive(targetTab == 1));
+    if (targetTab == 0) unawaited(_controller.refreshSessions());
+  }
+
+  void _resetExitIntent() {
+    _exitArmedAt = null;
+  }
+
+  void _showBackMessage(String message) {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+      );
+  }
+
+  void _handleSystemBack() {
+    final DateTime now = DateTime.now();
+    final PackingBackAction action = resolvePackingBackAction(
+      pairingActive: _controller.pairingScanActive,
+      pairingMessageVisible:
+          _controller.pairingMessage != null && _transientReturnTab != 1,
+      historyScanActive: _controller.historyScanActive,
+      workInProgress:
+          _controller.isWorking ||
+          _controller.phase == PackingSessionPhase.starting ||
+          _controller.phase == PackingSessionPhase.saving,
+      selectedTab: _selectedTab,
+      now: now,
+      exitArmedAt: _exitArmedAt,
+    );
+    switch (action) {
+      case PackingBackAction.cancelPairing:
+        _cancelComputerPairingAndReturn();
+        return;
+      case PackingBackAction.cancelHistoryScan:
+        _cancelHistoryScanAndReturn();
+        return;
+      case PackingBackAction.keepWorking:
+        _resetExitIntent();
+        _showBackMessage('工作进行中，请先结束工作');
+        return;
+      case PackingBackAction.showHome:
+        _selectTab(1);
+        return;
+      case PackingBackAction.armExit:
+        _exitArmedAt = now;
+        _showBackMessage('再按一次返回退出应用');
+        return;
+      case PackingBackAction.exitApp:
+        _resetExitIntent();
+        unawaited(SystemNavigator.pop());
+        return;
+    }
   }
 
   @override
@@ -120,7 +241,11 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
           _handledPairingSuccessRevision = pairingSuccessRevision;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            setState(() => _selectedTab = 0);
+            setState(() {
+              _selectedTab = 0;
+              _transientReturnTab = 1;
+            });
+            _resetExitIntent();
             unawaited(_controller.setPreviewActive(false));
           });
         }
@@ -144,50 +269,58 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
             setState(() {
               _historySearchQuery = scanned;
               _selectedTab = 0;
+              _transientReturnTab = 1;
             });
+            _resetExitIntent();
           });
         }
-        return Scaffold(
-          body: IndexedStack(
-            index: _selectedTab,
-            children: <Widget>[
-              _buildRecordingsScreen(RecordingsScreenMode.history),
-              PackingHomeView(
-                cameraController: _controller.cameraController,
-                nativeTextureId: _controller.nativeTextureId,
-                nativePreviewSize: _controller.nativePreviewSize,
-                phase: _controller.phase,
-                elapsed: _controller.elapsed,
-                lastMarker: _controller.lastMarker,
-                candidateCode: _controller.candidateCode,
-                currentCode: _controller.currentCode,
-                orderInfo: _controller.activeOrderInfo,
-                workMode: _controller.workMode,
-                errorMessage: _controller.errorMessage,
-                scanWarningMessage: _controller.scanWarningMessage,
-                pairingScanActive: _controller.pairingScanActive,
-                pairingMessage: _controller.pairingMessage,
-                historyScanActive: _controller.historyScanActive,
-                flashAvailable: _controller.flashAvailable,
-                torchEnabled: _controller.torchEnabled,
-                cameraSwitchAvailable: _controller.cameraSwitchAvailable,
-                frontCameraActive: _controller.frontCameraActive,
-                onPairingCancel: _controller.cancelComputerPairing,
-                onHistoryScanCancel: _controller.cancelHistoryBarcodeScan,
-                onTorchPressed: _controller.toggleTorch,
-                onCameraSwitchPressed: _controller.switchCamera,
-                onPrimaryPressed: _toggleWork,
-                onRetryPressed: _controller.retryInitialize,
-              ),
-              _buildRecordingsScreen(RecordingsScreenMode.settings),
-            ],
-          ),
-          bottomNavigationBar: _controller.pairingScanActive
-              ? null
-              : _PackingBottomNavigation(
-                  selectedIndex: _selectedTab,
-                  onSelected: _selectTab,
+        return PopScope<Object?>(
+          canPop: false,
+          onPopInvokedWithResult: (bool didPop, Object? result) {
+            if (!didPop) _handleSystemBack();
+          },
+          child: Scaffold(
+            body: IndexedStack(
+              index: _selectedTab,
+              children: <Widget>[
+                _buildRecordingsScreen(RecordingsScreenMode.history),
+                PackingHomeView(
+                  cameraController: _controller.cameraController,
+                  nativeTextureId: _controller.nativeTextureId,
+                  nativePreviewSize: _controller.nativePreviewSize,
+                  phase: _controller.phase,
+                  elapsed: _controller.elapsed,
+                  lastMarker: _controller.lastMarker,
+                  candidateCode: _controller.candidateCode,
+                  currentCode: _controller.currentCode,
+                  orderInfo: _controller.activeOrderInfo,
+                  workMode: _controller.workMode,
+                  errorMessage: _controller.errorMessage,
+                  scanWarningMessage: _controller.scanWarningMessage,
+                  pairingScanActive: _controller.pairingScanActive,
+                  pairingMessage: _controller.pairingMessage,
+                  historyScanActive: _controller.historyScanActive,
+                  flashAvailable: _controller.flashAvailable,
+                  torchEnabled: _controller.torchEnabled,
+                  cameraSwitchAvailable: _controller.cameraSwitchAvailable,
+                  frontCameraActive: _controller.frontCameraActive,
+                  onPairingCancel: _cancelComputerPairingAndReturn,
+                  onHistoryScanCancel: _cancelHistoryScanAndReturn,
+                  onTorchPressed: _controller.toggleTorch,
+                  onCameraSwitchPressed: _controller.switchCamera,
+                  onPrimaryPressed: _toggleWork,
+                  onRetryPressed: _controller.retryInitialize,
                 ),
+                _buildRecordingsScreen(RecordingsScreenMode.settings),
+              ],
+            ),
+            bottomNavigationBar: _controller.pairingScanActive
+                ? null
+                : _PackingBottomNavigation(
+                    selectedIndex: _selectedTab,
+                    onSelected: _selectTab,
+                  ),
+          ),
         );
       },
     );
@@ -549,7 +682,7 @@ class _CameraArea extends StatelessWidget {
               top: 88,
               child: _ComputerPairingBanner(
                 message: view.pairingMessage ?? '扫描电脑二维码',
-                onCancel: view.pairingScanActive ? view.onPairingCancel : null,
+                onCancel: view.onPairingCancel,
               ),
             ),
           if (view.historyScanActive)

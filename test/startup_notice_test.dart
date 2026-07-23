@@ -2,8 +2,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/app/app_build_config.dart';
 import 'package:packing_proof_mobile/app/packing_proof_mobile_app.dart';
+import 'package:packing_proof_mobile/models/app_settings.dart';
 
 void main() {
+  testWidgets('启动初始化失败时显示错误并允许重试', (WidgetTester tester) async {
+    var attempts = 0;
+    await tester.pumpWidget(
+      PackingProofMobileApp(
+        settingsLoader: () async {
+          attempts++;
+          if (attempts == 1) throw StateError('录像数据库无法打开');
+          return const AppSettings(startupNoticeVersion: 1);
+        },
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('应用启动失败'), findsOneWidget);
+    expect(find.textContaining('录像数据库无法打开'), findsOneWidget);
+
+    await tester.tap(find.text('重试启动'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(attempts, 2);
+    expect(find.byKey(const Key('startup-load-error')), findsNothing);
+  });
+
   testWidgets('首次打开显示统一的开源与本地数据说明', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(

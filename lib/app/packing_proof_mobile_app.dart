@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
@@ -10,11 +12,13 @@ class PackingProofMobileApp extends StatefulWidget {
   const PackingProofMobileApp({
     this.buildConfig = AppBuildConfig.environment,
     this.repository,
+    this.settingsLoader,
     super.key,
   });
 
   final AppBuildConfig buildConfig;
   final SessionRepository? repository;
+  final Future<AppSettings> Function()? settingsLoader;
 
   static const Color forest = PackingProofTheme.forest;
   static const Color ink = PackingProofTheme.ink;
@@ -27,13 +31,25 @@ class PackingProofMobileApp extends StatefulWidget {
 
 class _PackingProofMobileAppState extends State<PackingProofMobileApp> {
   late final SessionRepository _repository;
-  late final Future<AppSettings> _settings;
+  late Future<AppSettings> _settings;
 
   @override
   void initState() {
     super.initState();
     _repository = widget.repository ?? SessionRepository();
-    _settings = _repository.loadSettings();
+    _settings = _loadSettings();
+  }
+
+  Future<AppSettings> _loadSettings() =>
+      (widget.settingsLoader?.call() ?? _repository.loadSettings()).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw TimeoutException('启动初始化超过 15 秒'),
+      );
+
+  void _retryLoadSettings() {
+    setState(() {
+      _settings = _loadSettings();
+    });
   }
 
   @override
@@ -47,6 +63,12 @@ class _PackingProofMobileAppState extends State<PackingProofMobileApp> {
       home: FutureBuilder<AppSettings>(
         future: _settings,
         builder: (BuildContext context, AsyncSnapshot<AppSettings> snapshot) {
+          if (snapshot.hasError) {
+            return _StartupLoadError(
+              error: snapshot.error!,
+              onRetry: _retryLoadSettings,
+            );
+          }
           if (!snapshot.hasData) {
             return const Scaffold(
               body: Center(child: CircularProgressIndicator()),
@@ -58,6 +80,53 @@ class _PackingProofMobileAppState extends State<PackingProofMobileApp> {
             settings: snapshot.data!,
           );
         },
+      ),
+    );
+  }
+}
+
+class _StartupLoadError extends StatelessWidget {
+  const _StartupLoadError({required this.error, required this.onRetry});
+
+  final Object error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  Icons.error_outline_rounded,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  '应用启动失败',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '$error',
+                  key: const Key('startup-load-error'),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('重试启动'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

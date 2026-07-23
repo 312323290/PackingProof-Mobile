@@ -49,7 +49,9 @@ class RecordingDatabase {
     path,
     version: 1,
     onConfigure: (Database db) async {
-      await db.execute('PRAGMA journal_mode=WAL');
+      // Android treats journal_mode as a result-returning PRAGMA and rejects
+      // execute(); sqflite's helper falls back to rawQuery on that platform.
+      await db.setJournalMode('WAL');
       await db.execute('PRAGMA synchronous=NORMAL');
       await db.execute('PRAGMA foreign_keys=ON');
     },

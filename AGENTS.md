@@ -27,6 +27,7 @@ PackingProof-Mobile is a Flutter app for continuous package-recording and shippi
 - Barcode scanning and uninterrupted recording are the core workflow. Avoid changes that require touch interaction during normal scanning work.
 - Preserve local recordings and settings during upgrades. Never delete recordings based only on missing, stale, or partially matched metadata.
 - Keep LAN backup and remote-recording cleanup semantics distinct from deleting local source recordings.
+- Keep the LAN backup device ID derived anonymously from Android ID so the same formally signed app can identify the physical phone again after uninstall/reinstall. Do not expose the raw Android ID.
 
 ## Development Commands
 

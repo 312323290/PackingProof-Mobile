@@ -1,6 +1,7 @@
 package app.packingproof.mobile
 
 import android.content.Context
+import android.provider.Settings
 import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,6 +21,16 @@ internal class LanBackupStateStore(private val context: Context) {
         fun stableId(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
+
+        fun stableDeviceId(androidId: String?, packageName: String): String? {
+            val normalizedAndroidId = androidId?.trim()?.lowercase().orEmpty()
+            if (normalizedAndroidId.isBlank() ||
+                normalizedAndroidId == "9774d56d682e549c"
+            ) {
+                return null
+            }
+            return "android-${stableId("$packageName:$normalizedAndroidId")}"
+        }
 
         fun <T> withJobLock(action: () -> T): T = synchronized(jobIoLock, action)
     }
@@ -187,6 +198,14 @@ internal class LanBackupStateStore(private val context: Context) {
         .getInt("backedDays", 7)
 
     fun deviceId(): String {
+        val androidId = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ANDROID_ID,
+        )
+        stableDeviceId(androidId, context.packageName)?.let { return it }
+
+        // Only obsolete or unavailable Android IDs use an installation-local
+        // fallback. Normal devices keep the same ID after uninstall/reinstall.
         val prefs = context.getSharedPreferences(DEVICE_PREFS, Context.MODE_PRIVATE)
         prefs.getString("id", null)?.takeIf { it.isNotBlank() }?.let { return it }
         val value = UUID.randomUUID().toString()

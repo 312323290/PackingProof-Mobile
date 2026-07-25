@@ -79,6 +79,13 @@ void main() {
     expect(retentionY, lessThan(speechY));
     expect(speechY, lessThan(maxVolumeY));
     expect(maxVolumeY, lessThan(orderSpeechY));
+    expect(find.textContaining('不会自动删除未备份录像'), findsNothing);
+    expect(find.byKey(const Key('retention-info-button')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('retention-info-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('录像清理说明'), findsOneWidget);
     expect(find.textContaining('不会自动删除未备份录像'), findsOneWidget);
   });
 

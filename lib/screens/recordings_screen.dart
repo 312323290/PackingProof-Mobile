@@ -1466,6 +1466,10 @@ class _RetentionSettings extends StatelessWidget {
   final ValueChanged<UnbackedRetentionPolicy> onUnbackedRetentionChanged;
   final ValueChanged<BackedRetentionPolicy> onBackedRetentionChanged;
 
+  static const String _retentionDescription =
+      '保留时间仅在空间充足时生效。剩余不足 2GB 时会提前清理已完成电脑校验的录像，'
+      '不会自动删除未备份录像。建议保持电脑备份连接或缩短保留时间';
+
   @override
   Widget build(BuildContext context) {
     final ColorScheme colors = Theme.of(context).colorScheme;
@@ -1478,26 +1482,44 @@ class _RetentionSettings extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Text(
-            '录像清理',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+          Row(
+            children: <Widget>[
+              const Text(
+                '录像清理',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+              const Spacer(),
+              IconButton(
+                key: const Key('retention-info-button'),
+                tooltip: '录像清理说明',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.info_outline_rounded),
+                onPressed: () => _showRetentionInfo(context),
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 6),
           _RetentionDropdowns(
             unbackedRetention: unbackedRetention,
             backedRetention: backedRetention,
             onUnbackedRetentionChanged: onUnbackedRetentionChanged,
             onBackedRetentionChanged: onBackedRetentionChanged,
           ),
-          const SizedBox(height: 10),
-          Text(
-            '保留时间仅在空间充足时生效。剩余不足 2GB 时会提前清理已完成电脑校验的录像，'
-            '不会自动删除未备份录像。建议保持电脑备份连接或缩短保留时间',
-            style: TextStyle(
-              color: colors.onSurfaceVariant,
-              fontSize: 11,
-              height: 1.4,
-            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showRetentionInfo(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('录像清理说明'),
+        content: const Text(_retentionDescription),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('知道了'),
           ),
         ],
       ),

@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
@@ -67,11 +68,13 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     MethodChannel? channel,
     HttpClient? httpClient,
     Future<bool> Function()? wifiConnected,
+    Future<PackageInfo> Function()? packageInfoLoader,
   }) : _channel = channel ?? _defaultChannel,
        _httpClient = httpClient ?? HttpClient(),
        // Keep the public injection name readable while the stored callback remains private.
        // ignore: prefer_initializing_formals
-       _wifiConnected = wifiConnected;
+       _wifiConnected = wifiConnected,
+       _packageInfoLoader = packageInfoLoader ?? PackageInfo.fromPlatform;
 
   static const MethodChannel _defaultChannel = MethodChannel(
     'app.packingproof.mobile/lan_backup',
@@ -80,6 +83,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   final MethodChannel _channel;
   final HttpClient _httpClient;
   final Future<bool> Function()? _wifiConnected;
+  final Future<PackageInfo> Function() _packageInfoLoader;
   Timer? _pollTimer;
   Timer? _heartbeatTimer;
   Future<void>? _refreshFuture;
@@ -90,6 +94,8 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   int _pairingRevision = 0;
   HttpClientRequest? _activePairingRequest;
   LanBackupSnapshot? _pairingRestoreSnapshot;
+  String _appVersion = '';
+  int _appBuildNumber = 0;
 
   @override
   LanBackupSnapshot get snapshot => _snapshot;
@@ -102,6 +108,13 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   }) async {
     _attachNativeHandler();
     _snapshot = _snapshot.copyWith(autoEnabled: autoEnabled);
+    try {
+      final PackageInfo packageInfo = await _packageInfoLoader();
+      _appVersion = packageInfo.version;
+      _appBuildNumber = int.tryParse(packageInfo.buildNumber) ?? 0;
+    } on Object {
+      // Version checks are optional and must never block recording or backup.
+    }
     if (!Platform.isAndroid) {
       notifyListeners();
       return;
@@ -690,14 +703,51 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           'deviceType': 'mobile',
           'orderReceiverPort': 5280,
           'capabilities': const <String>['recording', 'order-receiver'],
+          'appVersion': _appVersion,
+          'appBuildNumber': _appBuildNumber,
         }),
       );
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 8),
       );
-      await response.drain<void>();
+      final String responseBody = await utf8.decoder.bind(response).join();
+      if (connected &&
+          response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          responseBody.isNotEmpty) {
+        _applyMobileAppUpdateResponse(responseBody);
+      }
     } on Object {
       // 心跳失败不应影响录像、备份或其他设备的订单接收。
+    }
+  }
+
+  void _applyMobileAppUpdateResponse(String responseBody) {
+    try {
+      final Object? decoded = jsonDecode(responseBody);
+      if (decoded is! Map<String, dynamic> ||
+          !decoded.containsKey('mobileAppUpdate') ||
+          decoded['mobileAppUpdate'] is! Map) {
+        return;
+      }
+
+      final MobileAppUpdateNotice? notice = evaluateMobileAppUpdatePolicy(
+        Map<String, Object?>.from(decoded['mobileAppUpdate']! as Map),
+        currentVersion: _appVersion,
+        currentBuildNumber: _appBuildNumber,
+      );
+      final MobileAppUpdateNotice? previous = _snapshot.mobileAppUpdate;
+      if (previous?.signature == notice?.signature &&
+          previous?.message == notice?.message) {
+        return;
+      }
+      _snapshot = _snapshot.copyWith(
+        mobileAppUpdate: notice,
+        clearMobileAppUpdate: notice == null,
+      );
+      notifyListeners();
+    } on Object {
+      // Invalid or newer policy formats are ignored for forward compatibility.
     }
   }
 
@@ -751,3 +801,48 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     super.dispose();
   }
 }
+
+@visibleForTesting
+MobileAppUpdateNotice? evaluateMobileAppUpdatePolicy(
+  Map<String, Object?> value, {
+  required String currentVersion,
+  required int currentBuildNumber,
+}) {
+  if ((value['schemaVersion'] as num?)?.toInt() != 1) return null;
+  final String minimumVersion = '${value['minimumVersion'] ?? ''}'.trim();
+  final int minimumBuildNumber =
+      (value['minimumBuildNumber'] as num?)?.toInt() ?? 0;
+  if (minimumVersion.isEmpty || minimumBuildNumber <= 0) return null;
+
+  final bool updateRequired = currentBuildNumber > 0
+      ? currentBuildNumber < minimumBuildNumber
+      : compareAppVersions(currentVersion, minimumVersion) < 0;
+  if (!updateRequired) return null;
+
+  return MobileAppUpdateNotice(
+    minimumVersion: minimumVersion,
+    minimumBuildNumber: minimumBuildNumber,
+    message: '${value['message'] ?? ''}'.trim(),
+  );
+}
+
+@visibleForTesting
+int compareAppVersions(String left, String right) {
+  final List<int> leftParts = _numericVersionParts(left);
+  final List<int> rightParts = _numericVersionParts(right);
+  final int length = leftParts.length > rightParts.length
+      ? leftParts.length
+      : rightParts.length;
+  for (int index = 0; index < length; index++) {
+    final int leftPart = index < leftParts.length ? leftParts[index] : 0;
+    final int rightPart = index < rightParts.length ? rightParts[index] : 0;
+    if (leftPart != rightPart) return leftPart.compareTo(rightPart);
+  }
+  return 0;
+}
+
+List<int> _numericVersionParts(String value) => value
+    .split(RegExp(r'[^0-9]+'))
+    .where((String part) => part.isNotEmpty)
+    .map((String part) => int.tryParse(part) ?? 0)
+    .toList(growable: false);

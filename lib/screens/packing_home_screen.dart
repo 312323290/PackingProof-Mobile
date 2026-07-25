@@ -5,6 +5,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app/app_build_config.dart';
 import '../controllers/packing_session_controller.dart';
@@ -12,6 +13,7 @@ import '../models/barcode_marker.dart';
 import '../models/work_mode.dart';
 import '../models/order_info.dart';
 import '../models/storage_notice.dart';
+import '../models/lan_backup.dart';
 import '../services/preview_cover_transform.dart';
 import '../services/session_repository.dart';
 import '../services/speech_prompt_service.dart';
@@ -79,6 +81,52 @@ Future<void> showComputerPairingFailureDialog(
   );
 }
 
+const String mobileAppDownloadUrl =
+    'https://pan.baidu.com/s/1B9L9l19ZkjtNpK_9rVZxbw?pwd=6666';
+
+@visibleForTesting
+Future<void> showMobileAppUpdateDialog(
+  BuildContext context,
+  MobileAppUpdateNotice notice, {
+  Future<bool> Function(Uri uri)? openUrl,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (BuildContext dialogContext) => AlertDialog(
+      title: const Text('手机 App 更新'),
+      content: Text(
+        notice.message.isEmpty
+            ? '当前 APP 版本过低，需要更新\n\n'
+                  '电脑端要求使用 ${notice.minimumVersion} 或更高版本\n\n'
+                  '暂不更新时仍可继续使用当前可用功能'
+            : '${notice.message}\n\n最低兼容版本：${notice.minimumVersion}\n'
+                  '暂不更新时仍可继续使用当前可用功能',
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('稍后继续使用'),
+        ),
+        FilledButton(
+          onPressed: () {
+            Navigator.of(dialogContext).pop();
+            final Uri uri = Uri.parse(mobileAppDownloadUrl);
+            unawaited(
+              (openUrl ??
+                      (Uri value) => launchUrl(
+                        value,
+                        mode: LaunchMode.externalApplication,
+                      ))
+                  .call(uri),
+            );
+          },
+          child: const Text('打开下载页面'),
+        ),
+      ],
+    ),
+  );
+}
+
 class PackingHomeScreen extends StatefulWidget {
   const PackingHomeScreen({
     this.repository,
@@ -100,6 +148,8 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   String _historySearchQuery = '';
   int _handledPairingSuccessRevision = 0;
   int _handledPairingFailureRevision = 0;
+  String _handledMobileUpdateSignature = '';
+  bool _mobileUpdateDialogScheduled = false;
   int _handledStorageNoticeRevision = 0;
   int _transientReturnTab = 1;
   DateTime? _exitArmedAt;
@@ -304,6 +354,28 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
               unawaited(_showStorageNotice(notice));
             });
           }
+        }
+        final MobileAppUpdateNotice? mobileAppUpdate =
+            _controller.backupSnapshot.mobileAppUpdate;
+        if (mobileAppUpdate != null &&
+            mobileAppUpdate.signature != _handledMobileUpdateSignature &&
+            !_controller.isWorking &&
+            !_mobileUpdateDialogScheduled) {
+          _mobileUpdateDialogScheduled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            if (_controller.isWorking) {
+              _mobileUpdateDialogScheduled = false;
+              return;
+            }
+            _handledMobileUpdateSignature = mobileAppUpdate.signature;
+            unawaited(
+              showMobileAppUpdateDialog(
+                context,
+                mobileAppUpdate,
+              ).whenComplete(() => _mobileUpdateDialogScheduled = false),
+            );
+          });
         }
         final String? scanned = _controller.historyScanResult;
         if (scanned != null) {

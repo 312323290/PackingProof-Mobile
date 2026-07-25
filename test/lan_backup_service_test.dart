@@ -55,6 +55,38 @@ void main() {
     );
   });
 
+  test('电脑传来的最低版本仅在当前 App 过旧时生成更新提示', () {
+    final Map<String, Object?> policy = <String, Object?>{
+      'schemaVersion': 1,
+      'minimumVersion': '0.5.6',
+      'minimumBuildNumber': 11006,
+      'message': '当前 APP 版本过低，需要更新',
+    };
+
+    expect(
+      evaluateMobileAppUpdatePolicy(
+        policy,
+        currentVersion: '0.5.6',
+        currentBuildNumber: 11006,
+      ),
+      isNull,
+    );
+
+    final MobileAppUpdateNotice? notice = evaluateMobileAppUpdatePolicy(
+      policy,
+      currentVersion: '0.5.5',
+      currentBuildNumber: 11005,
+    );
+    expect(notice?.minimumVersion, '0.5.6');
+    expect(notice?.message, '当前 APP 版本过低，需要更新');
+  });
+
+  test('版本比较兼容不同长度的语义版本号', () {
+    expect(compareAppVersions('0.5.5', '0.5.6'), lessThan(0));
+    expect(compareAppVersions('0.5.6', '0.5.6'), 0);
+    expect(compareAppVersions('0.5.10', '0.5.6'), greaterThan(0));
+  });
+
   test('未连接 Wi-Fi 时扫码给出友好提示且不发起网络请求', () async {
     final _UnexpectedHttpClient httpClient = _UnexpectedHttpClient();
     final LanBackupService service = LanBackupService(

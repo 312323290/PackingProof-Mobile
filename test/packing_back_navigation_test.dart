@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:packing_proof_mobile/screens/packing_home_screen.dart';
+import 'package:packing_proof_mobile/models/lan_backup.dart';
 
 void main() {
   final DateTime now = DateTime(2026, 7, 23, 12);
@@ -64,6 +65,36 @@ void main() {
 
     expect(find.text('连接电脑失败'), findsOneWidget);
     expect(find.text('请先连接与电脑相同的 Wi-Fi 后重试'), findsOneWidget);
+  });
+
+  testWidgets('电脑推荐版本过高时显示手机 App 更新入口', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () => showMobileAppUpdateDialog(
+              context,
+              const MobileAppUpdateNotice(
+                minimumVersion: '0.5.6',
+                minimumBuildNumber: 11006,
+                message: '当前 APP 版本过低，需要更新',
+              ),
+            ),
+            child: const Text('测试更新'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('测试更新'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('手机 App 更新'), findsOneWidget);
+    expect(find.textContaining('当前 APP 版本过低，需要更新'), findsOneWidget);
+    expect(find.textContaining('最低兼容版本：0.5.6'), findsOneWidget);
+    expect(find.text('稍后继续使用'), findsOneWidget);
+    expect(find.text('打开下载页面'), findsOneWidget);
+    expect(mobileAppDownloadUrl, contains('pwd=6666'));
   });
 }
 

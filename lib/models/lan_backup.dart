@@ -144,6 +144,7 @@ class LanBackupSnapshot {
     this.connectionStatus = LanConnectionStatus.disconnected,
     this.deviceId = '',
     this.deviceName = '',
+    this.mobileAppUpdate,
   });
 
   final LanBackupEndpoint? endpoint;
@@ -153,6 +154,7 @@ class LanBackupSnapshot {
   final LanConnectionStatus connectionStatus;
   final String deviceId;
   final String deviceName;
+  final MobileAppUpdateNotice? mobileAppUpdate;
 
   bool get connected => endpoint != null;
   int get pendingCount => jobs.where((LanBackupJob job) {
@@ -195,6 +197,8 @@ class LanBackupSnapshot {
     LanConnectionStatus? connectionStatus,
     String? deviceId,
     String? deviceName,
+    MobileAppUpdateNotice? mobileAppUpdate,
+    bool clearMobileAppUpdate = false,
   }) {
     return LanBackupSnapshot(
       endpoint: clearEndpoint ? null : endpoint ?? this.endpoint,
@@ -204,8 +208,25 @@ class LanBackupSnapshot {
       connectionStatus: connectionStatus ?? this.connectionStatus,
       deviceId: deviceId ?? this.deviceId,
       deviceName: deviceName ?? this.deviceName,
+      mobileAppUpdate: clearMobileAppUpdate
+          ? null
+          : mobileAppUpdate ?? this.mobileAppUpdate,
     );
   }
+}
+
+class MobileAppUpdateNotice {
+  const MobileAppUpdateNotice({
+    required this.minimumVersion,
+    required this.minimumBuildNumber,
+    required this.message,
+  });
+
+  final String minimumVersion;
+  final int minimumBuildNumber;
+  final String message;
+
+  String get signature => '$minimumVersion+$minimumBuildNumber';
 }
 
 class RemoteRecording {

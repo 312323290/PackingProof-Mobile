@@ -16,6 +16,15 @@ class LanBackupUnsupportedException implements Exception {
   String toString() => '电脑端版本暂不支持录像备份';
 }
 
+class LanBackupConnectionException implements Exception {
+  const LanBackupConnectionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 abstract interface class LanBackupSink implements Listenable {
   LanBackupSnapshot get snapshot;
 
@@ -54,9 +63,15 @@ abstract interface class LanBackupSink implements Listenable {
 }
 
 class LanBackupService extends ChangeNotifier implements LanBackupSink {
-  LanBackupService({MethodChannel? channel, HttpClient? httpClient})
-    : _channel = channel ?? _defaultChannel,
-      _httpClient = httpClient ?? HttpClient();
+  LanBackupService({
+    MethodChannel? channel,
+    HttpClient? httpClient,
+    Future<bool> Function()? wifiConnected,
+  }) : _channel = channel ?? _defaultChannel,
+       _httpClient = httpClient ?? HttpClient(),
+       // Keep the public injection name readable while the stored callback remains private.
+       // ignore: prefer_initializing_formals
+       _wifiConnected = wifiConnected;
 
   static const MethodChannel _defaultChannel = MethodChannel(
     'app.packingproof.mobile/lan_backup',
@@ -64,6 +79,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
 
   final MethodChannel _channel;
   final HttpClient _httpClient;
+  final Future<bool> Function()? _wifiConnected;
   Timer? _pollTimer;
   Timer? _heartbeatTimer;
   Future<void>? _refreshFuture;
@@ -139,6 +155,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   @override
   Future<void> pair(String qrValue) async {
     final LanBackupEndpoint candidate = parsePairingQr(qrValue);
+    await _ensureWifiConnected();
     final int revision = ++_pairingRevision;
     final LanBackupSnapshot restoreSnapshot = _snapshot;
     _pairingRestoreSnapshot = restoreSnapshot;
@@ -220,6 +237,22 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       );
       notifyListeners();
       rethrow;
+    } on SocketException {
+      if (revision != _pairingRevision) return;
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.offline,
+      );
+      notifyListeners();
+      throw const LanBackupConnectionException(
+        '无法通过局域网连接电脑，请确认手机和电脑连接了同一个 Wi-Fi',
+      );
+    } on TimeoutException {
+      if (revision != _pairingRevision) return;
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.offline,
+      );
+      notifyListeners();
+      throw const LanBackupConnectionException('连接电脑超时，请确认手机和电脑连接了同一个 Wi-Fi');
     } on Object {
       if (revision != _pairingRevision) return;
       _snapshot = _snapshot.copyWith(
@@ -280,6 +313,14 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   Future<bool> retryConnection() async {
     final LanBackupEndpoint? endpoint = _snapshot.endpoint;
     if (endpoint == null || _accessKey.isEmpty) return false;
+    if (!await _hasWifiConnection()) {
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.offline,
+        message: '请先连接与电脑相同的 Wi-Fi 后重试',
+      );
+      notifyListeners();
+      return false;
+    }
     _snapshot = _snapshot.copyWith(
       connectionStatus: LanConnectionStatus.connecting,
       message: '正在重新连接电脑',
@@ -593,6 +634,23 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   Map<String, String> get playbackHeaders => _accessKey.isEmpty
       ? const <String, String>{}
       : <String, String>{'X-EPM-Access-Key': _accessKey};
+
+  Future<void> _ensureWifiConnected() async {
+    if (!await _hasWifiConnection()) {
+      throw const FormatException('请先连接与电脑相同的 Wi-Fi 后重试');
+    }
+  }
+
+  Future<bool> _hasWifiConnection() async {
+    final Future<bool> Function()? override = _wifiConnected;
+    if (override != null) return override();
+    if (!Platform.isAndroid) return true;
+    try {
+      return (await _channel.invokeMethod<bool>('isWifiConnected')) == true;
+    } on PlatformException {
+      return false;
+    }
+  }
 
   void _setDeviceHeaders(HttpClientRequest request, String accessKey) {
     request.headers.set('X-EPM-Access-Key', accessKey);

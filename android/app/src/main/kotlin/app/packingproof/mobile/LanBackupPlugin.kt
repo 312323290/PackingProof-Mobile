@@ -2,6 +2,8 @@ package app.packingproof.mobile
 
 import android.app.Activity
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.lifecycle.Observer
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
@@ -59,6 +61,7 @@ internal class LanBackupPlugin(
                     result.success(snapshot())
                 }
                 "loadAccessKey" -> result.success(credentials.load() ?: "")
+                "isWifiConnected" -> result.success(isWifiConnected())
                 "saveConnection" -> {
                     val baseUrl = call.argument<String>("baseUrl") ?: error("缺少电脑地址")
                     val accessKey = call.argument<String>("accessKey") ?: error("缺少电脑密钥")
@@ -178,6 +181,14 @@ internal class LanBackupPlugin(
             }
         } catch (error: Throwable) {
             result.error("lan_backup", error.message ?: "局域网备份失败", null)
+        }
+    }
+
+    private fun isWifiConnected(): Boolean {
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        return connectivity.allNetworks.any { network ->
+            connectivity.getNetworkCapabilities(network)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         }
     }
 

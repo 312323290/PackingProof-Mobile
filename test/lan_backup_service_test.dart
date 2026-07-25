@@ -55,6 +55,27 @@ void main() {
     );
   });
 
+  test('未连接 Wi-Fi 时扫码给出友好提示且不发起网络请求', () async {
+    final _UnexpectedHttpClient httpClient = _UnexpectedHttpClient();
+    final LanBackupService service = LanBackupService(
+      httpClient: httpClient,
+      wifiConnected: () async => false,
+    );
+    addTearDown(service.dispose);
+
+    await expectLater(
+      service.pair('http://192.168.1.20:5280/?key=0123456789abcdef'),
+      throwsA(
+        isA<FormatException>().having(
+          (FormatException error) => error.message,
+          'message',
+          '请先连接与电脑相同的 Wi-Fi 后重试',
+        ),
+      ),
+    );
+    expect(httpClient.requested, isFalse);
+  });
+
   test('录像备份元数据包含逻辑片段和面单标记', () {
     final DateTime startedAt = DateTime.utc(2026, 7, 19, 10);
     final RecordingSession session = RecordingSession(
@@ -198,6 +219,19 @@ class _PendingHttpClient extends Fake implements HttpClient {
 
   @override
   Future<HttpClientRequest> getUrl(Uri url) async => request;
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _UnexpectedHttpClient extends Fake implements HttpClient {
+  bool requested = false;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) {
+    requested = true;
+    throw StateError('未连接 Wi-Fi 时不应发起请求');
+  }
 
   @override
   void close({bool force = false}) {}

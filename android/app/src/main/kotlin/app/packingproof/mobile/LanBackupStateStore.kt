@@ -34,6 +34,12 @@ internal class LanBackupStateStore(private val context: Context) {
             return "android-${stableId("$packageName:$normalizedAndroidId")}"
         }
 
+        fun deviceDisplayName(deviceId: String): String {
+            val normalizedId = deviceId.filter(Char::isLetterOrDigit).uppercase()
+            val suffix = if (normalizedId.length <= 6) normalizedId else normalizedId.takeLast(6)
+            return if (suffix.isBlank()) "设备" else "设备 $suffix"
+        }
+
         fun <T> withJobLock(action: () -> T): T = synchronized(jobIoLock, action)
     }
 
@@ -270,5 +276,5 @@ internal class LanBackupStateStore(private val context: Context) {
         return value
     }
 
-    fun deviceName(): String = android.os.Build.MODEL?.trim().orEmpty().ifBlank { "打包手机" }
+    fun deviceName(): String = deviceDisplayName(deviceId())
 }

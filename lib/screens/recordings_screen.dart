@@ -954,7 +954,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
           _managing
               ? '已选 ${_selectedIds.length} 项'
               : historyMode
-              ? '订单历史'
+              ? (_backupSnapshot.deviceName.trim().isEmpty
+                    ? '设备'
+                    : _backupSnapshot.deviceName.trim())
               : '设置',
         ),
         actions: <Widget>[

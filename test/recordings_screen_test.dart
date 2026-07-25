@@ -12,6 +12,32 @@ import 'package:packing_proof_mobile/screens/recordings_screen.dart';
 import 'package:packing_proof_mobile/services/recording_database.dart';
 
 void main() {
+  testWidgets('历史页标题显示当前录像设备名称', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: const LanBackupSnapshot(
+            deviceId: 'android-1234567890a1b2c3',
+            deviceName: '设备 A1B2C3',
+          ),
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('设备 A1B2C3'), findsOneWidget);
+    expect(find.text('订单历史'), findsNothing);
+  });
+
   testWidgets('设置卡片按工作和语音关系排列', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(390, 2400);
     tester.view.devicePixelRatio = 1;

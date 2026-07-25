@@ -205,6 +205,7 @@ internal class LanBackupPlugin(
 
     private fun snapshot(): Map<String, Any?> = mapOf(
         "deviceId" to store.deviceId(),
+        "deviceName" to store.deviceName(),
         "connection" to store.connection()?.toFlutterValue(),
         "jobs" to store.jobs().map { it.toFlutterValue() },
     )

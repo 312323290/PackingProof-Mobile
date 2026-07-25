@@ -143,6 +143,7 @@ class LanBackupSnapshot {
     this.message,
     this.connectionStatus = LanConnectionStatus.disconnected,
     this.deviceId = '',
+    this.deviceName = '',
   });
 
   final LanBackupEndpoint? endpoint;
@@ -151,6 +152,7 @@ class LanBackupSnapshot {
   final String? message;
   final LanConnectionStatus connectionStatus;
   final String deviceId;
+  final String deviceName;
 
   bool get connected => endpoint != null;
   int get pendingCount => jobs.where((LanBackupJob job) {
@@ -192,6 +194,7 @@ class LanBackupSnapshot {
     bool clearMessage = false,
     LanConnectionStatus? connectionStatus,
     String? deviceId,
+    String? deviceName,
   }) {
     return LanBackupSnapshot(
       endpoint: clearEndpoint ? null : endpoint ?? this.endpoint,
@@ -200,6 +203,7 @@ class LanBackupSnapshot {
       message: clearMessage ? null : message ?? this.message,
       connectionStatus: connectionStatus ?? this.connectionStatus,
       deviceId: deviceId ?? this.deviceId,
+      deviceName: deviceName ?? this.deviceName,
     );
   }
 }

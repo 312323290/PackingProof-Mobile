@@ -604,6 +604,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
             .toList(growable: false);
     _snapshot = LanBackupSnapshot(
       deviceId: '${values['deviceId'] ?? _snapshot.deviceId}',
+      deviceName: '${values['deviceName'] ?? _snapshot.deviceName}',
       endpoint: endpoint,
       jobs: jobs,
       autoEnabled: _snapshot.autoEnabled,

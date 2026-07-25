@@ -59,6 +59,26 @@ PackingBackAction resolvePackingBackAction({
   return PackingBackAction.armExit;
 }
 
+@visibleForTesting
+Future<void> showComputerPairingFailureDialog(
+  BuildContext context,
+  String message,
+) {
+  return showDialog<void>(
+    context: context,
+    builder: (BuildContext dialogContext) => AlertDialog(
+      title: const Text('连接电脑失败'),
+      content: Text(message),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('知道了'),
+        ),
+      ],
+    ),
+  );
+}
+
 class PackingHomeScreen extends StatefulWidget {
   const PackingHomeScreen({
     this.repository,
@@ -79,6 +99,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   int _selectedTab = 1;
   String _historySearchQuery = '';
   int _handledPairingSuccessRevision = 0;
+  int _handledPairingFailureRevision = 0;
   int _handledStorageNoticeRevision = 0;
   int _transientReturnTab = 1;
   DateTime? _exitArmedAt;
@@ -178,6 +199,18 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     if (targetTab == 0) unawaited(_controller.refreshSessions());
   }
 
+  Future<void> _returnToHistoryAndShowPairingFailure(String message) async {
+    setState(() {
+      _selectedTab = 0;
+      _transientReturnTab = 1;
+    });
+    _resetExitIntent();
+    await _controller.setPreviewActive(false);
+    await _controller.refreshSessions();
+    if (!mounted) return;
+    await showComputerPairingFailureDialog(context, message);
+  }
+
   void _resetExitIntent() {
     _exitArmedAt = null;
   }
@@ -248,6 +281,17 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
             _resetExitIntent();
             unawaited(_controller.setPreviewActive(false));
           });
+        }
+        final int pairingFailureRevision = _controller.pairingFailureRevision;
+        if (pairingFailureRevision > _handledPairingFailureRevision) {
+          _handledPairingFailureRevision = pairingFailureRevision;
+          final String? message = _controller.takePairingFailureForDisplay();
+          if (message != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              unawaited(_returnToHistoryAndShowPairingFailure(message));
+            });
+          }
         }
         final int storageNoticeRevision = _controller.storageNoticeRevision;
         if (storageNoticeRevision > _handledStorageNoticeRevision) {

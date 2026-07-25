@@ -120,6 +120,8 @@ class PackingSessionController extends ChangeNotifier {
   bool _torchEnabled = false;
   bool _workActive = false;
   int _pairingSuccessRevision = 0;
+  int _pairingFailureRevision = 0;
+  String? _pairingFailureMessage;
   Set<int> _hiddenRemoteRecordingIds = <int>{};
   StreamSubscription<OrderInfo>? _orderInfoSubscription;
   OrderInfo? _activeOrderInfo;
@@ -152,6 +154,7 @@ class PackingSessionController extends ChangeNotifier {
   LanBackupSnapshot get backupSnapshot => _lanBackupService.snapshot;
   bool get pairingScanActive => _pairingScanActive;
   int get pairingSuccessRevision => _pairingSuccessRevision;
+  int get pairingFailureRevision => _pairingFailureRevision;
   String? get pairingMessage => _pairingMessage;
   bool get historyScanActive => _historyScanActive;
   bool get flashAvailable => Platform.isAndroid
@@ -167,6 +170,13 @@ class PackingSessionController extends ChangeNotifier {
       Platform.isAndroid && _nativeInitialization?.isFrontCamera == true;
   String? get historyScanResult => _historyScanResult;
   String? get errorMessage => _errorMessage;
+
+  String? takePairingFailureForDisplay() {
+    final String? message = _pairingFailureMessage;
+    _pairingFailureMessage = null;
+    return message;
+  }
+
   String? get scanWarningMessage =>
       _storageWarningMessage ?? _scanWarningMessage;
   int get storageNoticeRevision => _storageNoticeRevision;
@@ -1532,19 +1542,30 @@ class PackingSessionController extends ChangeNotifier {
     } on FormatException catch (error) {
       if (revision != _pairingAttemptRevision) return;
       if (isComputerQr) {
-        _pairingMessage = error.message;
-        notifyListeners();
+        await _completePairingFailure(error.message.toString());
       }
       // Ordinary waybill barcodes remain silent while waiting for a computer QR.
     } on Object catch (error) {
       if (revision != _pairingAttemptRevision) return;
-      _pairingScanActive = false;
-      await _nativeCamera?.setPairingScanEnabled(false);
-      _pairingMessage = error.toString().replaceFirst('Exception: ', '');
-      notifyListeners();
+      await _completePairingFailure(
+        error.toString().replaceFirst('Exception: ', ''),
+      );
     } finally {
       _pairingBusy = false;
     }
+  }
+
+  Future<void> _completePairingFailure(String message) async {
+    _pairingScanActive = false;
+    _pairingMessage = null;
+    _pairingFailureMessage = message;
+    _pairingFailureRevision++;
+    try {
+      await _nativeCamera?.setPairingScanEnabled(false);
+    } on Object {
+      // Returning to history and showing the actionable error must still proceed.
+    }
+    notifyListeners();
   }
 
   Future<void> _enqueueBackupIfNeeded(

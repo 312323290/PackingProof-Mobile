@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
 import 'package:packing_proof_mobile/screens/packing_home_screen.dart';
 
 void main() {
@@ -41,6 +42,28 @@ void main() {
       ),
       PackingBackAction.armExit,
     );
+  });
+
+  testWidgets('电脑连接失败使用弹窗显示友好提示', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () => showComputerPairingFailureDialog(
+              context,
+              '请先连接与电脑相同的 Wi-Fi 后重试',
+            ),
+            child: const Text('测试'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('测试'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('连接电脑失败'), findsOneWidget);
+    expect(find.text('请先连接与电脑相同的 Wi-Fi 后重试'), findsOneWidget);
   });
 }
 

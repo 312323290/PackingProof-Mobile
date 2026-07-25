@@ -45,13 +45,23 @@ internal class LanBackupStateStore(private val context: Context) {
 
     private val jobsDirectory = File(context.filesDir, "lan_backup/jobs").apply { mkdirs() }
 
-    fun saveConnection(baseUrl: String, computerId: String, computerName: String) {
+    fun saveConnection(
+        baseUrl: String,
+        computerId: String,
+        computerName: String,
+        deviceName: String = "",
+    ) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("baseUrl", baseUrl)
             .putString("computerId", computerId)
             .putString("computerName", computerName)
             .putString("lastConnectedAt", Instant.now().toString())
             .apply()
+        if (deviceName.isNotBlank()) {
+            context.getSharedPreferences(DEVICE_PREFS, Context.MODE_PRIVATE).edit()
+                .putString("name", deviceName.trim())
+                .apply()
+        }
     }
 
     fun connection(): JSONObject? {
@@ -276,5 +286,11 @@ internal class LanBackupStateStore(private val context: Context) {
         return value
     }
 
-    fun deviceName(): String = deviceDisplayName(deviceId())
+    fun deviceName(): String {
+        val savedName = context.getSharedPreferences(DEVICE_PREFS, Context.MODE_PRIVATE)
+            .getString("name", null)
+            ?.trim()
+            .orEmpty()
+        return savedName.ifBlank { deviceDisplayName(deviceId()) }
+    }
 }

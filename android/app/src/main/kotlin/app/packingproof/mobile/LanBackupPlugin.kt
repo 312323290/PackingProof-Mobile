@@ -68,6 +68,7 @@ internal class LanBackupPlugin(
                         baseUrl,
                         computerId,
                         call.argument<String>("computerName") ?: "已连接电脑",
+                        call.argument<String>("deviceName") ?: "",
                     )
                     credentials.save(accessKey)
                     store.retargetJobs(computerId)

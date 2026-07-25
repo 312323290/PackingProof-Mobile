@@ -65,6 +65,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   final MethodChannel _channel;
   final HttpClient _httpClient;
   Timer? _pollTimer;
+  Timer? _heartbeatTimer;
   Future<void>? _refreshFuture;
   bool _refreshAgain = false;
   bool _nativeHandlerAttached = false;
@@ -102,6 +103,11 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       const Duration(seconds: 1),
       (_) => unawaited(refresh()),
     );
+    _heartbeatTimer ??= Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => unawaited(_sendConnectionHeartbeat()),
+    );
+    unawaited(_sendConnectionHeartbeat());
   }
 
   static LanBackupEndpoint parsePairingQr(String value) {
@@ -153,7 +159,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       }
       _activePairingRequest = request;
       request.followRedirects = false;
-      request.headers.set('X-EPM-Access-Key', candidate.accessKey);
+      _setDeviceHeaders(request, candidate.accessKey);
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 8),
       );
@@ -183,12 +189,15 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         computerName: '${capabilities['computerName'] ?? '已连接电脑'}',
         lastConnectedAt: DateTime.now(),
       );
+      final String assignedDeviceName =
+          '${capabilities['deviceName'] ?? _snapshot.deviceName}'.trim();
       if (revision != _pairingRevision) return;
       await _channel.invokeMethod<void>('saveConnection', <String, Object?>{
         'baseUrl': candidate.baseUri.toString(),
         'accessKey': candidate.accessKey,
         'computerId': connectedEndpoint.computerId,
         'computerName': connectedEndpoint.computerName,
+        'deviceName': assignedDeviceName,
       });
       if (revision != _pairingRevision) {
         await _restorePersistedConnection(restoreSnapshot);
@@ -196,11 +205,13 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       }
       _accessKey = candidate.accessKey;
       _snapshot = _snapshot.copyWith(
+        deviceName: assignedDeviceName,
         endpoint: connectedEndpoint,
         connectionStatus: LanConnectionStatus.connected,
         message: '电脑连接成功',
       );
       notifyListeners();
+      unawaited(_sendConnectionHeartbeat());
       unawaited(refresh());
     } on FormatException {
       if (revision != _pairingRevision) return;
@@ -249,11 +260,13 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       'accessKey': _accessKey,
       'computerId': endpoint.computerId,
       'computerName': endpoint.computerName,
+      'deviceName': restoreSnapshot.deviceName,
     });
   }
 
   @override
   Future<void> disconnect() async {
+    await _sendConnectionHeartbeat(connected: false);
     await _channel.invokeMethod<void>('disconnect');
     _snapshot = _snapshot.copyWith(
       clearEndpoint: true,
@@ -279,7 +292,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           )
           .timeout(const Duration(seconds: 5));
       request.followRedirects = false;
-      request.headers.set('X-EPM-Access-Key', _accessKey);
+      _setDeviceHeaders(request, _accessKey);
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 8),
       );
@@ -301,6 +314,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         message: '电脑已重新连接',
       );
       notifyListeners();
+      unawaited(_sendConnectionHeartbeat());
       return true;
     } on Object {
       _snapshot = _snapshot.copyWith(
@@ -580,6 +594,55 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       ? const <String, String>{}
       : <String, String>{'X-EPM-Access-Key': _accessKey};
 
+  void _setDeviceHeaders(HttpClientRequest request, String accessKey) {
+    request.headers.set('X-EPM-Access-Key', accessKey);
+    if (_snapshot.deviceId.isNotEmpty) {
+      request.headers.set('X-EPM-Device-Id', _snapshot.deviceId);
+    }
+    if (_snapshot.deviceName.isNotEmpty) {
+      request.headers.set(
+        'X-EPM-Device-Name',
+        Uri.encodeComponent(_snapshot.deviceName),
+      );
+    }
+  }
+
+  Future<void> _sendConnectionHeartbeat({bool connected = true}) async {
+    final LanBackupEndpoint? endpoint = _snapshot.endpoint;
+    if (endpoint == null ||
+        _accessKey.isEmpty ||
+        _snapshot.deviceId.isEmpty ||
+        _snapshot.deviceName.isEmpty) {
+      return;
+    }
+    try {
+      final HttpClientRequest request = await _httpClient
+          .postUrl(endpoint.baseUri.replace(path: '/api/connections/heartbeat'))
+          .timeout(const Duration(seconds: 5));
+      request.followRedirects = false;
+      _setDeviceHeaders(request, _accessKey);
+      request.headers.contentType = ContentType.json;
+      request.write(
+        jsonEncode(<String, Object?>{
+          'clientId': _snapshot.deviceId,
+          'clientType': 'mobile-app',
+          'displayName': _snapshot.deviceName,
+          'connected': connected,
+          'nodeId': _snapshot.deviceId,
+          'deviceType': 'mobile',
+          'orderReceiverPort': 5280,
+          'capabilities': const <String>['recording', 'order-receiver'],
+        }),
+      );
+      final HttpClientResponse response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
+      await response.drain<void>();
+    } on Object {
+      // 心跳失败不应影响录像、备份或其他设备的订单接收。
+    }
+  }
+
   void _applyNativeSnapshot(Map<Object?, Object?> values) {
     LanBackupEndpoint? endpoint;
     final Object? connectionValue = values['connection'];
@@ -620,6 +683,8 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   @override
   Future<void> dispose() async {
     _pollTimer?.cancel();
+    _heartbeatTimer?.cancel();
+    await _sendConnectionHeartbeat(connected: false);
     if (_nativeHandlerAttached) {
       _channel.setMethodCallHandler(null);
       _nativeHandlerAttached = false;

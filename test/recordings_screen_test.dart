@@ -289,7 +289,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('recording-source-filter')));
     await tester.pump(const Duration(milliseconds: 500));
-    expect(find.text('仅本机'), findsOneWidget);
+    expect(find.text('本地'), findsOneWidget);
   });
 
   testWidgets('连接后持续显示电脑名称和局域网地址', (WidgetTester tester) async {
@@ -908,7 +908,7 @@ void main() {
       duration: const Duration(seconds: 5),
       sourceType: 'external',
       sourceDeviceId: 'phone-1',
-      sourceDeviceName: '手机',
+      sourceDeviceName: '手机2',
       sourceSessionId: 'session-1',
       contentSha256: 'sha',
       playUri: Uri.parse('http://192.168.1.20/api/videos/7/play'),
@@ -956,7 +956,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('电脑'), findsOneWidget);
+    expect(find.text('手机2'), findsOneWidget);
     await tester.tap(find.text('CLEANED-001'));
     await tester.pump();
     expect(find.text('录像已清理或文件不存在，无法播放'), findsOneWidget);
@@ -973,6 +973,10 @@ void main() {
           workMode: WorkMode.continuousScan,
           speechEnabled: true,
           maxVolumeEnabled: true,
+          backupSnapshot: const LanBackupSnapshot(
+            deviceId: 'phone-1',
+            deviceName: '手机1',
+          ),
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
           onMaxVolumeEnabledChanged: (_) async {},
@@ -986,13 +990,85 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, -420));
     await tester.pump();
     final Offset codeCenter = tester.getCenter(find.text('TRACKING-001'));
-    final Offset sourceCenter = tester.getCenter(find.text('本机'));
+    final Offset sourceCenter = tester.getCenter(
+      find.byKey(const Key('recording-source-chip')),
+    );
     expect((codeCenter.dy - sourceCenter.dy).abs(), lessThan(2));
     expect(sourceCenter.dx, greaterThan(codeCenter.dx));
     expect(
       tester.getSize(find.byKey(const Key('recording-thumbnail'))),
       const Size.square(56),
     );
+  });
+
+  testWidgets('录像来源标签区分电脑和其他手机', (WidgetTester tester) async {
+    final DateTime startedAt = DateTime(2026, 7, 18, 12);
+    final List<RemoteRecording> recordings = <RemoteRecording>[
+      RemoteRecording(
+        id: 11,
+        trackingNumber: 'PC-001',
+        startedAt: startedAt,
+        duration: const Duration(seconds: 5),
+        sourceType: 'pc',
+        sourceDeviceId: 'computer-1',
+        sourceDeviceName: '仓库电脑',
+        sourceSessionId: '',
+        contentSha256: 'pc-sha',
+        playUri: Uri.parse('http://192.168.1.20/api/videos/11/play'),
+      ),
+      RemoteRecording(
+        id: 12,
+        trackingNumber: 'PHONE-002',
+        startedAt: startedAt.subtract(const Duration(minutes: 1)),
+        duration: const Duration(seconds: 5),
+        sourceType: 'external',
+        sourceDeviceId: 'phone-2',
+        sourceDeviceName: '手机2',
+        sourceSessionId: 'session-2',
+        contentSha256: 'phone-sha',
+        playUri: Uri.parse('http://192.168.1.20/api/videos/12/play'),
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '仓库电脑',
+            ),
+            connectionStatus: LanConnectionStatus.connected,
+            deviceId: 'phone-1',
+            deviceName: '手机1',
+          ),
+          onLoadRemoteRecordings:
+              ({required page, required pageSize, keyword = ''}) async =>
+                  RemoteRecordingPage(
+                    data: page == 1 ? recordings : const <RemoteRecording>[],
+                    page: page,
+                    pageSize: pageSize,
+                    total: recordings.length,
+                    deviceTotal: 0,
+                  ),
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('电脑'), findsOneWidget);
+    expect(find.text('手机2'), findsOneWidget);
   });
 
   testWidgets('已备份、等待续传和未备份标签使用不同颜色', (WidgetTester tester) async {

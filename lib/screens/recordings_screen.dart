@@ -1159,11 +1159,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                     backupJob: backupJob,
                     managing: _managing && item.local != null,
                     unavailable: unavailable,
-                    sourceLabel: item.local != null && item.remote == null
-                        ? '本机'
-                        : localAvailable
-                        ? '本机'
-                        : '电脑',
+                    sourceLabel: _recordingSourceLabel(item),
+                    localRecording: item.local != null && localAvailable,
                     backedUp:
                         (remoteAvailable &&
                             _isRemoteFromThisDevice(item.remote!)) ||
@@ -1327,6 +1324,21 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   bool _isRemoteFromThisDevice(RemoteRecording recording) {
     final String deviceId = _backupSnapshot.deviceId.trim();
     return deviceId.isNotEmpty && recording.sourceDeviceId == deviceId;
+  }
+
+  String _recordingSourceLabel(_RecordingListItem item) {
+    final RemoteRecording? remote = item.remote;
+    if (remote != null) {
+      if (remote.sourceType.toLowerCase() != 'external') return '电脑';
+      final String remoteName = remote.sourceDeviceName.trim();
+      if (remoteName.isNotEmpty) return remoteName;
+    }
+    final String currentDeviceName = _backupSnapshot.deviceName.trim();
+    if (item.local != null ||
+        (remote != null && _isRemoteFromThisDevice(remote))) {
+      return currentDeviceName.isEmpty ? '手机' : currentDeviceName;
+    }
+    return '手机';
   }
 
   bool _isJobKnownAvailable(LanBackupJob job) {
@@ -2408,6 +2420,7 @@ class _RecordingTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.sourceLabel,
+    required this.localRecording,
     required this.backedUp,
     required this.remoteHeaders,
     this.unavailable = false,
@@ -2422,6 +2435,7 @@ class _RecordingTile extends StatelessWidget {
   final VoidCallback onTap;
   final LanBackupJob? backupJob;
   final String sourceLabel;
+  final bool localRecording;
   final bool unavailable;
   final bool backedUp;
   final Future<String?>? localThumbnail;
@@ -2511,7 +2525,7 @@ class _RecordingTile extends StatelessWidget {
                               label: _backupLabel(backupJob!),
                               tone: _backupTone(backupJob!),
                             ),
-                          ] else if (sourceLabel == '本机') ...<Widget>[
+                          ] else if (localRecording) ...<Widget>[
                             const SizedBox(width: 8),
                             const _StatusChip(
                               label: '未备份',
@@ -2744,7 +2758,7 @@ bool _isToday(DateTime value) {
 
 String _sourceFilterLabel(RecordingSourceFilter value) => switch (value) {
   RecordingSourceFilter.all => '全部来源',
-  RecordingSourceFilter.local => '仅本机',
+  RecordingSourceFilter.local => '本地',
   RecordingSourceFilter.backedUp => '已备份',
   RecordingSourceFilter.computer => '电脑录像',
 };

@@ -298,9 +298,17 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     final bool completedChanged = nextCompleted
         .difference(previousCompleted)
         .isNotEmpty;
+    final Set<String> previousDeleted = _deletedLocalPaths(_backupSnapshot);
+    final Set<String> nextDeleted = _deletedLocalPaths(next);
+    final bool localCleanupChanged = nextDeleted
+        .difference(previousDeleted)
+        .isNotEmpty;
     final bool reconnected =
         _backupSnapshot.connectionStatus != LanConnectionStatus.connected &&
         next.connectionStatus == LanConnectionStatus.connected;
+    if (localCleanupChanged) {
+      _refreshLocalRecordingStats();
+    }
     setState(() {
       _backupSnapshot = next;
       if (completedChanged) _remoteCacheDirty = true;
@@ -338,6 +346,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         (LanBackupJob job) =>
             '${job.id}:${job.destinationComputerId}:${job.remoteRecordIds.join(',')}',
       )
+      .toSet();
+
+  Set<String> _deletedLocalPaths(LanBackupSnapshot snapshot) => snapshot.jobs
+      .where((LanBackupJob job) => job.localDeletedAt != null)
+      .map((LanBackupJob job) => lanBackupFileIdentity(job.filePath))
       .toSet();
 
   void _reloadRemoteAfterBackup({bool force = false}) {
@@ -1012,8 +1025,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             const AboutSettings(),
           ] else ...<Widget>[
             _HistorySummary(
-              total: _sessions.length,
-              today: _sessions.where((item) => _isToday(item.startedAt)).length,
+              total: _existingLocalSessions.length,
+              today: _existingLocalSessions
+                  .where((item) => _isToday(item.startedAt))
+                  .length,
               totalBytes: _localRecordingBytes,
             ),
             const SizedBox(height: 12),
@@ -1294,6 +1309,14 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _localRecordingBytes = summary.bytes;
     _localRecordingPaths = summary.paths;
   }
+
+  List<RecordingSession> get _existingLocalSessions => _sessions
+      .where(
+        (RecordingSession session) =>
+            session.filePath.isNotEmpty &&
+            _localRecordingPaths.contains(session.filePath),
+      )
+      .toList(growable: false);
 
   static ({int bytes, Set<String> paths}) _measureLocalRecordingStats(
     Iterable<RecordingSession> sessions,

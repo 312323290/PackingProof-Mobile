@@ -292,6 +292,85 @@ void main() {
     expect(find.text('本地'), findsOneWidget);
   });
 
+  testWidgets('电脑清理本地录像后立即刷新历史统计', (WidgetTester tester) async {
+    const MethodChannel thumbnailChannel = MethodChannel(
+      'app.packingproof.mobile/recording_thumbnail',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(thumbnailChannel, (_) async => null);
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(thumbnailChannel, null),
+    );
+    final Directory directory = Directory.systemTemp.createTempSync(
+      'packing-proof-cleanup-stats-',
+    );
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final File video = File('${directory.path}/cleaned.mp4')
+      ..writeAsBytesSync(<int>[1, 2, 3]);
+    final ValueNotifier<LanBackupSnapshot> snapshots =
+        ValueNotifier<LanBackupSnapshot>(
+          LanBackupSnapshot(
+            jobs: <LanBackupJob>[
+              LanBackupJob(
+                id: 'job-cleanup',
+                filePath: video.path,
+                state: LanBackupJobState.completed,
+                uploadedBytes: 3,
+                totalBytes: 3,
+              ),
+            ],
+          ),
+        );
+    addTearDown(snapshots.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: <RecordingSession>[
+            _session(
+              'local-cleanup',
+              'SF-CLEANUP',
+              DateTime.now(),
+              filePath: video.path,
+            ),
+          ],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: snapshots.value,
+          backupListenable: snapshots,
+          backupSnapshotProvider: () => snapshots.value,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('<1 MB'), findsOneWidget);
+    video.deleteSync();
+    snapshots.value = LanBackupSnapshot(
+      jobs: <LanBackupJob>[
+        LanBackupJob(
+          id: 'job-cleanup',
+          filePath: video.path,
+          state: LanBackupJobState.completed,
+          uploadedBytes: 3,
+          totalBytes: 3,
+          localDeletedAt: DateTime.now(),
+        ),
+      ],
+    );
+    await tester.pump();
+
+    expect(find.text('0 MB'), findsOneWidget);
+    expect(find.text('<1 MB'), findsNothing);
+  });
+
   testWidgets('连接后持续显示电脑名称和局域网地址', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(

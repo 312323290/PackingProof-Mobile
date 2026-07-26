@@ -55,6 +55,21 @@ void main() {
     );
   });
 
+  test('电脑心跳恢复后自动切回已连接状态', () {
+    expect(
+      heartbeatConnectionStatus(HttpStatus.ok),
+      LanConnectionStatus.connected,
+    );
+    expect(
+      heartbeatConnectionStatus(HttpStatus.serviceUnavailable),
+      LanConnectionStatus.offline,
+    );
+    expect(
+      heartbeatConnectionStatus(HttpStatus.unauthorized),
+      LanConnectionStatus.rePair,
+    );
+  });
+
   test('电脑传来的最低版本仅在当前 App 过旧时生成更新提示', () {
     final Map<String, Object?> policy = <String, Object?>{
       'schemaVersion': 1,

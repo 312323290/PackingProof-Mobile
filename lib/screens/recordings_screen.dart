@@ -298,6 +298,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     final bool completedChanged = nextCompleted
         .difference(previousCompleted)
         .isNotEmpty;
+    final bool reconnected =
+        _backupSnapshot.connectionStatus != LanConnectionStatus.connected &&
+        next.connectionStatus == LanConnectionStatus.connected;
     setState(() {
       _backupSnapshot = next;
       if (completedChanged) _remoteCacheDirty = true;
@@ -313,8 +316,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         _historyPage = 0;
       }
     });
-    if (completedChanged) _reloadRemoteAfterBackup();
-    if (widget.active &&
+    if (reconnected) {
+      unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));
+    } else if (completedChanged) {
+      _reloadRemoteAfterBackup();
+    } else if (widget.active &&
         _backupSnapshot.connectionStatus == LanConnectionStatus.connected &&
         _remoteRecordings.isEmpty) {
       unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));

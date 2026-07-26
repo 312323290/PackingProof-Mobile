@@ -711,15 +711,34 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         const Duration(seconds: 8),
       );
       final String responseBody = await utf8.decoder.bind(response).join();
-      if (connected &&
-          response.statusCode >= 200 &&
-          response.statusCode < 300 &&
-          responseBody.isNotEmpty) {
-        _applyMobileAppUpdateResponse(responseBody);
+      if (connected) {
+        final LanConnectionStatus nextStatus = heartbeatConnectionStatus(
+          response.statusCode,
+        );
+        _applyHeartbeatConnectionStatus(nextStatus);
+        if (nextStatus == LanConnectionStatus.connected &&
+            responseBody.isNotEmpty) {
+          _applyMobileAppUpdateResponse(responseBody);
+        }
       }
     } on Object {
-      // 心跳失败不应影响录像、备份或其他设备的订单接收。
+      if (connected) {
+        _applyHeartbeatConnectionStatus(LanConnectionStatus.offline);
+      }
     }
+  }
+
+  void _applyHeartbeatConnectionStatus(LanConnectionStatus status) {
+    if (_snapshot.connectionStatus == status) return;
+    _snapshot = _snapshot.copyWith(
+      connectionStatus: status,
+      message: switch (status) {
+        LanConnectionStatus.connected => '电脑已重新连接',
+        LanConnectionStatus.rePair => '电脑连接已失效，请重新连接',
+        _ => '电脑已离线，正在自动重新连接',
+      },
+    );
+    notifyListeners();
   }
 
   void _applyMobileAppUpdateResponse(String responseBody) {
@@ -800,6 +819,18 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     _httpClient.close(force: true);
     super.dispose();
   }
+}
+
+@visibleForTesting
+LanConnectionStatus heartbeatConnectionStatus(int statusCode) {
+  if (statusCode >= 200 && statusCode < 300) {
+    return LanConnectionStatus.connected;
+  }
+  if (statusCode == HttpStatus.unauthorized ||
+      statusCode == HttpStatus.forbidden) {
+    return LanConnectionStatus.rePair;
+  }
+  return LanConnectionStatus.offline;
 }
 
 @visibleForTesting

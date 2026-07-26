@@ -1360,6 +1360,85 @@ void main() {
     expect(remoteLoadCount, 2);
   });
 
+  testWidgets('电脑重新上线后自动刷新远程历史', (WidgetTester tester) async {
+    final LanBackupEndpoint endpoint = LanBackupEndpoint(
+      baseUri: Uri.parse('http://192.168.1.20:5280'),
+      accessKey: '',
+      computerId: 'computer-1',
+      computerName: '电脑',
+    );
+    final ValueNotifier<LanBackupSnapshot> snapshots =
+        ValueNotifier<LanBackupSnapshot>(
+          LanBackupSnapshot(
+            endpoint: endpoint,
+            connectionStatus: LanConnectionStatus.connected,
+          ),
+        );
+    addTearDown(snapshots.dispose);
+    int remoteLoadCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: snapshots.value,
+          backupListenable: snapshots,
+          backupSnapshotProvider: () => snapshots.value,
+          onLoadRemoteRecordings:
+              ({required page, required pageSize, keyword = ''}) async {
+                remoteLoadCount++;
+                return RemoteRecordingPage(
+                  data: <RemoteRecording>[
+                    RemoteRecording(
+                      id: 99,
+                      trackingNumber: 'REMOTE-99',
+                      startedAt: DateTime(2026, 7, 26, 12),
+                      duration: const Duration(seconds: 5),
+                      sourceType: 'external',
+                      sourceDeviceId: 'phone-2',
+                      sourceDeviceName: '手机2',
+                      sourceSessionId: 'session-99',
+                      contentSha256: 'sha-99',
+                      playUri: Uri.parse(
+                        'http://192.168.1.20:5280/api/videos/99/play',
+                      ),
+                    ),
+                  ],
+                  page: page,
+                  pageSize: pageSize,
+                  total: 1,
+                  deviceTotal: 0,
+                );
+              },
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(remoteLoadCount, 1);
+
+    snapshots.value = LanBackupSnapshot(
+      endpoint: endpoint,
+      connectionStatus: LanConnectionStatus.offline,
+    );
+    await tester.pump();
+    snapshots.value = LanBackupSnapshot(
+      endpoint: endpoint,
+      connectionStatus: LanConnectionStatus.connected,
+    );
+    await tester.pumpAndSettle();
+
+    expect(remoteLoadCount, 2);
+    expect(find.text('手机2'), findsOneWidget);
+  });
+
   testWidgets('管理模式可多选并确认删除录像', (WidgetTester tester) async {
     const MethodChannel thumbnailChannel = MethodChannel(
       'app.packingproof.mobile/recording_thumbnail',

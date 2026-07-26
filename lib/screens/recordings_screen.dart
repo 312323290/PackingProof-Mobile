@@ -1181,6 +1181,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                     managing: _managing && item.local != null,
                     unavailable: unavailable,
                     sourceLabel: _recordingSourceLabel(item),
+                    sourceIdentity: _recordingSourceIdentity(item),
                     localRecording: item.local != null && localAvailable,
                     backedUp:
                         (remoteAvailable &&
@@ -1368,6 +1369,21 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       return currentDeviceName.isEmpty ? '手机' : currentDeviceName;
     }
     return '手机';
+  }
+
+  String _recordingSourceIdentity(_RecordingListItem item) {
+    final RemoteRecording? remote = item.remote;
+    if (remote != null) {
+      if (remote.sourceType.toLowerCase() != 'external') return 'computer';
+      final String remoteDeviceId = remote.sourceDeviceId.trim();
+      if (remoteDeviceId.isNotEmpty) return remoteDeviceId;
+      final String remoteDeviceName = remote.sourceDeviceName.trim();
+      if (remoteDeviceName.isNotEmpty) return remoteDeviceName;
+    }
+    final String currentDeviceId = _backupSnapshot.deviceId.trim();
+    if (currentDeviceId.isNotEmpty) return currentDeviceId;
+    final String currentDeviceName = _backupSnapshot.deviceName.trim();
+    return currentDeviceName.isEmpty ? 'mobile' : currentDeviceName;
   }
 
   bool _isJobKnownAvailable(LanBackupJob job) {
@@ -2449,6 +2465,7 @@ class _RecordingTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.sourceLabel,
+    required this.sourceIdentity,
     required this.localRecording,
     required this.backedUp,
     required this.remoteHeaders,
@@ -2464,6 +2481,7 @@ class _RecordingTile extends StatelessWidget {
   final VoidCallback onTap;
   final LanBackupJob? backupJob;
   final String sourceLabel;
+  final String sourceIdentity;
   final bool localRecording;
   final bool unavailable;
   final bool backedUp;
@@ -2520,7 +2538,8 @@ class _RecordingTile extends StatelessWidget {
                             label: sourceLabel,
                             tone: sourceLabel == '电脑'
                                 ? _StatusChipTone.computer
-                                : _StatusChipTone.local,
+                                : _StatusChipTone.recordingDevice,
+                            identity: sourceIdentity,
                           ),
                         ],
                       ),
@@ -2644,7 +2663,7 @@ class _HistoryPagination extends StatelessWidget {
 
 enum _StatusChipTone {
   neutral,
-  local,
+  recordingDevice,
   computer,
   backupCompleted,
   backupPending,
@@ -2657,19 +2676,21 @@ class _StatusChip extends StatelessWidget {
   const _StatusChip({
     required this.label,
     this.tone = _StatusChipTone.neutral,
+    this.identity = '',
     super.key,
   });
 
   final String label;
   final _StatusChipTone tone;
+  final String identity;
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme colors = Theme.of(context).colorScheme;
     final (Color background, Color foreground) = switch (tone) {
-      _StatusChipTone.local => (
-        colors.secondaryContainer,
-        colors.onSecondaryContainer,
+      _StatusChipTone.recordingDevice => _recordingDeviceChipColors(
+        identity,
+        colors.brightness,
       ),
       _StatusChipTone.computer => (
         colors.tertiaryContainer,
@@ -2698,6 +2719,7 @@ class _StatusChip extends StatelessWidget {
       ),
     };
     return DecoratedBox(
+      key: ValueKey<String>('recording-source-chip-color-$identity'),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(99),
@@ -2715,6 +2737,29 @@ class _StatusChip extends StatelessWidget {
       ),
     );
   }
+}
+
+(Color, Color) _recordingDeviceChipColors(
+  String identity,
+  Brightness brightness,
+) {
+  int hash = 0x811C9DC5;
+  for (final int unit in identity.codeUnits) {
+    hash ^= unit;
+    hash = (hash * 0x01000193) & 0xFFFFFFFF;
+  }
+  hash ^= hash >> 16;
+  final double hue = (hash % 360).toDouble();
+  if (brightness == Brightness.dark) {
+    return (
+      HSLColor.fromAHSL(1, hue, 0.48, 0.24).toColor(),
+      HSLColor.fromAHSL(1, hue, 0.72, 0.78).toColor(),
+    );
+  }
+  return (
+    HSLColor.fromAHSL(1, hue, 0.58, 0.91).toColor(),
+    HSLColor.fromAHSL(1, hue, 0.68, 0.30).toColor(),
+  );
 }
 
 String _backupLabel(LanBackupJob job) => switch (job.state) {

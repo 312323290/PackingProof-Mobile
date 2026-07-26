@@ -1081,6 +1081,10 @@ void main() {
   });
 
   testWidgets('录像来源标签区分电脑和其他手机', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final DateTime startedAt = DateTime(2026, 7, 18, 12);
     final List<RemoteRecording> recordings = <RemoteRecording>[
       RemoteRecording(
@@ -1106,6 +1110,18 @@ void main() {
         sourceSessionId: 'session-2',
         contentSha256: 'phone-sha',
         playUri: Uri.parse('http://192.168.1.20/api/videos/12/play'),
+      ),
+      RemoteRecording(
+        id: 13,
+        trackingNumber: 'PHONE-003',
+        startedAt: startedAt.subtract(const Duration(minutes: 2)),
+        duration: const Duration(seconds: 5),
+        sourceType: 'external',
+        sourceDeviceId: 'phone-3',
+        sourceDeviceName: '手机3',
+        sourceSessionId: 'session-3',
+        contentSha256: 'phone-sha-3',
+        playUri: Uri.parse('http://192.168.1.20/api/videos/13/play'),
       ),
     ];
     await tester.pumpWidget(
@@ -1148,6 +1164,17 @@ void main() {
 
     expect(find.text('电脑'), findsOneWidget);
     expect(find.text('手机2'), findsOneWidget);
+    expect(find.text('手机3'), findsOneWidget);
+    final DecoratedBox phone2Chip = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey<String>('recording-source-chip-color-phone-2')),
+    );
+    final DecoratedBox phone3Chip = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey<String>('recording-source-chip-color-phone-3')),
+    );
+    expect(
+      (phone2Chip.decoration as BoxDecoration).color,
+      isNot((phone3Chip.decoration as BoxDecoration).color),
+    );
   });
 
   testWidgets('已备份、等待续传和未备份标签使用不同颜色', (WidgetTester tester) async {

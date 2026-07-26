@@ -70,6 +70,21 @@ void main() {
     );
   });
 
+  test('手机历史默认请求主机全部录像而不限定当前设备', () {
+    final Uri uri = buildRemoteRecordingsUri(
+      Uri.parse('http://192.168.1.20:5280'),
+      page: 2,
+      pageSize: 10,
+      keyword: 'TRACK-1',
+    );
+
+    expect(uri.path, '/api/videos');
+    expect(uri.queryParameters['page'], '2');
+    expect(uri.queryParameters['size'], '10');
+    expect(uri.queryParameters['keyword'], 'TRACK-1');
+    expect(uri.queryParameters.containsKey('deviceId'), isFalse);
+  });
+
   test('电脑传来的最低版本仅在当前 App 过旧时生成更新提示', () {
     final Map<String, Object?> policy = <String, Object?>{
       'schemaVersion': 1,

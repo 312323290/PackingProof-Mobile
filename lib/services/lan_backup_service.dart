@@ -534,20 +534,17 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     if (endpoint == null || _accessKey.isEmpty) {
       return const RemoteRecordingPage.empty();
     }
-    final Uri uri = endpoint.baseUri.replace(
-      path: '/api/videos',
-      queryParameters: <String, String>{
-        'page': '$page',
-        'size': '$pageSize',
-        if (_snapshot.deviceId.isNotEmpty) 'deviceId': _snapshot.deviceId,
-        if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
-      },
+    final Uri uri = buildRemoteRecordingsUri(
+      endpoint.baseUri,
+      page: page,
+      pageSize: pageSize,
+      keyword: keyword,
     );
     try {
       final HttpClientRequest request = await _httpClient
           .getUrl(uri)
           .timeout(const Duration(seconds: 5));
-      request.headers.set('X-EPM-Access-Key', _accessKey);
+      _setDeviceHeaders(request, _accessKey);
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 10),
       );
@@ -819,6 +816,23 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     _httpClient.close(force: true);
     super.dispose();
   }
+}
+
+@visibleForTesting
+Uri buildRemoteRecordingsUri(
+  Uri baseUri, {
+  required int page,
+  required int pageSize,
+  String keyword = '',
+}) {
+  return baseUri.replace(
+    path: '/api/videos',
+    queryParameters: <String, String>{
+      'page': '$page',
+      'size': '$pageSize',
+      if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
+    },
+  );
 }
 
 @visibleForTesting

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$SigningDirectory = ''
+    [string]$SigningDirectory = '',
+    [switch]$ForceClean
 )
 
 $ErrorActionPreference = 'Stop'
@@ -48,7 +49,11 @@ $versionCode = [int]$match.Groups[2].Value
 Write-Host "正在构建正式签名 Release 测试安装包：$versionName+$versionCode"
 Write-Host '安装包将覆盖固定输出位置，可直接覆盖同一签名的已安装版本'
 
-& $builder -VersionName $versionName -VersionCode $versionCode -SigningDirectory $resolvedSigningDirectory
+& $builder `
+    -VersionName $versionName `
+    -VersionCode $versionCode `
+    -SigningDirectory $resolvedSigningDirectory `
+    -ForceClean:$ForceClean
 if ($LASTEXITCODE -ne 0) {
     throw "正式签名 Release 测试安装包构建失败，退出代码：$LASTEXITCODE"
 }

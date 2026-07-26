@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [string]$SigningDirectory
+    [string]$SigningDirectory,
+    [switch]$ForceClean
 )
 
 $ErrorActionPreference = 'Stop'
@@ -86,7 +87,8 @@ Write-Host "准备构建 $($release.Tag)（versionCode $($release.VersionCode)�
 & $builder `
     -VersionName $release.VersionName `
     -VersionCode $release.VersionCode `
-    -SigningDirectory $SigningDirectory
+    -SigningDirectory $SigningDirectory `
+    -ForceClean:$ForceClean
 if ($LASTEXITCODE -ne 0) {
     throw "Android 正式发布构建失败，退出代码：$LASTEXITCODE"
 }

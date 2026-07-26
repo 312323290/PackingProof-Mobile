@@ -2,7 +2,8 @@
 param(
     [string]$VersionName = '0.5.6',
     [int]$VersionCode = 11006,
-    [string]$SigningDirectory = ''
+    [string]$SigningDirectory = '',
+    [switch]$ForceClean
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +22,37 @@ function Invoke-SpeechAssetGeneration {
     & dart run $generator
     if ($LASTEXITCODE -ne 0) {
         throw "固定语音生成失败，退出代码：$LASTEXITCODE"
+    }
+}
+
+function Get-ReleaseBuildInputFingerprint {
+    $trackedInputs = @(& git -C $repo ls-files -- 'pubspec.yaml' 'pubspec.lock' 'android')
+    if ($LASTEXITCODE -ne 0 -or $trackedInputs.Count -eq 0) {
+        throw '无法读取 Android 发布构建输入'
+    }
+
+    $flutterVersion = (& flutter --version --machine) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($flutterVersion)) {
+        throw '无法读取 Flutter SDK 版本'
+    }
+
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        foreach ($relativePath in @($trackedInputs | Sort-Object)) {
+            $pathBytes = [Text.Encoding]::UTF8.GetBytes($relativePath.Replace('\', '/'))
+            $sha.TransformBlock($pathBytes, 0, $pathBytes.Length, $null, 0) | Out-Null
+            $separator = [byte[]](0)
+            $sha.TransformBlock($separator, 0, $separator.Length, $null, 0) | Out-Null
+
+            $content = [IO.File]::ReadAllBytes((Join-Path $repo $relativePath))
+            $sha.TransformBlock($content, 0, $content.Length, $null, 0) | Out-Null
+        }
+        $versionBytes = [Text.Encoding]::UTF8.GetBytes($flutterVersion)
+        $sha.TransformFinalBlock($versionBytes, 0, $versionBytes.Length) | Out-Null
+        return [Convert]::ToHexString($sha.Hash).ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
     }
 }
 
@@ -247,6 +279,38 @@ function Assert-ApkMetadata {
     }
 }
 
+function Assert-ApkContainsDartBuildIdentity {
+    param(
+        [Parameter(Mandatory)][string]$ApkPath,
+        [Parameter(Mandatory)][string]$Revision,
+        [Parameter(Mandatory)][string]$Timestamp
+    )
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($ApkPath)
+    try {
+        $entry = $archive.GetEntry('lib/arm64-v8a/libapp.so')
+        if ($null -eq $entry) { throw 'APK 缺少 ARM64 Dart AOT 产物 libapp.so' }
+
+        $memory = [IO.MemoryStream]::new()
+        $stream = $entry.Open()
+        try {
+            $stream.CopyTo($memory)
+        }
+        finally {
+            $stream.Dispose()
+        }
+        $content = [Text.Encoding]::ASCII.GetString($memory.ToArray())
+        foreach ($expected in @($Revision, $Timestamp)) {
+            if (-not $content.Contains($expected, [StringComparison]::Ordinal)) {
+                throw "APK 的 Dart AOT 产物不是本次构建：缺少 $expected"
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 $revision = (git rev-parse --short=8 HEAD).Trim()
 if (-not $revision) { throw '无法读取 Git 修订号' }
 $buildTimestamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -272,20 +336,50 @@ $resolvedOutput = [IO.Path]::GetFullPath((Join-Path $repo 'dist/android'))
 $resolvedRepo = [IO.Path]::GetFullPath($repo).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 $outputParent = Split-Path -Parent $resolvedOutput
 $temporaryOutput = Join-Path $outputParent ".packing-proof-android-$([Guid]::NewGuid().ToString('N'))"
+$buildInputStampPath = Join-Path $repo '.dart_tool/packing_proof_release_inputs.sha256'
 if (-not ([IO.Path]::GetFullPath($temporaryOutput)).StartsWith($resolvedRepo, [StringComparison]::OrdinalIgnoreCase)) {
     throw '临时输出目录必须位于当前仓库内'
 }
 New-Item -ItemType Directory -Force -Path $temporaryOutput | Out-Null
 
 try {
+    $buildInputFingerprint = Get-ReleaseBuildInputFingerprint
+    $previousBuildInputFingerprint = if (Test-Path -LiteralPath $buildInputStampPath -PathType Leaf) {
+        ([IO.File]::ReadAllText($buildInputStampPath, [Text.Encoding]::UTF8)).Trim()
+    }
+    else {
+        ''
+    }
+    $requiresClean = $ForceClean -or
+        -not [string]::Equals(
+            $buildInputFingerprint,
+            $previousBuildInputFingerprint,
+            [StringComparison]::OrdinalIgnoreCase
+        )
+    if ($requiresClean) {
+        Write-Host 'Android、依赖或 Flutter SDK 构建输入已变化，执行完整清理'
+        flutter clean
+        if ($LASTEXITCODE -ne 0) { throw "Flutter 清理失败，退出代码：$LASTEXITCODE" }
+    }
+    else {
+        Write-Host 'Android 构建输入未变化，复用 Gradle 和原生插件缓存'
+    }
+
     Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $repo 'build/app/outputs/flutter-apk/*.apk')
-    flutter clean
     flutter pub get
+    if ($LASTEXITCODE -ne 0) { throw "Flutter 依赖解析失败，退出代码：$LASTEXITCODE" }
     Invoke-SpeechAssetGeneration
     $speechManifestPath = Join-Path $repo 'assets/audio/tts/manifest.json'
     $speechAssetsBefore = Get-SpeechAssetState -ManifestPath $speechManifestPath
-    flutter analyze
-    flutter test
+    flutter analyze --no-pub --no-fatal-infos
+    if ($LASTEXITCODE -ne 0) { throw "Flutter 分析失败，退出代码：$LASTEXITCODE" }
+    flutter test --no-pub
+    if ($LASTEXITCODE -ne 0) { throw "Flutter 测试失败，退出代码：$LASTEXITCODE" }
+
+    $releaseFlutterOutput = Join-Path $repo 'build/app/intermediates/flutter/release'
+    if (Test-Path -LiteralPath $releaseFlutterOutput -PathType Container) {
+        Remove-Item -LiteralPath $releaseFlutterOutput -Recurse -Force
+    }
 
     flutter build apk --release `
         --target-platform android-arm64 `
@@ -293,6 +387,9 @@ try {
         --build-number $VersionCode `
         --dart-define="BUILD_REVISION=$revision" `
         --dart-define="BUILD_TIMESTAMP=$buildTimestamp"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Flutter Release 构建失败，退出代码：$LASTEXITCODE"
+    }
 
     $source = Join-Path $repo 'build/app/outputs/flutter-apk/app-release.apk'
     if (-not (Test-Path -LiteralPath $source)) { throw "未找到构建产物：$source" }
@@ -301,6 +398,7 @@ try {
     Assert-ApkContainsSpeechAssets -ApkPath $source -SpeechAssets $speechAssetsBefore
     Assert-ApkAbis -ApkPath $source -ExpectedAbis $supportedAbis
     Assert-ApkMetadata -ApkPath $source -Revision $revision -Timestamp $buildTimestamp -BuildStartedAt $buildStartedAt -Analyzer $analyzer
+    Assert-ApkContainsDartBuildIdentity -ApkPath $source -Revision $revision -Timestamp $buildTimestamp
     if ($signing) {
         Assert-ApkSignature -ApkPath $source -ApkSigner $apkSigner -ExpectedSha256 $signingCertificateSha256
     }
@@ -336,6 +434,13 @@ try {
         Remove-Item -Force
     Get-ChildItem -LiteralPath $temporaryOutput -File |
         Copy-Item -Destination $resolvedOutput
+    $buildInputStampParent = Split-Path -Parent $buildInputStampPath
+    New-Item -ItemType Directory -Force -Path $buildInputStampParent | Out-Null
+    [IO.File]::WriteAllText(
+        $buildInputStampPath,
+        $buildInputFingerprint,
+        [Text.UTF8Encoding]::new($false)
+    )
     Write-Host "Android 安装包已输出到 $resolvedOutput"
 }
 finally {

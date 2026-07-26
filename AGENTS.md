@@ -72,6 +72,8 @@ pwsh -NoProfile -File Tools\Publish-Android.ps1 `
 
 - Prefer release tags in the form `v<versionName>+<increasing-versionCode>`, for example `v0.5.4+11004`. A plain `v<versionName>` tag is accepted only when `pubspec.yaml` has the same version name and supplies the version code.
 - The formal release script must reject a dirty worktree, a missing or ambiguous tag, and a missing external signing configuration.
+- Release builds fingerprint tracked Android configuration, dependency files, and the Flutter SDK. Matching inputs reuse Gradle/native caches, while every build still regenerates Flutter Release output and verifies the Git revision and timestamp inside `libapp.so`.
+- Pass `-ForceClean` to `Tools/Publish-Android.ps1` or `Tools/Build-Release-Diagnostic.ps1` when diagnosing a toolchain or cache problem that requires a full `flutter clean`.
 - Keep diagnostic defaults in `Tools/Build-Android.ps1` synchronized with `pubspec.yaml`.
 - Release a single `arm64-v8a` APK; 32-bit ARM and x86 are intentionally unsupported and packaging must fail if either reappears.
 - Keep keystores and `签名凭据.txt` outside the repository.

@@ -70,12 +70,12 @@ pwsh -NoProfile -File Tools\Build-Android.ps1
 生成正式签名 APK：
 
 ```powershell
-git tag v0.5.4+11004
+git tag v0.5.7+11007
 pwsh -NoProfile -File Tools\Publish-Android.ps1 `
   -SigningDirectory <仓库外的签名目录>
 ```
 
-正式发布脚本要求当前提交已有版本标签且工作区干净。推荐标签使用 `v<版本名>+<递增 versionCode>` 格式；例如 `v0.5.4+11004` 会生成版本 `0.5.4`、版本号 `11004`。签名目录中需包含密钥文件及 UTF-8 编码的 `签名凭据.txt`，目录必须位于仓库外。
+正式发布脚本要求当前提交已有版本标签且工作区干净。推荐标签使用 `v<版本名>+<递增 versionCode>` 格式；例如 `v0.5.7+11007` 会生成版本 `0.5.7`、版本号 `11007`。签名目录中需包含密钥文件及 UTF-8 编码的 `签名凭据.txt`，目录必须位于仓库外。
 
 `签名凭据.txt` 格式：
 

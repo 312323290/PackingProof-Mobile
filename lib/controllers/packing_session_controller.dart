@@ -1498,7 +1498,7 @@ class PackingSessionController extends ChangeNotifier {
               ? 'order-refund:${info.trackingNumber}:${info.orderId}:${info.refundStatus}'
               : null,
           playRemarkTone: !message.warning,
-          playWarningTone: message.warning,
+          playIndustrialAlarm: message.warning,
         );
       }
     }

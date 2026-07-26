@@ -62,14 +62,45 @@ void main() {
         '退款提醒，退款完成',
         priority: SpeechPromptPriority.warning,
         incidentKey: 'order-refund:TRACK-1:ORDER-1:SUCCESS',
-        playWarningTone: true,
+        playIndustrialAlarm: true,
       );
     }
     await service.waitUntilIdle();
 
-    expect(output.warningToneCount, 1);
+    expect(output.industrialAlarmCount, 1);
+    expect(output.warningToneCount, 0);
     expect(output.remarkToneCount, 0);
     expect(output.systemTexts, <String>['退款提醒，退款完成']);
+    await service.dispose();
+  });
+
+  test('重复单号使用电脑端同款普通警告音', () async {
+    final _FakeSpeechOutput output = _FakeSpeechOutput();
+    final SpeechPromptService service = SpeechPromptService(output: output);
+
+    service.enqueueText(
+      '警告，重复单号，请确认',
+      priority: SpeechPromptPriority.warning,
+      incidentKey: 'duplicate-order-number:TRACK-1',
+      playWarningTone: true,
+    );
+    await service.waitUntilIdle();
+
+    expect(output.warningToneCount, 1);
+    expect(output.industrialAlarmCount, 0);
+    expect(output.systemTexts, <String>['警告，重复单号，请确认']);
+    await service.dispose();
+  });
+
+  test('提示音播放失败时仍继续语音播报', () async {
+    final _FakeSpeechOutput output = _FakeSpeechOutput(failWarningTone: true);
+    final SpeechPromptService service = SpeechPromptService(output: output);
+
+    service.enqueueText('警告，重复单号，请确认', playWarningTone: true);
+    await service.waitUntilIdle();
+
+    expect(output.warningToneCount, 1);
+    expect(output.systemTexts, <String>['警告，重复单号，请确认']);
     await service.dispose();
   });
 
@@ -110,14 +141,16 @@ void main() {
 }
 
 class _FakeSpeechOutput implements SpeechOutput {
-  _FakeSpeechOutput({this.failAssets = false});
+  _FakeSpeechOutput({this.failAssets = false, this.failWarningTone = false});
 
   final bool failAssets;
+  final bool failWarningTone;
   final List<String> assetPaths = <String>[];
   final List<String> systemTexts = <String>[];
   final List<bool> offlineOnlyRequests = <bool>[];
   int remarkToneCount = 0;
   int warningToneCount = 0;
+  int industrialAlarmCount = 0;
 
   @override
   Future<void> playAsset(String assetPath) async {
@@ -129,7 +162,13 @@ class _FakeSpeechOutput implements SpeechOutput {
   Future<void> playRemarkTone() async => remarkToneCount++;
 
   @override
-  Future<void> playWarningTone() async => warningToneCount++;
+  Future<void> playWarningTone() async {
+    warningToneCount++;
+    if (failWarningTone) throw StateError('warning tone unavailable');
+  }
+
+  @override
+  Future<void> playIndustrialAlarm() async => industrialAlarmCount++;
 
   @override
   Future<void> speakSystem(String text, {bool offlineOnly = false}) async {

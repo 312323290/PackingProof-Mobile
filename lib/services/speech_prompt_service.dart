@@ -31,6 +31,7 @@ abstract interface class DynamicSpeechPromptSink {
     String? incidentKey,
     bool playRemarkTone = false,
     bool playWarningTone = false,
+    bool playIndustrialAlarm = false,
   });
 }
 
@@ -40,13 +41,15 @@ class _QueuedSpeechPrompt {
       text = value.text,
       priority = value.priority,
       playRemarkTone = false,
-      playWarningTone = false;
+      playWarningTone = false,
+      playIndustrialAlarm = false;
 
   _QueuedSpeechPrompt.dynamic({
     required this.text,
     required this.priority,
     required this.playRemarkTone,
     required this.playWarningTone,
+    required this.playIndustrialAlarm,
   }) : prompt = null;
 
   final SpeechPrompt? prompt;
@@ -54,6 +57,7 @@ class _QueuedSpeechPrompt {
   final SpeechPromptPriority priority;
   final bool playRemarkTone;
   final bool playWarningTone;
+  final bool playIndustrialAlarm;
 }
 
 abstract interface class SpeechOutput {
@@ -62,6 +66,8 @@ abstract interface class SpeechOutput {
   Future<void> playRemarkTone();
 
   Future<void> playWarningTone();
+
+  Future<void> playIndustrialAlarm();
 
   Future<void> speakSystem(String text, {bool offlineOnly = false});
 
@@ -144,6 +150,7 @@ class SpeechPromptService implements SpeechPromptSink, DynamicSpeechPromptSink {
     String? incidentKey,
     bool playRemarkTone = false,
     bool playWarningTone = false,
+    bool playIndustrialAlarm = false,
   }) {
     final String normalized = text.trim();
     if (_disposed || !_enabled || normalized.isEmpty) return;
@@ -162,6 +169,7 @@ class SpeechPromptService implements SpeechPromptSink, DynamicSpeechPromptSink {
         priority: priority,
         playRemarkTone: playRemarkTone,
         playWarningTone: playWarningTone,
+        playIndustrialAlarm: playIndustrialAlarm,
       ),
     );
     unawaited(_drain());
@@ -230,6 +238,13 @@ class SpeechPromptService implements SpeechPromptSink, DynamicSpeechPromptSink {
         // The warning cue is optional; speech should still continue.
       }
     }
+    if (item.playIndustrialAlarm) {
+      try {
+        await _output.playIndustrialAlarm();
+      } on Object {
+        // The industrial alarm is optional; speech should still continue.
+      }
+    }
     final SpeechPrompt? prompt = item.prompt;
     if (prompt != null) {
       try {
@@ -282,6 +297,10 @@ class DeviceSpeechOutput implements SpeechOutput {
   @override
   Future<void> playWarningTone() => _play(BytesSource(_warningToneWav()));
 
+  @override
+  Future<void> playIndustrialAlarm() =>
+      _play(BytesSource(_industrialAlarmWav()));
+
   static Uint8List _remarkToneWav() {
     const int sampleRate = 22050;
     const int toneMs = 120;
@@ -333,6 +352,58 @@ class DeviceSpeechOutput implements SpeechOutput {
   }
 
   static Uint8List _warningToneWav() {
+    const int sampleRate = 22050;
+    const int toneMs = 90;
+    const int gapMs = 35;
+    const double volume = 0.72;
+    const List<int> tones = <int>[880, 660, 880, 660];
+    final int toneSamples = sampleRate * toneMs ~/ 1000;
+    final int gapSamples = sampleRate * gapMs ~/ 1000;
+    final int sampleCount =
+        tones.length * toneSamples + (tones.length - 1) * gapSamples;
+    final ByteData wav = ByteData(44 + sampleCount * 2);
+    void ascii(int offset, String value) {
+      for (int index = 0; index < value.length; index++) {
+        wav.setUint8(offset + index, value.codeUnitAt(index));
+      }
+    }
+
+    ascii(0, 'RIFF');
+    wav.setUint32(4, 36 + sampleCount * 2, Endian.little);
+    ascii(8, 'WAVE');
+    ascii(12, 'fmt ');
+    wav.setUint32(16, 16, Endian.little);
+    wav.setUint16(20, 1, Endian.little);
+    wav.setUint16(22, 1, Endian.little);
+    wav.setUint32(24, sampleRate, Endian.little);
+    wav.setUint32(28, sampleRate * 2, Endian.little);
+    wav.setUint16(32, 2, Endian.little);
+    wav.setUint16(34, 16, Endian.little);
+    ascii(36, 'data');
+    wav.setUint32(40, sampleCount * 2, Endian.little);
+    int output = 0;
+    for (int toneIndex = 0; toneIndex < tones.length; toneIndex++) {
+      final int frequency = tones[toneIndex];
+      for (int index = 0; index < toneSamples; index++) {
+        final int edge = math.max(1, toneSamples ~/ 10);
+        final double envelope = index < edge
+            ? index / edge
+            : index >= toneSamples - edge
+            ? (toneSamples - index - 1) / edge
+            : 1;
+        final double value =
+            math.sin(2 * math.pi * frequency * index / sampleRate) *
+            volume *
+            envelope;
+        wav.setInt16(44 + output * 2, (value * 32767).round(), Endian.little);
+        output++;
+      }
+      if (toneIndex < tones.length - 1) output += gapSamples;
+    }
+    return wav.buffer.asUint8List();
+  }
+
+  static Uint8List _industrialAlarmWav() {
     const int sampleRate = 22050;
     const int toneMs = 180;
     const int gapMs = 65;

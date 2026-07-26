@@ -752,7 +752,7 @@ class ContinuousSegmentCamera(
             previewFpsPolicy.deactivate()
         }
         updateMotionSensorRegistration()
-        if (changed) refreshCaptureRequest()
+        if (active || changed) refreshCaptureRequest()
     }
 
     private fun updateMotionSensorRegistration() {

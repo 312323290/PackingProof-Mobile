@@ -33,4 +33,18 @@ class AdaptivePreviewFpsPolicyTest {
         assertTrue(policy.deactivate())
         assertEquals(15, policy.targetFps)
     }
+
+    @Test
+    fun `returning to preview restarts high fps stable timer`() {
+        val policy = AdaptivePreviewFpsPolicy()
+        policy.activate(0L)
+        policy.observe(0.01f, 4_000L)
+
+        assertTrue(policy.activate(5_000L))
+        assertEquals(30, policy.targetFps)
+        assertFalse(policy.observe(0.01f, 8_999L))
+        assertEquals(30, policy.targetFps)
+        assertTrue(policy.observe(0.01f, 9_000L))
+        assertEquals(15, policy.targetFps)
+    }
 }

@@ -486,6 +486,31 @@ class SessionRepository {
     (AppSettings value) => value.copyWith(startupNoticeVersion: version),
   );
 
+  Future<bool> tryReserveMobileUpdatePrompt(
+    DateTime now, {
+    int maximumPerDay = 2,
+  }) => _serializeSettingsMutation(() async {
+    final AppSettings settings = await _loadSettingsUnlocked();
+    final String today =
+        '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+    final int currentCount = settings.mobileUpdatePromptDate == today
+        ? settings.mobileUpdatePromptCount
+        : 0;
+    if (currentCount >= maximumPerDay) {
+      return false;
+    }
+
+    await _writeSettingsUnlocked(
+      settings.copyWith(
+        mobileUpdatePromptDate: today,
+        mobileUpdatePromptCount: currentCount + 1,
+      ),
+    );
+    return true;
+  });
+
   Future<void> saveLanBackupAutoEnabled(bool enabled) => _updateSettings(
     (AppSettings value) => value.copyWith(lanBackupAutoEnabled: enabled),
   );

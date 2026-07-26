@@ -220,13 +220,21 @@ class MobileAppUpdateNotice {
     required this.minimumVersion,
     required this.minimumBuildNumber,
     required this.message,
+    this.latestVersion = '',
+    this.latestBuildNumber = 0,
+    this.updateRequired = true,
   });
 
   final String minimumVersion;
   final int minimumBuildNumber;
   final String message;
+  final String latestVersion;
+  final int latestBuildNumber;
+  final bool updateRequired;
 
-  String get signature => '$minimumVersion+$minimumBuildNumber';
+  String get signature =>
+      '${latestVersion.isEmpty ? minimumVersion : latestVersion}+'
+      '${latestBuildNumber <= 0 ? minimumBuildNumber : latestBuildNumber}';
 }
 
 class RemoteRecording {

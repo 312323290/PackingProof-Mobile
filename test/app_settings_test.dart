@@ -74,6 +74,29 @@ void main() {
     expect(settings.speechEnabled, isFalse);
   });
 
+  test('手机更新提示每天最多保留两次且重启后继续计数', () async {
+    final SessionRepository repository = testRepository(root);
+    final DateTime firstDay = DateTime(2026, 7, 26, 8);
+
+    expect(await repository.tryReserveMobileUpdatePrompt(firstDay), isTrue);
+    expect(await repository.tryReserveMobileUpdatePrompt(firstDay), isTrue);
+    expect(await repository.tryReserveMobileUpdatePrompt(firstDay), isFalse);
+
+    final SessionRepository reopened = testRepository(root);
+    expect(
+      await reopened.tryReserveMobileUpdatePrompt(
+        firstDay.add(const Duration(hours: 10)),
+      ),
+      isFalse,
+    );
+    expect(
+      await reopened.tryReserveMobileUpdatePrompt(
+        firstDay.add(const Duration(days: 1)),
+      ),
+      isTrue,
+    );
+  });
+
   test('音量设置默认开启并保留其他字段', () async {
     final SessionRepository repository = testRepository(root);
 

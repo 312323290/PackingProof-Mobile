@@ -87,6 +87,25 @@ void main() {
     expect(compareAppVersions('0.5.10', '0.5.6'), greaterThan(0));
   });
 
+  test('电脑传来的推荐版本高于当前版本时生成普通更新提示', () {
+    final MobileAppUpdateNotice? notice = evaluateMobileAppUpdatePolicy(
+      <String, Object?>{
+        'schemaVersion': 2,
+        'minimumVersion': '0.5.6',
+        'minimumBuildNumber': 11006,
+        'message': '当前 APP 版本过低，需要更新',
+        'latestVersion': '0.5.7',
+        'latestBuildNumber': 11007,
+      },
+      currentVersion: '0.5.6',
+      currentBuildNumber: 11006,
+    );
+
+    expect(notice?.updateRequired, isFalse);
+    expect(notice?.latestVersion, '0.5.7');
+    expect(notice?.message, '发现新版手机 App，建议更新');
+  });
+
   test('未连接 Wi-Fi 时扫码给出友好提示且不发起网络请求', () async {
     final _UnexpectedHttpClient httpClient = _UnexpectedHttpClient();
     final LanBackupService service = LanBackupService(

@@ -808,7 +808,8 @@ MobileAppUpdateNotice? evaluateMobileAppUpdatePolicy(
   required String currentVersion,
   required int currentBuildNumber,
 }) {
-  if ((value['schemaVersion'] as num?)?.toInt() != 1) return null;
+  final int schemaVersion = (value['schemaVersion'] as num?)?.toInt() ?? 0;
+  if (schemaVersion != 1 && schemaVersion != 2) return null;
   final String minimumVersion = '${value['minimumVersion'] ?? ''}'.trim();
   final int minimumBuildNumber =
       (value['minimumBuildNumber'] as num?)?.toInt() ?? 0;
@@ -817,12 +818,24 @@ MobileAppUpdateNotice? evaluateMobileAppUpdatePolicy(
   final bool updateRequired = currentBuildNumber > 0
       ? currentBuildNumber < minimumBuildNumber
       : compareAppVersions(currentVersion, minimumVersion) < 0;
-  if (!updateRequired) return null;
+  final String latestVersion = '${value['latestVersion'] ?? ''}'.trim();
+  final int latestBuildNumber =
+      (value['latestBuildNumber'] as num?)?.toInt() ?? 0;
+  final bool updateRecommended = latestBuildNumber > 0
+      ? currentBuildNumber <= 0 || currentBuildNumber < latestBuildNumber
+      : latestVersion.isNotEmpty &&
+            compareAppVersions(currentVersion, latestVersion) < 0;
+  if (!updateRequired && !updateRecommended) return null;
 
   return MobileAppUpdateNotice(
     minimumVersion: minimumVersion,
     minimumBuildNumber: minimumBuildNumber,
-    message: '${value['message'] ?? ''}'.trim(),
+    message: updateRequired
+        ? '${value['message'] ?? ''}'.trim()
+        : '发现新版手机 App，建议更新',
+    latestVersion: latestVersion,
+    latestBuildNumber: latestBuildNumber,
+    updateRequired: updateRequired,
   );
 }
 

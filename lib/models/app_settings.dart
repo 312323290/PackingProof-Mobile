@@ -9,6 +9,8 @@ class AppSettings {
     this.orderSpeechEnabled = true,
     this.maxVolumeEnabled = true,
     this.startupNoticeVersion = 0,
+    this.mobileUpdatePromptDate = '',
+    this.mobileUpdatePromptCount = 0,
     this.lanBackupAutoEnabled = true,
     this.unbackedRetention = UnbackedRetentionPolicy.days30,
     this.backedRetention = BackedRetentionPolicy.days7,
@@ -24,6 +26,8 @@ class AppSettings {
       ..remove('orderSpeechEnabled')
       ..remove('maxVolumeEnabled')
       ..remove('startupNoticeVersion')
+      ..remove('mobileUpdatePromptDate')
+      ..remove('mobileUpdatePromptCount')
       ..remove('lanBackupAutoEnabled')
       ..remove('unbackedRetention')
       ..remove('backedRetention');
@@ -49,6 +53,12 @@ class AppSettings {
       startupNoticeVersion: json['startupNoticeVersion'] is num
           ? (json['startupNoticeVersion']! as num).toInt()
           : 0,
+      mobileUpdatePromptDate: json['mobileUpdatePromptDate'] is String
+          ? json['mobileUpdatePromptDate']! as String
+          : '',
+      mobileUpdatePromptCount: json['mobileUpdatePromptCount'] is num
+          ? (json['mobileUpdatePromptCount']! as num).toInt()
+          : 0,
       lanBackupAutoEnabled: json['lanBackupAutoEnabled'] is bool
           ? json['lanBackupAutoEnabled']! as bool
           : true,
@@ -69,6 +79,8 @@ class AppSettings {
   final bool orderSpeechEnabled;
   final bool maxVolumeEnabled;
   final int startupNoticeVersion;
+  final String mobileUpdatePromptDate;
+  final int mobileUpdatePromptCount;
   final bool lanBackupAutoEnabled;
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
@@ -82,6 +94,8 @@ class AppSettings {
     bool? orderSpeechEnabled,
     bool? maxVolumeEnabled,
     int? startupNoticeVersion,
+    String? mobileUpdatePromptDate,
+    int? mobileUpdatePromptCount,
     bool? lanBackupAutoEnabled,
     UnbackedRetentionPolicy? unbackedRetention,
     BackedRetentionPolicy? backedRetention,
@@ -94,6 +108,10 @@ class AppSettings {
       orderSpeechEnabled: orderSpeechEnabled ?? this.orderSpeechEnabled,
       maxVolumeEnabled: maxVolumeEnabled ?? this.maxVolumeEnabled,
       startupNoticeVersion: startupNoticeVersion ?? this.startupNoticeVersion,
+      mobileUpdatePromptDate:
+          mobileUpdatePromptDate ?? this.mobileUpdatePromptDate,
+      mobileUpdatePromptCount:
+          mobileUpdatePromptCount ?? this.mobileUpdatePromptCount,
       lanBackupAutoEnabled: lanBackupAutoEnabled ?? this.lanBackupAutoEnabled,
       unbackedRetention: unbackedRetention ?? this.unbackedRetention,
       backedRetention: backedRetention ?? this.backedRetention,
@@ -111,6 +129,8 @@ class AppSettings {
     'orderSpeechEnabled': orderSpeechEnabled,
     'maxVolumeEnabled': maxVolumeEnabled,
     'startupNoticeVersion': startupNoticeVersion,
+    'mobileUpdatePromptDate': mobileUpdatePromptDate,
+    'mobileUpdatePromptCount': mobileUpdatePromptCount,
     'lanBackupAutoEnabled': lanBackupAutoEnabled,
     'unbackedRetention': unbackedRetention.storageValue,
     'backedRetention': backedRetention.storageValue,

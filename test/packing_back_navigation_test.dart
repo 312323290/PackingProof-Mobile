@@ -94,7 +94,10 @@ void main() {
     expect(find.textContaining('最低兼容版本：0.5.6'), findsOneWidget);
     expect(find.text('稍后继续使用'), findsOneWidget);
     expect(find.text('打开下载页面'), findsOneWidget);
-    expect(mobileAppDownloadUrl, contains('pwd=6666'));
+    expect(
+      mobileAppDownloadUrl,
+      'https://gitee.com/PackingProof/PackingProof-Mobile/releases',
+    );
   });
 }
 

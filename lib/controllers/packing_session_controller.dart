@@ -194,6 +194,9 @@ class PackingSessionController extends ChangeNotifier {
           : _cameraController?.value.isInitialized == true) &&
       _phase != PackingSessionPhase.error;
 
+  Future<bool> reserveMobileUpdatePrompt() =>
+      _repository.tryReserveMobileUpdatePrompt(DateTime.now());
+
   Future<void> initialize() async {
     if (_disposed || isCameraReady) {
       return;

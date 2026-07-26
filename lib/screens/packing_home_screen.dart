@@ -82,7 +82,7 @@ Future<void> showComputerPairingFailureDialog(
 }
 
 const String mobileAppDownloadUrl =
-    'https://pan.baidu.com/s/1B9L9l19ZkjtNpK_9rVZxbw?pwd=6666';
+    'https://gitee.com/PackingProof/PackingProof-Mobile/releases';
 
 @visibleForTesting
 Future<void> showMobileAppUpdateDialog(
@@ -99,7 +99,10 @@ Future<void> showMobileAppUpdateDialog(
             ? '当前 APP 版本过低，需要更新\n\n'
                   '电脑端要求使用 ${notice.minimumVersion} 或更高版本\n\n'
                   '暂不更新时仍可继续使用当前可用功能'
-            : '${notice.message}\n\n最低兼容版本：${notice.minimumVersion}\n'
+            : notice.updateRequired
+            ? '${notice.message}\n\n最低兼容版本：${notice.minimumVersion}\n'
+                  '暂不更新时仍可继续使用当前可用功能'
+            : '${notice.message}\n\n最新版本：${notice.latestVersion}\n'
                   '暂不更新时仍可继续使用当前可用功能',
       ),
       actions: <Widget>[
@@ -368,12 +371,14 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
               _mobileUpdateDialogScheduled = false;
               return;
             }
-            _handledMobileUpdateSignature = mobileAppUpdate.signature;
             unawaited(
-              showMobileAppUpdateDialog(
-                context,
-                mobileAppUpdate,
-              ).whenComplete(() => _mobileUpdateDialogScheduled = false),
+              _controller.reserveMobileUpdatePrompt().then<void>((
+                bool allowed,
+              ) async {
+                if (!mounted || !allowed) return;
+                _handledMobileUpdateSignature = mobileAppUpdate.signature;
+                await showMobileAppUpdateDialog(context, mobileAppUpdate);
+              }).whenComplete(() => _mobileUpdateDialogScheduled = false),
             );
           });
         }

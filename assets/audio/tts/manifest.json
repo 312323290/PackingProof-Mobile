@@ -43,6 +43,26 @@
       "cacheKey": "a6946a5f2d27365597d3ea75d818fd54bf9e1fbb8346b4e935cf064e79c058a8"
     },
     {
+      "id": "testOrderReceived",
+      "text": "已收到测试订单",
+      "priority": "normal",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "file": "test_order_received.mp3",
+      "bytes": 12672,
+      "sha256": "6054929b22684fe99f3476f9c2a61c6b4944a88f373beadb809917c89e4b8c24",
+      "cacheKey": "2b808ac7f52e8a9c942bc8703801cfd6303a75a9bfcdaf82861dcb648f1d8475"
+    },
+    {
+      "id": "duplicateOrderWarning",
+      "text": "警告，重复单号，请确认",
+      "priority": "warning",
+      "voice": "zh-CN-YunjianNeural",
+      "file": "duplicate_order_warning.mp3",
+      "bytes": 20592,
+      "sha256": "b35069ddbcf6a27042281006a5e98db1f45be60bbc22bef99bdd2857f6faf9d1",
+      "cacheKey": "14ef8bc38ca34c70666079f9e52732c77f8026f3fb5390a847ed1fd93c8fdb79"
+    },
+    {
       "id": "cameraNotReady",
       "text": "摄像头未就绪",
       "priority": "warning",

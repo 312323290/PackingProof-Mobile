@@ -40,9 +40,9 @@ class _QueuedSpeechPrompt {
     : prompt = value,
       text = value.text,
       priority = value.priority,
-      playRemarkTone = false,
-      playWarningTone = false,
-      playIndustrialAlarm = false;
+      playRemarkTone = value.cue == SpeechPromptCue.remark,
+      playWarningTone = value.cue == SpeechPromptCue.warning,
+      playIndustrialAlarm = value.cue == SpeechPromptCue.industrial;
 
   _QueuedSpeechPrompt.dynamic({
     required this.text,

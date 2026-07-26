@@ -1,5 +1,7 @@
 enum SpeechPromptPriority { normal, warning }
 
+enum SpeechPromptCue { none, remark, warning, industrial }
+
 enum SpeechPrompt {
   ready(
     text: '准备就绪',
@@ -20,6 +22,18 @@ enum SpeechPrompt {
     text: '语音提示已开启',
     assetName: 'preview_enabled.mp3',
     priority: SpeechPromptPriority.normal,
+  ),
+  testOrderReceived(
+    text: '已收到测试订单',
+    assetName: 'test_order_received.mp3',
+    priority: SpeechPromptPriority.normal,
+    cue: SpeechPromptCue.remark,
+  ),
+  duplicateOrderWarning(
+    text: '警告，重复单号，请确认',
+    assetName: 'duplicate_order_warning.mp3',
+    priority: SpeechPromptPriority.warning,
+    cue: SpeechPromptCue.warning,
   ),
   cameraNotReady(
     text: '摄像头未就绪',
@@ -71,6 +85,7 @@ enum SpeechPrompt {
     required this.text,
     required this.assetName,
     required this.priority,
+    this.cue = SpeechPromptCue.none,
   });
 
   static const String normalVoice = 'zh-CN-XiaoxiaoNeural';
@@ -80,6 +95,7 @@ enum SpeechPrompt {
   final String text;
   final String assetName;
   final SpeechPromptPriority priority;
+  final SpeechPromptCue cue;
 
   String get voice =>
       priority == SpeechPromptPriority.warning ? warningVoice : normalVoice;

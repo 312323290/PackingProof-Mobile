@@ -1462,9 +1462,7 @@ class PackingSessionController extends ChangeNotifier {
   void _handleReceivedOrderInfo(OrderInfo info) {
     if (_disposed) return;
     if (info.isTest) {
-      if (_speechService case final DynamicSpeechPromptSink speech) {
-        speech.enqueueText('已收到测试订单', playRemarkTone: true);
-      }
+      _speechService.enqueue(SpeechPrompt.testOrderReceived);
       return;
     }
     if (_timeline.currentCode.isEmpty ||
@@ -1739,14 +1737,10 @@ class PackingSessionController extends ChangeNotifier {
       _scanWarningMessage = null;
       notifyListeners();
     });
-    if (_speechService case final DynamicSpeechPromptSink speech) {
-      speech.enqueueText(
-        '警告，重复单号，请确认',
-        priority: SpeechPromptPriority.warning,
-        incidentKey: 'duplicate-order-number:$trackingNumber',
-        playWarningTone: true,
-      );
-    }
+    _speechService.enqueue(
+      SpeechPrompt.duplicateOrderWarning,
+      incidentKey: 'duplicate-order-number:$trackingNumber',
+    );
     notifyListeners();
   }
 

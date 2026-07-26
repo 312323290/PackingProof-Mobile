@@ -53,6 +53,19 @@ void main() {
     await service.dispose();
   });
 
+  test('测试订单使用内置语音并保留备注提示音', () async {
+    final _FakeSpeechOutput output = _FakeSpeechOutput();
+    final SpeechPromptService service = SpeechPromptService(output: output);
+
+    service.enqueue(SpeechPrompt.testOrderReceived);
+    await service.waitUntilIdle();
+
+    expect(output.remarkToneCount, 1);
+    expect(output.assetPaths, <String>['audio/tts/test_order_received.mp3']);
+    expect(output.systemTexts, isEmpty);
+    await service.dispose();
+  });
+
   test('退款播报先播放一次电脑端同款工业警报音', () async {
     final _FakeSpeechOutput output = _FakeSpeechOutput();
     final SpeechPromptService service = SpeechPromptService(output: output);
@@ -78,17 +91,18 @@ void main() {
     final _FakeSpeechOutput output = _FakeSpeechOutput();
     final SpeechPromptService service = SpeechPromptService(output: output);
 
-    service.enqueueText(
-      '警告，重复单号，请确认',
-      priority: SpeechPromptPriority.warning,
+    service.enqueue(
+      SpeechPrompt.duplicateOrderWarning,
       incidentKey: 'duplicate-order-number:TRACK-1',
-      playWarningTone: true,
     );
     await service.waitUntilIdle();
 
     expect(output.warningToneCount, 1);
     expect(output.industrialAlarmCount, 0);
-    expect(output.systemTexts, <String>['警告，重复单号，请确认']);
+    expect(output.assetPaths, <String>[
+      'audio/tts/duplicate_order_warning.mp3',
+    ]);
+    expect(output.systemTexts, isEmpty);
     await service.dispose();
   });
 

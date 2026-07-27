@@ -37,7 +37,7 @@ internal class RecordingThumbnailPlugin(
         val source = File(path)
         require(source.isFile) { "录像文件不存在" }
         val directory = File(context.cacheDir, "recording_thumbnails").apply { mkdirs() }
-        val key = sha256("${source.canonicalPath}|${source.lastModified()}|${source.length()}")
+        val key = sha256("v2-80|${source.canonicalPath}|${source.lastModified()}|${source.length()}")
         val target = File(directory, "$key.jpg")
         if (target.length() > 0) return target.absolutePath
 
@@ -46,7 +46,7 @@ internal class RecordingThumbnailPlugin(
             retriever.setDataSource(source.absolutePath)
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
-            val frameMs = (durationMs / 10).coerceIn(500L, 3_000L).coerceAtMost(durationMs - 1)
+            val frameMs = RecordingThumbnailPolicy.frameTimeMs(durationMs)
             val bitmap = retriever.getFrameAtTime(frameMs.coerceAtLeast(0L) * 1_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?: error("无法读取录像画面")
             val temp = File(directory, "$key.tmp")
@@ -85,4 +85,11 @@ internal class RecordingThumbnailPlugin(
         .joinToString("") { "%02x".format(it) }
 
     companion object { private const val CHANNEL = "app.packingproof.mobile/recording_thumbnail" }
+}
+
+internal object RecordingThumbnailPolicy {
+    fun frameTimeMs(durationMs: Long): Long {
+        val safeDurationMs = durationMs.coerceAtLeast(1L)
+        return (safeDurationMs * 4 / 5).coerceAtMost(safeDurationMs - 1).coerceAtLeast(0L)
+    }
 }

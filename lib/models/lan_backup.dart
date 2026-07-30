@@ -5,6 +5,60 @@ import 'order_info.dart';
 
 enum LanBackupJobState { pending, uploading, paused, completed, failed }
 
+enum LanBackupFailureKind {
+  credentialInvalid,
+  offlineOrTimeout,
+  temporaryService,
+  uploadExpired,
+  verificationFailed,
+  storageUnavailable,
+  incompatibleVersion,
+  unknown;
+
+  static LanBackupFailureKind? fromWireValue(Object? value) {
+    return switch ('$value') {
+      'credential_invalid' => LanBackupFailureKind.credentialInvalid,
+      'offline_or_timeout' => LanBackupFailureKind.offlineOrTimeout,
+      'temporary_service' => LanBackupFailureKind.temporaryService,
+      'upload_expired' => LanBackupFailureKind.uploadExpired,
+      'verification_failed' => LanBackupFailureKind.verificationFailed,
+      'storage_unavailable' => LanBackupFailureKind.storageUnavailable,
+      'incompatible_version' => LanBackupFailureKind.incompatibleVersion,
+      'unknown' => LanBackupFailureKind.unknown,
+      _ => null,
+    };
+  }
+}
+
+enum LanBackupRecoveryAction {
+  rescan,
+  retryConnection,
+  retryBackup,
+  updateComputer,
+}
+
+extension LanBackupFailureRecovery on LanBackupFailureKind {
+  LanBackupRecoveryAction get recoveryAction => switch (this) {
+    LanBackupFailureKind.credentialInvalid => LanBackupRecoveryAction.rescan,
+    LanBackupFailureKind.offlineOrTimeout =>
+      LanBackupRecoveryAction.retryConnection,
+    LanBackupFailureKind.incompatibleVersion =>
+      LanBackupRecoveryAction.updateComputer,
+    _ => LanBackupRecoveryAction.retryBackup,
+  };
+
+  String get recoveryLabel => switch (this) {
+    LanBackupFailureKind.credentialInvalid => '重新扫码',
+    LanBackupFailureKind.offlineOrTimeout => '重试连接',
+    LanBackupFailureKind.temporaryService => '稍后重试',
+    LanBackupFailureKind.uploadExpired => '重新备份',
+    LanBackupFailureKind.verificationFailed => '重新校验并备份',
+    LanBackupFailureKind.storageUnavailable => '检查电脑后重试',
+    LanBackupFailureKind.incompatibleVersion => '请更新电脑端',
+    LanBackupFailureKind.unknown => '重试备份',
+  };
+}
+
 enum LanConnectionStatus {
   disconnected,
   connecting,
@@ -53,6 +107,7 @@ class LanBackupJob {
     required this.uploadedBytes,
     required this.totalBytes,
     this.errorMessage,
+    this.failureKind,
     this.fileCreatedAt,
     this.backupCompletedAt,
     this.scheduledCleanupAt,
@@ -74,6 +129,7 @@ class LanBackupJob {
       uploadedBytes: (map['uploadedBytes'] as num?)?.toInt() ?? 0,
       totalBytes: (map['totalBytes'] as num?)?.toInt() ?? 0,
       errorMessage: map['errorMessage'] as String?,
+      failureKind: LanBackupFailureKind.fromWireValue(map['failureKind']),
       fileCreatedAt: _dateTime(map['fileCreatedAt']),
       backupCompletedAt: _dateTime(map['backupCompletedAt']),
       scheduledCleanupAt: _dateTime(map['scheduledCleanupAt']),
@@ -94,6 +150,7 @@ class LanBackupJob {
   final int uploadedBytes;
   final int totalBytes;
   final String? errorMessage;
+  final LanBackupFailureKind? failureKind;
   final DateTime? fileCreatedAt;
   final DateTime? backupCompletedAt;
   final DateTime? scheduledCleanupAt;

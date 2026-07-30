@@ -80,17 +80,24 @@ internal class LanBackupStateStore(private val context: Context) {
 
     fun retargetJobs(computerId: String) = withJobLock {
         jobsUnlocked().forEach { job ->
-            if (job.optString("destinationComputerId") == computerId) return@forEach
+            val sameComputer = job.optString("destinationComputerId") == computerId
+            val repairsInvalidCredential =
+                job.optString("failureKind") ==
+                    LanBackupFailureKind.CREDENTIAL_INVALID.wireValue
+            if (sameComputer && !repairsInvalidCredential) return@forEach
             val file = File(job.optString("filePath"))
             if (!file.exists()) return@forEach
-            job.put("destinationComputerId", computerId)
-                .put("state", "pending")
+            job.put("state", "pending")
                 .put("generation", UUID.randomUUID().toString())
-                .put("uploadedBytes", 0L)
-                .put("backupCompletedAt", JSONObject.NULL)
-                .put("contentSha256", JSONObject.NULL)
-                .put("remoteRecordIds", JSONArray())
                 .put("errorMessage", JSONObject.NULL)
+                .put("failureKind", JSONObject.NULL)
+            if (!sameComputer) {
+                job.put("destinationComputerId", computerId)
+                    .put("uploadedBytes", 0L)
+                    .put("backupCompletedAt", JSONObject.NULL)
+                    .put("contentSha256", JSONObject.NULL)
+                    .put("remoteRecordIds", JSONArray())
+            }
             writeJobUnlocked(job)
         }
     }
@@ -117,6 +124,7 @@ internal class LanBackupStateStore(private val context: Context) {
             if (!existing.has("remoteRecordIds")) existing.put("remoteRecordIds", JSONArray())
             if (!existing.has("contentSha256")) existing.put("contentSha256", JSONObject.NULL)
             if (!existing.has("cleanupReason")) existing.put("cleanupReason", JSONObject.NULL)
+            if (!existing.has("failureKind")) existing.put("failureKind", JSONObject.NULL)
             if (existing.optString("generation").isBlank()) {
                 existing.put("generation", UUID.randomUUID().toString())
             }
@@ -142,6 +150,7 @@ internal class LanBackupStateStore(private val context: Context) {
             .put("contentSha256", JSONObject.NULL)
             .put("cleanupReason", JSONObject.NULL)
             .put("errorMessage", JSONObject.NULL)
+            .put("failureKind", JSONObject.NULL)
             .put("sessions", sessions)
         writeJobUnlocked(job)
         job

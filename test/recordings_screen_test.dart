@@ -679,6 +679,59 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 
+  testWidgets('连接密钥失效时只显示重新扫码并保留原电脑', (WidgetTester tester) async {
+    int scanCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '仓库电脑',
+            ),
+            jobs: const <LanBackupJob>[
+              LanBackupJob(
+                id: 'job-1',
+                filePath: 'video.mp4',
+                state: LanBackupJobState.failed,
+                uploadedBytes: 0,
+                totalBytes: 1024,
+                errorMessage: '电脑连接密钥已失效，请重新扫码',
+                failureKind: LanBackupFailureKind.credentialInvalid,
+              ),
+            ],
+            connectionStatus: LanConnectionStatus.rePair,
+          ),
+          onConnectComputer: () => scanCount++,
+          onAutoBackupChanged: (_) async {},
+          onBackupNow: () async {},
+          onRetryBackup: (_) async {},
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('仓库电脑 · 192.168.1.20:5280'), findsOneWidget);
+    expect(find.text('重新扫码'), findsOneWidget);
+    expect(find.byKey(const Key('backup-now-button')), findsNothing);
+    expect(find.byKey(const Key('auto-backup-button')), findsNothing);
+    expect(find.text('重试失败任务'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('backup-failure-action-button')));
+    expect(scanCount, 1);
+  });
+
   testWidgets('录像卡片不重复显示内部识别标记数量', (WidgetTester tester) async {
     final DateTime startedAt = DateTime(2026, 7, 18, 12);
     await tester.pumpWidget(

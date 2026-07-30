@@ -355,7 +355,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           response.statusCode == HttpStatus.forbidden) {
         _snapshot = _snapshot.copyWith(
           connectionStatus: LanConnectionStatus.rePair,
-          message: '电脑连接已失效，请重新连接',
+          message: '电脑连接密钥已失效，请重新扫码',
         );
         notifyListeners();
         return false;
@@ -731,7 +731,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       connectionStatus: status,
       message: switch (status) {
         LanConnectionStatus.connected => '电脑已重新连接',
-        LanConnectionStatus.rePair => '电脑连接已失效，请重新连接',
+        LanConnectionStatus.rePair => '电脑连接密钥已失效，请重新扫码',
         _ => '电脑已离线，正在自动重新连接',
       },
     );
@@ -795,11 +795,18 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       endpoint: endpoint,
       jobs: jobs,
       autoEnabled: _snapshot.autoEnabled,
-      connectionStatus: endpoint == null
-          ? LanConnectionStatus.disconnected
-          : _snapshot.connectionStatus == LanConnectionStatus.disconnected
-          ? LanConnectionStatus.connected
-          : _snapshot.connectionStatus,
+      connectionStatus: nativeBackupConnectionStatus(
+        previous: _snapshot.connectionStatus,
+        endpoint: endpoint,
+        jobs: jobs,
+      ),
+      message:
+          jobs.any(
+            (LanBackupJob job) =>
+                job.failureKind == LanBackupFailureKind.credentialInvalid,
+          )
+          ? '电脑连接密钥已失效，请重新扫码'
+          : _snapshot.message,
     );
     notifyListeners();
   }
@@ -816,6 +823,23 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     _httpClient.close(force: true);
     super.dispose();
   }
+}
+
+LanConnectionStatus nativeBackupConnectionStatus({
+  required LanConnectionStatus previous,
+  required LanBackupEndpoint? endpoint,
+  required List<LanBackupJob> jobs,
+}) {
+  if (endpoint == null) return LanConnectionStatus.disconnected;
+  if (jobs.any(
+    (LanBackupJob job) =>
+        job.failureKind == LanBackupFailureKind.credentialInvalid,
+  )) {
+    return LanConnectionStatus.rePair;
+  }
+  return previous == LanConnectionStatus.disconnected
+      ? LanConnectionStatus.connected
+      : previous;
 }
 
 @visibleForTesting

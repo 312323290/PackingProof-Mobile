@@ -1710,6 +1710,16 @@ class _ComputerBackupSettings extends StatelessWidget {
       (LanBackupJob? job) => job?.state == LanBackupJobState.paused,
       orElse: () => null,
     );
+    final LanBackupJob? classifiedFailure = failed?.failureKind != null
+        ? failed
+        : paused?.failureKind != null
+        ? paused
+        : null;
+    final LanBackupFailureKind? failureKind =
+        classifiedFailure?.failureKind ??
+        (snapshot.connectionStatus == LanConnectionStatus.rePair
+            ? LanBackupFailureKind.credentialInvalid
+            : null);
     final int pending = snapshot.jobs
         .where((LanBackupJob job) => job.state == LanBackupJobState.pending)
         .length;
@@ -1721,7 +1731,8 @@ class _ComputerBackupSettings extends StatelessWidget {
     final bool online =
         snapshot.connectionStatus == LanConnectionStatus.connected;
     final bool needsRepair =
-        snapshot.connectionStatus == LanConnectionStatus.rePair;
+        snapshot.connectionStatus == LanConnectionStatus.rePair ||
+        failureKind == LanBackupFailureKind.credentialInvalid;
     final bool connecting =
         snapshot.connectionStatus == LanConnectionStatus.connecting;
     final String stateLabel = connecting
@@ -1743,8 +1754,8 @@ class _ComputerBackupSettings extends StatelessWidget {
         : colors.surfaceContainerHighest;
     final String? status = !snapshot.connected
         ? '扫描电脑二维码后自动备份'
-        : snapshot.connectionStatus == LanConnectionStatus.rePair
-        ? '需要重新配对'
+        : needsRepair
+        ? '电脑连接密钥已失效，请重新扫码'
         : connecting
         ? '正在重新连接电脑'
         : snapshot.connectionStatus == LanConnectionStatus.offline
@@ -1927,7 +1938,33 @@ class _ComputerBackupSettings extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 10),
-          if (paired) ...<Widget>[
+          if (paired && failureKind != null) ...<Widget>[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                key: const Key('backup-failure-action-button'),
+                onPressed: switch (failureKind.recoveryAction) {
+                  LanBackupRecoveryAction.rescan => onConnect,
+                  LanBackupRecoveryAction.retryConnection => onRetryConnection,
+                  LanBackupRecoveryAction.updateComputer => null,
+                  LanBackupRecoveryAction.retryBackup =>
+                    online && onRetry != null
+                        ? () => onRetry!(classifiedFailure!.id)
+                        : null,
+                },
+                icon: Icon(
+                  failureKind == LanBackupFailureKind.credentialInvalid
+                      ? Icons.qr_code_scanner_rounded
+                      : failureKind == LanBackupFailureKind.incompatibleVersion
+                      ? Icons.system_update_rounded
+                      : failureKind == LanBackupFailureKind.offlineOrTimeout
+                      ? Icons.wifi_find_rounded
+                      : Icons.refresh_rounded,
+                ),
+                label: Text(failureKind.recoveryLabel),
+              ),
+            ),
+          ] else if (paired) ...<Widget>[
             Row(
               children: <Widget>[
                 Expanded(
@@ -1935,8 +1972,6 @@ class _ComputerBackupSettings extends StatelessWidget {
                     key: const Key('backup-now-button'),
                     onPressed: connecting
                         ? null
-                        : needsRepair
-                        ? onConnect
                         : !online
                         ? onRetryConnection
                         : !allBackedUp
@@ -1945,8 +1980,6 @@ class _ComputerBackupSettings extends StatelessWidget {
                     icon: Icon(
                       connecting
                           ? Icons.sync_rounded
-                          : needsRepair
-                          ? Icons.qr_code_scanner_rounded
                           : !online
                           ? Icons.refresh_rounded
                           : allBackedUp && online
@@ -1956,8 +1989,6 @@ class _ComputerBackupSettings extends StatelessWidget {
                     label: Text(
                       connecting
                           ? '连接中'
-                          : needsRepair
-                          ? '重新连接'
                           : !online
                           ? '重试连接'
                           : allBackedUp

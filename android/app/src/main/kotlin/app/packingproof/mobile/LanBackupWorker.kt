@@ -47,7 +47,12 @@ internal class LanBackupWorker(
             return discard(initialJob, generation, initialSourceStatus)
         }
         if (connection == null || accessKey.isNullOrBlank()) {
-            return fail(initialJob, generation, "请重新连接电脑")
+            return fail(
+                initialJob,
+                generation,
+                "电脑连接密钥已失效，请重新扫码",
+                LanBackupFailureKind.CREDENTIAL_INVALID,
+            )
         }
         if (initialJob.optString("destinationComputerId") != connection.optString("computerId")) {
             return Result.failure()
@@ -59,7 +64,9 @@ internal class LanBackupWorker(
             ) {
                 false
             } else {
-                current.put("state", "uploading").put("errorMessage", JSONObject.NULL)
+                current.put("state", "uploading")
+                    .put("errorMessage", JSONObject.NULL)
+                    .put("failureKind", JSONObject.NULL)
                 true
             }
         } ?: run {
@@ -104,7 +111,12 @@ internal class LanBackupWorker(
                 while (offset < file.length()) {
                     if (isStopped) {
                         clearBackupNotification(job)
-                        return pause(job, generation, "备份已暂停")
+                        return pause(
+                            job,
+                            generation,
+                            "备份已暂停",
+                            LanBackupFailureKind.OFFLINE_OR_TIMEOUT,
+                        )
                     }
                     val size = min(chunkSize.toLong(), file.length() - offset).toInt()
                     val bytes = ByteArray(size)
@@ -173,7 +185,12 @@ internal class LanBackupWorker(
                 completion.optString("fileSha256") != sha256 ||
                 recordIds.length() == 0
             ) {
-                return fail(job, generation, "电脑未确认录像校验结果")
+                return fail(
+                    job,
+                    generation,
+                    "电脑未确认录像校验结果",
+                    LanBackupFailureKind.VERIFICATION_FAILED,
+                )
             }
             complete(job, generation, file.length(), recordIds, sha256)
         } catch (error: BackupSourceUnavailableException) {
@@ -184,17 +201,37 @@ internal class LanBackupWorker(
             discard(job, generation, status)
         } catch (error: BackupHttpException) {
             Log.w(TAG, "Backup HTTP failure id=${id.take(8)} status=${error.statusCode}", error)
-            if (error.statusCode == 401 || error.statusCode == 403 || error.statusCode == 404) {
-                fail(job, generation, friendlyError(error))
+            val failureKind = LanBackupFailurePolicy.classifyHttp(
+                error.statusCode,
+                error.errorCode,
+            )
+            if (failureKind in setOf(
+                    LanBackupFailureKind.CREDENTIAL_INVALID,
+                    LanBackupFailureKind.UPLOAD_EXPIRED,
+                    LanBackupFailureKind.VERIFICATION_FAILED,
+                    LanBackupFailureKind.INCOMPATIBLE_VERSION,
+                )
+            ) {
+                fail(job, generation, friendlyError(error), failureKind)
             } else {
-                pause(job, generation, friendlyError(error))
+                pause(job, generation, friendlyError(error), failureKind)
             }
         } catch (error: IOException) {
             Log.w(TAG, "Backup network failure id=${id.take(8)}", error)
-            pause(job, generation, "电脑离线，备份已暂停")
+            pause(
+                job,
+                generation,
+                "电脑离线或连接超时，备份已暂停",
+                LanBackupFailureKind.OFFLINE_OR_TIMEOUT,
+            )
         } catch (error: Throwable) {
             Log.e(TAG, "Backup failed id=${id.take(8)}", error)
-            fail(job, generation, error.message ?: "备份失败")
+            fail(
+                job,
+                generation,
+                error.message ?: "备份失败",
+                LanBackupFailureKind.UNKNOWN,
+            )
         }
     }
 
@@ -212,6 +249,7 @@ internal class LanBackupWorker(
                 .put("contentSha256", contentSha256)
                 .put("remoteRecordIds", recordIds)
                 .put("errorMessage", JSONObject.NULL)
+                .put("failureKind", JSONObject.NULL)
             true
         }
         clearBackupNotification(job)
@@ -244,9 +282,16 @@ internal class LanBackupWorker(
         return result
     }
 
-    private fun fail(job: JSONObject, generation: String, message: String): Result {
+    private fun fail(
+        job: JSONObject,
+        generation: String,
+        message: String,
+        failureKind: LanBackupFailureKind,
+    ): Result {
         store.updateJob(job.getString("id"), generation) { value ->
-            value.put("state", "failed").put("errorMessage", message)
+            value.put("state", "failed")
+                .put("errorMessage", message)
+                .put("failureKind", failureKind.wireValue)
             true
         }
         clearBackupNotification(job)
@@ -284,9 +329,16 @@ internal class LanBackupWorker(
         }
     }
 
-    private fun pause(job: JSONObject, generation: String, message: String): Result {
+    private fun pause(
+        job: JSONObject,
+        generation: String,
+        message: String,
+        failureKind: LanBackupFailureKind,
+    ): Result {
         store.updateJob(job.getString("id"), generation) { value ->
-            value.put("state", "paused").put("errorMessage", message)
+            value.put("state", "paused")
+                .put("errorMessage", message)
+                .put("failureKind", failureKind.wireValue)
             true
         }
         clearBackupNotification(job)
@@ -370,7 +422,7 @@ internal class LanBackupWorker(
         "invalid_content_range", "invalid_request", "invalid_json" -> "备份数据格式异常，请更新应用后重试"
         "mobile_backup_failed" -> "电脑处理备份失败，请稍后重试"
         else -> when (error.statusCode) {
-            401, 403 -> "电脑连接已失效，请重新连接"
+            401, 403 -> "电脑连接密钥已失效，请重新扫码"
             404 -> "电脑端暂不支持此备份任务"
             in 500..599 -> "电脑暂时无法处理备份"
             else -> "备份失败，请稍后重试"

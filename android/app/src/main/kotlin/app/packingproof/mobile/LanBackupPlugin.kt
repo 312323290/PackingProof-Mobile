@@ -118,6 +118,7 @@ internal class LanBackupPlugin(
                                 .put("contentSha256", JSONObject.NULL)
                                 .put("remoteRecordIds", JSONArray())
                                 .put("errorMessage", JSONObject.NULL)
+                                .put("failureKind", JSONObject.NULL)
                             true
                         } ?: job
                     } else if (!startUpload && job.optString("state") == "pending") {
@@ -162,6 +163,7 @@ internal class LanBackupPlugin(
                         job.put("generation", UUID.randomUUID().toString())
                             .put("state", "pending")
                             .put("errorMessage", JSONObject.NULL)
+                            .put("failureKind", JSONObject.NULL)
                         true
                     } ?: error("找不到备份任务")
                     schedule(id, replace = true)

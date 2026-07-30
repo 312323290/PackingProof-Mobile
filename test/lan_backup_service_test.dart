@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -68,6 +69,61 @@ void main() {
       heartbeatConnectionStatus(HttpStatus.unauthorized),
       LanConnectionStatus.rePair,
     );
+  });
+
+  test('备份失败类型兼容旧任务并可触发重新扫码状态', () {
+    final LanBackupJob legacy = LanBackupJob.fromMap(<Object?, Object?>{
+      'id': 'legacy',
+      'filePath': 'legacy.mp4',
+      'state': 'failed',
+    });
+    final LanBackupJob invalidKey = LanBackupJob.fromMap(<Object?, Object?>{
+      'id': 'invalid-key',
+      'filePath': 'pending.mp4',
+      'state': 'failed',
+      'failureKind': 'credential_invalid',
+    });
+    final LanBackupEndpoint endpoint = LanBackupEndpoint(
+      baseUri: Uri.parse('http://192.168.1.20:5280'),
+      accessKey: '',
+      computerId: 'computer-1',
+      computerName: '仓库电脑',
+    );
+
+    expect(legacy.failureKind, isNull);
+    expect(invalidKey.failureKind, LanBackupFailureKind.credentialInvalid);
+    expect(
+      nativeBackupConnectionStatus(
+        previous: LanConnectionStatus.connected,
+        endpoint: endpoint,
+        jobs: <LanBackupJob>[invalidKey],
+      ),
+      LanConnectionStatus.rePair,
+    );
+  });
+
+  test('每种结构化备份失败只映射一个恢复操作', () {
+    final Map<String, LanBackupRecoveryAction> cases =
+        <String, LanBackupRecoveryAction>{
+          'credential_invalid': LanBackupRecoveryAction.rescan,
+          'offline_or_timeout': LanBackupRecoveryAction.retryConnection,
+          'temporary_service': LanBackupRecoveryAction.retryBackup,
+          'upload_expired': LanBackupRecoveryAction.retryBackup,
+          'verification_failed': LanBackupRecoveryAction.retryBackup,
+          'storage_unavailable': LanBackupRecoveryAction.retryBackup,
+          'incompatible_version': LanBackupRecoveryAction.updateComputer,
+          'unknown': LanBackupRecoveryAction.retryBackup,
+        };
+
+    for (final MapEntry<String, LanBackupRecoveryAction> entry
+        in cases.entries) {
+      final LanBackupFailureKind? kind = LanBackupFailureKind.fromWireValue(
+        entry.key,
+      );
+      expect(kind, isNotNull);
+      expect(kind!.recoveryAction, entry.value);
+      expect(kind.recoveryLabel, isNotEmpty);
+    }
   });
 
   test('手机历史默认请求主机全部录像而不限定当前设备', () {
@@ -293,6 +349,51 @@ void main() {
     expect(service.snapshot.endpoint, isNull);
     expect(service.snapshot.connectionStatus, LanConnectionStatus.disconnected);
   });
+
+  test('新二维码验证失败时保留原电脑和原连接配置', () async {
+    final MethodChannel channel = const MethodChannel(
+      'app.packingproof.mobile/lan_backup_replace_test',
+    );
+    int savedConnections = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          if (call.method == 'saveConnection') savedConnections++;
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    final _SequenceHttpClient httpClient =
+        _SequenceHttpClient(<_StreamHttpResponse>[
+          _StreamHttpResponse(
+            HttpStatus.ok,
+            '{"protocol":"mobile-backup-v1","version":1,'
+            '"computerId":"computer-1","computerName":"原电脑"}',
+          ),
+          _StreamHttpResponse(HttpStatus.unauthorized, ''),
+        ]);
+    final LanBackupService service = LanBackupService(
+      channel: channel,
+      httpClient: httpClient,
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+
+    await service.pair('http://192.168.1.20:5280/?key=0123456789abcdef');
+    await expectLater(
+      service.pair('http://192.168.1.30:5280/?key=fedcba9876543210'),
+      throwsFormatException,
+    );
+
+    expect(savedConnections, 1);
+    expect(service.snapshot.endpoint?.computerName, '原电脑');
+    expect(
+      service.snapshot.endpoint?.baseUri.toString(),
+      'http://192.168.1.20:5280',
+    );
+    expect(service.snapshot.connectionStatus, LanConnectionStatus.rePair);
+  });
 }
 
 class _PendingHttpClient extends Fake implements HttpClient {
@@ -316,6 +417,64 @@ class _UnexpectedHttpClient extends Fake implements HttpClient {
 
   @override
   void close({bool force = false}) {}
+}
+
+class _SequenceHttpClient extends Fake implements HttpClient {
+  _SequenceHttpClient(this.responses);
+
+  final List<_StreamHttpResponse> responses;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async {
+    return _CompletedHttpClientRequest(responses.removeAt(0));
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _CompletedHttpClientRequest extends Fake implements HttpClientRequest {
+  _CompletedHttpClientRequest(this.response);
+
+  final _StreamHttpResponse response;
+  final HttpHeaders _headers = _IgnoringHttpHeaders();
+
+  @override
+  HttpHeaders get headers => _headers;
+
+  @override
+  set followRedirects(bool value) {}
+
+  @override
+  Future<HttpClientResponse> close() async => response;
+}
+
+class _StreamHttpResponse extends Stream<List<int>>
+    implements HttpClientResponse {
+  _StreamHttpResponse(this.statusCode, String body)
+    : _bytes = utf8.encode(body);
+
+  @override
+  final int statusCode;
+  final List<int> _bytes;
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int>)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    return Stream<List<int>>.value(_bytes).listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _PendingHttpClientRequest extends Fake implements HttpClientRequest {

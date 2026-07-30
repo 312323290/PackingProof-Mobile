@@ -42,6 +42,11 @@ flutter run
 flutter build apk --debug
 ```
 
+Flutter and Dart are already available through the Windows system `PATH`. Invoke
+`flutter` and `dart` directly; do not install another SDK or rewrite `PATH` for
+routine repository work. Run Android Gradle tasks with the repository wrapper
+from `android/`.
+
 本地 Release 调试包可直接双击仓库根目录的 `双击构建Release调试版.bat`。该入口自动读取 `pubspec.yaml` 版本，使用调试证书生成可安装的 ARM64 Release APK，并输出到 `dist/android/PackingProof-Mobile.apk`；它不用于正式发布。
 
 Format only files changed for the current task:

@@ -85,34 +85,47 @@ const String mobileAppDownloadUrl =
     'https://gitee.com/PackingProof/PackingProof-Mobile/releases';
 
 @visibleForTesting
-Future<void> showMobileAppUpdateDialog(
+Future<void> showMobileAppUpdateNotice(
   BuildContext context,
   MobileAppUpdateNotice notice, {
   Future<bool> Function(Uri uri)? openUrl,
 }) {
-  return showDialog<void>(
-    context: context,
-    builder: (BuildContext dialogContext) => AlertDialog(
-      title: const Text('手机 App 更新'),
-      content: Text(
-        notice.message.isEmpty
-            ? '当前 APP 版本过低，需要更新\n\n'
-                  '电脑端要求使用 ${notice.minimumVersion} 或更高版本\n\n'
-                  '暂不更新时仍可继续使用当前可用功能'
-            : notice.updateRequired
-            ? '${notice.message}\n\n最低兼容版本：${notice.minimumVersion}\n'
-                  '暂不更新时仍可继续使用当前可用功能'
-            : '${notice.message}\n\n最新版本：${notice.latestVersion}\n'
-                  '暂不更新时仍可继续使用当前可用功能',
+  final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentMaterialBanner();
+  final ScaffoldFeatureController<MaterialBanner, MaterialBannerClosedReason>
+  controller = messenger.showMaterialBanner(
+    MaterialBanner(
+      leading: const Icon(Icons.system_update_rounded),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Text(
+            '手机 App 更新',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            notice.message.isEmpty
+                ? '当前 APP 版本过低，需要更新\n'
+                      '电脑端要求使用 ${notice.minimumVersion} 或更高版本\n'
+                      '暂不更新时仍可继续识别面单和录像'
+                : notice.updateRequired
+                ? '${notice.message}\n最低兼容版本：${notice.minimumVersion}\n'
+                      '暂不更新时仍可继续识别面单和录像'
+                : '${notice.message}\n最新版本：${notice.latestVersion}\n'
+                      '暂不更新时仍可继续识别面单和录像',
+          ),
+        ],
       ),
       actions: <Widget>[
         TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: const Text('稍后继续使用'),
+          onPressed: messenger.hideCurrentMaterialBanner,
+          child: const Text('稍后'),
         ),
-        FilledButton(
+        TextButton(
           onPressed: () {
-            Navigator.of(dialogContext).pop();
+            messenger.hideCurrentMaterialBanner();
             final Uri uri = Uri.parse(mobileAppDownloadUrl);
             unawaited(
               (openUrl ??
@@ -128,6 +141,7 @@ Future<void> showMobileAppUpdateDialog(
       ],
     ),
   );
+  return controller.closed.then<void>((_) {});
 }
 
 class PackingHomeScreen extends StatefulWidget {
@@ -152,7 +166,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   int _handledPairingSuccessRevision = 0;
   int _handledPairingFailureRevision = 0;
   String _handledMobileUpdateSignature = '';
-  bool _mobileUpdateDialogScheduled = false;
+  bool _mobileUpdateNoticeScheduled = false;
   int _handledStorageNoticeRevision = 0;
   int _transientReturnTab = 1;
   DateTime? _exitArmedAt;
@@ -362,23 +376,19 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
             _controller.backupSnapshot.mobileAppUpdate;
         if (mobileAppUpdate != null &&
             mobileAppUpdate.signature != _handledMobileUpdateSignature &&
-            !_controller.isWorking &&
-            !_mobileUpdateDialogScheduled) {
-          _mobileUpdateDialogScheduled = true;
+            !_mobileUpdateNoticeScheduled) {
+          _mobileUpdateNoticeScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            if (_controller.isWorking) {
-              _mobileUpdateDialogScheduled = false;
-              return;
-            }
             unawaited(
-              _controller.reserveMobileUpdatePrompt().then<void>((
-                bool allowed,
-              ) async {
-                if (!mounted || !allowed) return;
-                _handledMobileUpdateSignature = mobileAppUpdate.signature;
-                await showMobileAppUpdateDialog(context, mobileAppUpdate);
-              }).whenComplete(() => _mobileUpdateDialogScheduled = false),
+              _controller
+                  .reserveMobileUpdatePrompt()
+                  .then<void>((bool allowed) async {
+                    if (!context.mounted || !allowed) return;
+                    _handledMobileUpdateSignature = mobileAppUpdate.signature;
+                    await showMobileAppUpdateNotice(context, mobileAppUpdate);
+                  })
+                  .whenComplete(() => _mobileUpdateNoticeScheduled = false),
             );
           });
         }

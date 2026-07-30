@@ -67,20 +67,22 @@ void main() {
     expect(find.text('请先连接与电脑相同的 Wi-Fi 后重试'), findsOneWidget);
   });
 
-  testWidgets('电脑推荐版本过高时显示手机 App 更新入口', (WidgetTester tester) async {
+  testWidgets('电脑推荐版本过高时使用不阻塞工作的更新横幅', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: Builder(
-          builder: (BuildContext context) => TextButton(
-            onPressed: () => showMobileAppUpdateDialog(
-              context,
-              const MobileAppUpdateNotice(
-                minimumVersion: '0.5.6',
-                minimumBuildNumber: 11006,
-                message: '当前 APP 版本过低，需要更新',
+        home: Scaffold(
+          body: Builder(
+            builder: (BuildContext context) => TextButton(
+              onPressed: () => showMobileAppUpdateNotice(
+                context,
+                const MobileAppUpdateNotice(
+                  minimumVersion: '0.5.6',
+                  minimumBuildNumber: 11006,
+                  message: '当前 APP 版本过低，需要更新',
+                ),
               ),
+              child: const Text('测试更新'),
             ),
-            child: const Text('测试更新'),
           ),
         ),
       ),
@@ -92,7 +94,10 @@ void main() {
     expect(find.text('手机 App 更新'), findsOneWidget);
     expect(find.textContaining('当前 APP 版本过低，需要更新'), findsOneWidget);
     expect(find.textContaining('最低兼容版本：0.5.6'), findsOneWidget);
-    expect(find.text('稍后继续使用'), findsOneWidget);
+    expect(find.textContaining('继续识别面单和录像'), findsOneWidget);
+    expect(find.byType(MaterialBanner), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('稍后'), findsOneWidget);
     expect(find.text('打开下载页面'), findsOneWidget);
     expect(
       mobileAppDownloadUrl,

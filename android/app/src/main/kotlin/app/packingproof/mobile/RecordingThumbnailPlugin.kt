@@ -37,7 +37,7 @@ internal class RecordingThumbnailPlugin(
         val source = File(path)
         require(source.isFile) { "录像文件不存在" }
         val directory = File(context.cacheDir, "recording_thumbnails").apply { mkdirs() }
-        val key = sha256("v2-80|${source.canonicalPath}|${source.lastModified()}|${source.length()}")
+        val key = sha256("v3-50|${source.canonicalPath}|${source.lastModified()}|${source.length()}")
         val target = File(directory, "$key.jpg")
         if (target.length() > 0) return target.absolutePath
 
@@ -90,6 +90,6 @@ internal class RecordingThumbnailPlugin(
 internal object RecordingThumbnailPolicy {
     fun frameTimeMs(durationMs: Long): Long {
         val safeDurationMs = durationMs.coerceAtLeast(1L)
-        return (safeDurationMs * 4 / 5).coerceAtMost(safeDurationMs - 1).coerceAtLeast(0L)
+        return (safeDurationMs / 2).coerceAtMost(safeDurationMs - 1).coerceAtLeast(0L)
     }
 }

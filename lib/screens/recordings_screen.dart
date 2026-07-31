@@ -21,6 +21,13 @@ enum RecordingsScreenMode { history, settings }
 
 enum RecordingSourceFilter { all, local, backedUp, computer }
 
+@visibleForTesting
+String recordingsHistoryTitle(String deviceName, String ipAddress) {
+  final String name = deviceName.trim().isEmpty ? '设备' : deviceName.trim();
+  final String ip = ipAddress.trim();
+  return ip.isEmpty ? name : '$name · $ip';
+}
+
 class RecordingsScreen extends StatefulWidget {
   const RecordingsScreen({
     required this.sessions,
@@ -974,9 +981,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
           _managing
               ? '已选 ${_selectedIds.length} 项'
               : historyMode
-              ? (_backupSnapshot.deviceName.trim().isEmpty
-                    ? '设备'
-                    : _backupSnapshot.deviceName.trim())
+              ? recordingsHistoryTitle(
+                  _backupSnapshot.deviceName,
+                  widget.orderReceiverSnapshot.ipAddress,
+                )
               : '设置',
         ),
         actions: <Widget>[

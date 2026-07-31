@@ -11,6 +11,7 @@ import 'package:packing_proof_mobile/models/recording_operation_mode.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/screens/recordings_screen.dart';
 import 'package:packing_proof_mobile/services/recording_database.dart';
+import 'package:packing_proof_mobile/services/order_info_receiver_service.dart';
 
 void main() {
   testWidgets('历史页标题显示当前录像设备名称', (WidgetTester tester) async {
@@ -25,6 +26,9 @@ void main() {
             deviceId: 'android-1234567890a1b2c3',
             deviceName: '设备 A1B2C3',
           ),
+          orderReceiverSnapshot: const OrderInfoReceiverSnapshot(
+            ipAddress: '192.168.1.25',
+          ),
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
           onMaxVolumeEnabledChanged: (_) async {},
@@ -35,8 +39,16 @@ void main() {
       ),
     );
 
-    expect(find.text('设备 A1B2C3'), findsOneWidget);
+    expect(find.text('设备 A1B2C3 · 192.168.1.25'), findsOneWidget);
     expect(find.text('订单历史'), findsNothing);
+  });
+
+  test('历史页标题在局域网地址不可用时只显示手机昵称', () {
+    expect(recordingsHistoryTitle('手机1', ''), '手机1');
+    expect(
+      recordingsHistoryTitle('  手机2  ', ' 192.168.1.26 '),
+      '手机2 · 192.168.1.26',
+    );
   });
 
   testWidgets('历史录像用颜色条和语义区分发货退货', (WidgetTester tester) async {

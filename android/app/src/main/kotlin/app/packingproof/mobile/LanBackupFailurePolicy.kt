@@ -7,6 +7,7 @@ internal enum class LanBackupFailureKind(val wireValue: String) {
     UPLOAD_EXPIRED("upload_expired"),
     VERIFICATION_FAILED("verification_failed"),
     STORAGE_UNAVAILABLE("storage_unavailable"),
+    NOT_BACKUP_HOST("not_backup_host"),
     INCOMPATIBLE_VERSION("incompatible_version"),
     UNKNOWN("unknown"),
 }

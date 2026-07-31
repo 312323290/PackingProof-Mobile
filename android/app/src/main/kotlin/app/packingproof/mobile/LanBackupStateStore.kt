@@ -81,10 +81,12 @@ internal class LanBackupStateStore(private val context: Context) {
     fun retargetJobs(computerId: String) = withJobLock {
         jobsUnlocked().forEach { job ->
             val sameComputer = job.optString("destinationComputerId") == computerId
-            val repairsInvalidCredential =
-                job.optString("failureKind") ==
-                    LanBackupFailureKind.CREDENTIAL_INVALID.wireValue
-            if (sameComputer && !repairsInvalidCredential) return@forEach
+            val repairsConnectionFailure = job.optString("failureKind") in setOf(
+                LanBackupFailureKind.CREDENTIAL_INVALID.wireValue,
+                LanBackupFailureKind.NOT_BACKUP_HOST.wireValue,
+                LanBackupFailureKind.INCOMPATIBLE_VERSION.wireValue,
+            )
+            if (sameComputer && !repairsConnectionFailure) return@forEach
             val file = File(job.optString("filePath"))
             if (!file.exists()) return@forEach
             job.put("state", "pending")

@@ -13,6 +13,7 @@ enum LanBackupFailureKind {
   uploadExpired,
   verificationFailed,
   storageUnavailable,
+  notBackupHost,
   incompatibleVersion,
   unknown;
 
@@ -24,6 +25,7 @@ enum LanBackupFailureKind {
       'upload_expired' => LanBackupFailureKind.uploadExpired,
       'verification_failed' => LanBackupFailureKind.verificationFailed,
       'storage_unavailable' => LanBackupFailureKind.storageUnavailable,
+      'not_backup_host' => LanBackupFailureKind.notBackupHost,
       'incompatible_version' => LanBackupFailureKind.incompatibleVersion,
       'unknown' => LanBackupFailureKind.unknown,
       _ => null,
@@ -40,7 +42,8 @@ enum LanBackupRecoveryAction {
 
 extension LanBackupFailureRecovery on LanBackupFailureKind {
   LanBackupRecoveryAction get recoveryAction => switch (this) {
-    LanBackupFailureKind.credentialInvalid => LanBackupRecoveryAction.rescan,
+    LanBackupFailureKind.credentialInvalid ||
+    LanBackupFailureKind.notBackupHost => LanBackupRecoveryAction.rescan,
     LanBackupFailureKind.offlineOrTimeout =>
       LanBackupRecoveryAction.retryConnection,
     LanBackupFailureKind.incompatibleVersion =>
@@ -55,6 +58,7 @@ extension LanBackupFailureRecovery on LanBackupFailureKind {
     LanBackupFailureKind.uploadExpired => '重新备份',
     LanBackupFailureKind.verificationFailed => '重新校验并备份',
     LanBackupFailureKind.storageUnavailable => '检查电脑后重试',
+    LanBackupFailureKind.notBackupHost => '重新扫码',
     LanBackupFailureKind.incompatibleVersion => '请更新电脑端',
     LanBackupFailureKind.unknown => '重试备份',
   };
@@ -66,6 +70,7 @@ enum LanConnectionStatus {
   connected,
   offline,
   rePair,
+  notBackupHost,
 }
 
 String lanBackupFileIdentity(String path) {

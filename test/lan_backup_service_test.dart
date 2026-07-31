@@ -101,6 +101,22 @@ void main() {
       ),
       LanConnectionStatus.rePair,
     );
+
+    final LanBackupJob wrongRole = LanBackupJob.fromMap(<Object?, Object?>{
+      'id': 'wrong-role',
+      'filePath': 'pending.mp4',
+      'state': 'failed',
+      'failureKind': 'not_backup_host',
+    });
+    expect(wrongRole.failureKind, LanBackupFailureKind.notBackupHost);
+    expect(
+      nativeBackupConnectionStatus(
+        previous: LanConnectionStatus.connected,
+        endpoint: endpoint,
+        jobs: <LanBackupJob>[wrongRole],
+      ),
+      LanConnectionStatus.notBackupHost,
+    );
   });
 
   test('每种结构化备份失败只映射一个恢复操作', () {
@@ -112,6 +128,7 @@ void main() {
           'upload_expired': LanBackupRecoveryAction.retryBackup,
           'verification_failed': LanBackupRecoveryAction.retryBackup,
           'storage_unavailable': LanBackupRecoveryAction.retryBackup,
+          'not_backup_host': LanBackupRecoveryAction.rescan,
           'incompatible_version': LanBackupRecoveryAction.updateComputer,
           'unknown': LanBackupRecoveryAction.retryBackup,
         };
@@ -212,6 +229,32 @@ void main() {
       ),
     );
     expect(httpClient.requested, isFalse);
+  });
+
+  test('连接到非备份用途电脑时要求重新扫码而不是更新电脑端', () async {
+    final LanBackupService service = LanBackupService(
+      httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
+        _StreamHttpResponse(HttpStatus.notFound, ''),
+        _StreamHttpResponse(
+          HttpStatus.ok,
+          '{"protocol":"packingproof","protocolVersion":1,'
+          '"capabilities":["recording","order-receiver"]}',
+        ),
+      ]),
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+
+    await expectLater(
+      service.pair('http://192.168.1.20:5280/?key=0123456789abcdef'),
+      throwsA(isA<LanBackupNotHostException>()),
+    );
+
+    expect(
+      service.snapshot.connectionStatus,
+      LanConnectionStatus.notBackupHost,
+    );
+    expect(service.snapshot.message, contains('不是录像备份主机'));
   });
 
   test('录像备份元数据包含逻辑片段和面单标记', () {

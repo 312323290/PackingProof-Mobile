@@ -78,6 +78,7 @@ internal class LanBackupWorker(
             }
         }
         val file = File(job.optString("filePath"))
+        val baseUrl = connection.getString("baseUrl").trimEnd('/')
 
         return try {
             Log.i(TAG, "Backup started id=${id.take(8)} file=${file.name} bytes=${file.length()}")
@@ -89,7 +90,6 @@ internal class LanBackupWorker(
                 throw BackupSourceUnavailableException("无法读取录像文件", error)
             }
             requireAvailable(job)
-            val baseUrl = connection.getString("baseUrl").trimEnd('/')
             val createResponse = postJson(
                 "$baseUrl/api/mobile-backup/uploads",
                 accessKey,
@@ -201,18 +201,31 @@ internal class LanBackupWorker(
             discard(job, generation, status)
         } catch (error: BackupHttpException) {
             Log.w(TAG, "Backup HTTP failure id=${id.take(8)} status=${error.statusCode}", error)
-            val failureKind = LanBackupFailurePolicy.classifyHttp(
-                error.statusCode,
-                error.errorCode,
-            )
+            val failureKind = if (
+                error.statusCode == 404 && isPackingProofNodeWithoutBackup(baseUrl)
+            ) {
+                LanBackupFailureKind.NOT_BACKUP_HOST
+            } else {
+                LanBackupFailurePolicy.classifyHttp(error.statusCode, error.errorCode)
+            }
             if (failureKind in setOf(
                     LanBackupFailureKind.CREDENTIAL_INVALID,
                     LanBackupFailureKind.UPLOAD_EXPIRED,
                     LanBackupFailureKind.VERIFICATION_FAILED,
+                    LanBackupFailureKind.NOT_BACKUP_HOST,
                     LanBackupFailureKind.INCOMPATIBLE_VERSION,
                 )
             ) {
-                fail(job, generation, friendlyError(error), failureKind)
+                fail(
+                    job,
+                    generation,
+                    if (failureKind == LanBackupFailureKind.NOT_BACKUP_HOST) {
+                        "连接的电脑当前不是录像备份主机，请切换电脑用途或重新扫码"
+                    } else {
+                        friendlyError(error)
+                    },
+                    failureKind,
+                )
             } else {
                 pause(job, generation, friendlyError(error), failureKind)
             }
@@ -427,6 +440,28 @@ internal class LanBackupWorker(
             404 -> "电脑端暂不支持此备份任务"
             in 500..599 -> "电脑暂时无法处理备份"
             else -> "备份失败，请稍后重试"
+        }
+    }
+
+    private fun isPackingProofNodeWithoutBackup(baseUrl: String): Boolean {
+        val connection = (URL("$baseUrl/api/node-info").openConnection() as HttpURLConnection)
+        return try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 1500
+            connection.readTimeout = 1500
+            if (connection.responseCode != 200) return false
+            val payload = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                JSONObject(reader.readText())
+            }
+            if (payload.optString("protocol") != "packingproof") return false
+            val capabilities = payload.optJSONArray("capabilities") ?: return false
+            (0 until capabilities.length()).none { index ->
+                capabilities.optString(index).equals("mobile-backup", ignoreCase = true)
+            }
+        } catch (_: Throwable) {
+            false
+        } finally {
+            connection.disconnect()
         }
     }
 

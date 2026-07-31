@@ -17,6 +17,13 @@ class LanBackupUnsupportedException implements Exception {
   String toString() => '电脑端版本暂不支持录像备份';
 }
 
+class LanBackupNotHostException implements Exception {
+  const LanBackupNotHostException();
+
+  @override
+  String toString() => '连接的电脑当前不是录像备份主机';
+}
+
 class LanBackupConnectionException implements Exception {
   const LanBackupConnectionException(this.message);
 
@@ -239,6 +246,10 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       final String body = await utf8.decoder.bind(response).join();
       if (revision != _pairingRevision) return;
       if (response.statusCode == HttpStatus.notFound) {
+        if (await _probeBackupHost(candidate.baseUri) ==
+            _BackupHostProbe.notBackupHost) {
+          throw const LanBackupNotHostException();
+        }
         throw const LanBackupUnsupportedException();
       }
       if (response.statusCode == HttpStatus.unauthorized ||
@@ -298,6 +309,16 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     } on LanBackupHostMismatchException {
       if (revision != _pairingRevision) return;
       _snapshot = restoreSnapshot;
+      notifyListeners();
+      rethrow;
+    } on LanBackupNotHostException {
+      if (revision != _pairingRevision) return;
+      _snapshot = restoreSnapshot.endpoint != null
+          ? restoreSnapshot
+          : _snapshot.copyWith(
+              connectionStatus: LanConnectionStatus.notBackupHost,
+              message: '这台电脑当前不是录像备份主机，请先切换电脑用途，再重新扫码',
+            );
       notifyListeners();
       rethrow;
     } on FormatException {
@@ -383,6 +404,11 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   Future<bool> retryConnection() async {
     final LanBackupEndpoint? endpoint = _snapshot.endpoint;
     if (endpoint == null || _accessKey.isEmpty) return false;
+    if (_snapshot.connectionStatus == LanConnectionStatus.notBackupHost) {
+      _snapshot = _snapshot.copyWith(message: '电脑用途改变后需要重新扫码，或扫码连接另一台录像备份主机');
+      notifyListeners();
+      return false;
+    }
     if (!await _hasWifiConnection()) {
       _snapshot = _snapshot.copyWith(
         connectionStatus: LanConnectionStatus.offline,
@@ -413,6 +439,16 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         _snapshot = _snapshot.copyWith(
           connectionStatus: LanConnectionStatus.rePair,
           message: '电脑连接密钥已失效，请重新扫码',
+        );
+        notifyListeners();
+        return false;
+      }
+      if (response.statusCode == HttpStatus.notFound &&
+          await _probeBackupHost(endpoint.baseUri) ==
+              _BackupHostProbe.notBackupHost) {
+        _snapshot = _snapshot.copyWith(
+          connectionStatus: LanConnectionStatus.notBackupHost,
+          message: '连接的电脑当前不是录像备份主机，请切换电脑用途或重新扫码',
         );
         notifyListeners();
         return false;
@@ -766,9 +802,16 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       );
       final String responseBody = await utf8.decoder.bind(response).join();
       if (connected) {
-        final LanConnectionStatus nextStatus = heartbeatConnectionStatus(
+        LanConnectionStatus nextStatus = heartbeatConnectionStatus(
           response.statusCode,
         );
+        final _BackupHostProbe hostProbe = await _probeBackupHost(
+          endpoint.baseUri,
+        );
+        if (hostProbe == _BackupHostProbe.notBackupHost ||
+            _snapshot.connectionStatus == LanConnectionStatus.notBackupHost) {
+          nextStatus = LanConnectionStatus.notBackupHost;
+        }
         _applyHeartbeatConnectionStatus(nextStatus);
         if (nextStatus == LanConnectionStatus.connected &&
             responseBody.isNotEmpty) {
@@ -776,7 +819,8 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         }
       }
     } on Object {
-      if (connected) {
+      if (connected &&
+          _snapshot.connectionStatus != LanConnectionStatus.notBackupHost) {
         _applyHeartbeatConnectionStatus(LanConnectionStatus.offline);
       }
     }
@@ -789,10 +833,41 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       message: switch (status) {
         LanConnectionStatus.connected => '电脑已重新连接',
         LanConnectionStatus.rePair => '电脑连接密钥已失效，请重新扫码',
+        LanConnectionStatus.notBackupHost => '连接的电脑当前不是录像备份主机，请切换电脑用途或重新扫码',
         _ => '电脑已离线，正在自动重新连接',
       },
     );
     notifyListeners();
+  }
+
+  Future<_BackupHostProbe> _probeBackupHost(Uri baseUri) async {
+    try {
+      final HttpClientRequest request = await _httpClient
+          .getUrl(baseUri.replace(path: '/api/node-info'))
+          .timeout(const Duration(seconds: 3));
+      request.followRedirects = false;
+      final HttpClientResponse response = await request.close().timeout(
+        const Duration(seconds: 4),
+      );
+      final String body = await utf8.decoder.bind(response).join();
+      if (response.statusCode != HttpStatus.ok) {
+        return _BackupHostProbe.unknown;
+      }
+      final Object? decoded = jsonDecode(body);
+      if (decoded is! Map || decoded['protocol'] != 'packingproof') {
+        return _BackupHostProbe.unknown;
+      }
+      final List<Object?> capabilities = decoded['capabilities'] is List
+          ? List<Object?>.from(decoded['capabilities']! as List)
+          : const <Object?>[];
+      return capabilities.any(
+            (Object? value) => '$value'.toLowerCase() == 'mobile-backup',
+          )
+          ? _BackupHostProbe.backupHost
+          : _BackupHostProbe.notBackupHost;
+    } on Object {
+      return _BackupHostProbe.unknown;
+    }
   }
 
   void _applyMobileAppUpdateResponse(String responseBody) {
@@ -863,6 +938,11 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
                 job.failureKind == LanBackupFailureKind.credentialInvalid,
           )
           ? '电脑连接密钥已失效，请重新扫码'
+          : jobs.any(
+              (LanBackupJob job) =>
+                  job.failureKind == LanBackupFailureKind.notBackupHost,
+            )
+          ? '连接的电脑当前不是录像备份主机，请切换电脑用途或重新扫码'
           : _snapshot.message,
     );
     notifyListeners();
@@ -881,6 +961,8 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     super.dispose();
   }
 }
+
+enum _BackupHostProbe { backupHost, notBackupHost, unknown }
 
 bool _isSameBackupHost(LanBackupEndpoint current, LanBackupEndpoint candidate) {
   final String currentId = current.computerId.trim();
@@ -909,6 +991,11 @@ LanConnectionStatus nativeBackupConnectionStatus({
         job.failureKind == LanBackupFailureKind.credentialInvalid,
   )) {
     return LanConnectionStatus.rePair;
+  }
+  if (jobs.any(
+    (LanBackupJob job) => job.failureKind == LanBackupFailureKind.notBackupHost,
+  )) {
+    return LanConnectionStatus.notBackupHost;
   }
   return previous == LanConnectionStatus.disconnected
       ? LanConnectionStatus.connected

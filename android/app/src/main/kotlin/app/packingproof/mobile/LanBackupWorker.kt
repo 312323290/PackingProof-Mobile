@@ -79,6 +79,7 @@ internal class LanBackupWorker(
         }
         val file = File(job.optString("filePath"))
         val baseUrl = connection.getString("baseUrl").trimEnd('/')
+        val storedCredential = BackupRequestAuthentication.parse(accessKey)
 
         return try {
             Log.i(TAG, "Backup started id=${id.take(8)} file=${file.name} bytes=${file.length()}")
@@ -192,7 +193,27 @@ internal class LanBackupWorker(
                     LanBackupFailureKind.VERIFICATION_FAILED,
                 )
             }
-            complete(job, generation, file.length(), recordIds, sha256)
+            val firstSessionId = job.getJSONArray("sessions").getJSONObject(0).getString("id")
+            val firstRecordId = recordIds.getLong(0)
+            val signedVerification = BackupRequestAuthentication.verifyReceipt(
+                response = completion,
+                credential = storedCredential,
+                hostNodeId = connection.optString("computerId"),
+                sourceDeviceId = store.deviceId(),
+                sourceSessionId = firstSessionId,
+                fileSha256 = sha256,
+                fileSizeBytes = file.length(),
+                recordId = firstRecordId,
+            )
+            complete(
+                job,
+                generation,
+                file.length(),
+                recordIds,
+                sha256,
+                if (signedVerification) BackupRequestAuthentication.VERSION else 0,
+                completion.optString("receiptSignature"),
+            )
         } catch (error: BackupSourceUnavailableException) {
             Log.w(TAG, "Backup source unavailable id=${id.take(8)}", error)
             val status = sourceStatus(job).takeIf {
@@ -254,6 +275,8 @@ internal class LanBackupWorker(
         total: Long,
         recordIds: JSONArray,
         contentSha256: String,
+        verificationVersion: Int,
+        verificationReceipt: String,
     ): Result {
         val current = store.updateJob(job.getString("id"), generation) { value ->
             value.put("state", "completed")
@@ -261,6 +284,9 @@ internal class LanBackupWorker(
                 .put("backupCompletedAt", java.time.Instant.now().toString())
                 .put("contentSha256", contentSha256)
                 .put("remoteRecordIds", recordIds)
+                .put("verificationVersion", verificationVersion)
+                .put("verificationReceipt", verificationReceipt.takeIf { verificationVersion > 0 } ?: JSONObject.NULL)
+                .put("lastAttestedAt", if (verificationVersion > 0) java.time.Instant.now().toString() else JSONObject.NULL)
                 .put("errorMessage", JSONObject.NULL)
                 .put("failureKind", JSONObject.NULL)
             true
@@ -374,10 +400,11 @@ internal class LanBackupWorker(
     }
 
     private fun postJson(url: String, key: String, body: JSONObject): JSONObject {
-        val connection = open(url, "POST", key)
+        val bytes = body.toString().toByteArray(Charsets.UTF_8)
+        val connection = open(url, "POST", key, bytes)
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.doOutput = true
-        connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        connection.outputStream.use { it.write(bytes) }
         return readJson(connection)
     }
 
@@ -388,7 +415,7 @@ internal class LanBackupWorker(
         offset: Long,
         total: Long,
     ): Long {
-        val connection = open(url, "PUT", key)
+        val connection = open(url, "PUT", key, bytes)
         connection.setRequestProperty("Content-Type", "application/octet-stream")
         connection.setRequestProperty("Content-Range", "bytes $offset-${offset + bytes.size - 1}/$total")
         connection.setRequestProperty("X-Chunk-SHA256", bytes.sha256())
@@ -398,14 +425,21 @@ internal class LanBackupWorker(
         return readJson(connection).getLong("offset")
     }
 
-    private fun open(url: String, method: String, key: String): HttpURLConnection =
+    private fun open(url: String, method: String, key: String, body: ByteArray): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 10_000
             readTimeout = 30_000
             useCaches = false
             instanceFollowRedirects = false
-            setRequestProperty("X-EPM-Access-Key", key)
+            BackupRequestAuthentication.apply(
+                this,
+                url,
+                method,
+                BackupRequestAuthentication.parse(key),
+                store.deviceId(),
+                body,
+            )
         }
 
     private fun readJson(connection: HttpURLConnection): JSONObject {

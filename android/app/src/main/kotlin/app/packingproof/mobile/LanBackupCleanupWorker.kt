@@ -170,10 +170,26 @@ internal class LanBackupCleanupWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     private val store = LanBackupStateStore(appContext)
+    private val credentials = LanBackupCredentialStore(appContext)
 
-    override suspend fun doWork(): Result = LanBackupStateStore.withJobLock {
-        val id = inputData.getString("jobId") ?: return@withJobLock Result.failure()
-        val generation = inputData.getString("generation") ?: return@withJobLock Result.success()
+    override suspend fun doWork(): Result {
+        val id = inputData.getString("jobId") ?: return Result.failure()
+        val generation = inputData.getString("generation") ?: return Result.success()
+        val snapshot = store.readJob(id) ?: return Result.success()
+        val requiresRemoteVerification =
+            LanBackupCleanupScheduler.nullableText(snapshot, "backupCompletedAt") != null
+        val freshRemoteVerification = !requiresRemoteVerification || run {
+            val connection = store.connection()
+            val credential = credentials.load()
+            connection != null && !credential.isNullOrBlank() &&
+                BackupRequestAuthentication.verifyRemoteRecord(
+                    connection,
+                    credential,
+                    store.deviceId(),
+                    snapshot,
+                )
+        }
+        return LanBackupStateStore.withJobLock {
         val job = store.readJob(id) ?: return@withJobLock Result.success()
         if (LanBackupCleanupScheduler.nullableText(job, "generation") != generation) {
             return@withJobLock Result.success()
@@ -207,6 +223,23 @@ internal class LanBackupCleanupWorker(
         }
         val completedAt = LanBackupCleanupScheduler.nullableText(job, "backupCompletedAt")
         val contentSha256 = LanBackupCleanupScheduler.nullableText(job, "contentSha256")
+        if (completedAt != null && job.optInt("verificationVersion") < BackupRequestAuthentication.VERSION) {
+            Log.w(CLEANUP_TAG, "Cleanup preserved legacy unsigned backup path=${file.absolutePath}")
+            job.put("waitingCleanup", false)
+                .put("errorMessage", "需要重新扫码并由电脑重新确认后才能自动清理")
+            store.writeJob(job)
+            return@withJobLock Result.success()
+        }
+        if (completedAt != null && !freshRemoteVerification) {
+            Log.w(CLEANUP_TAG, "Cleanup preserved backup without fresh host attestation path=${file.absolutePath}")
+            job.put("waitingCleanup", true)
+                .put("errorMessage", "暂时无法向备份电脑确认录像，已保留本机录像")
+            store.writeJob(job)
+            return@withJobLock Result.retry()
+        }
+        if (completedAt != null) {
+            job.put("lastAttestedAt", Instant.now().toString())
+        }
         if (completedAt != null && contentSha256 == null) {
             Log.w(CLEANUP_TAG, "Cleanup preserved unverified backup path=${file.absolutePath}")
             job.put("waitingCleanup", false)
@@ -254,5 +287,6 @@ internal class LanBackupCleanupWorker(
         }
         store.writeJob(job)
         Result.success()
+        }
     }
 }

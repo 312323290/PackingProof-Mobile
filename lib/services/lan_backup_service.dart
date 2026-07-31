@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:crypto/crypto.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/lan_backup.dart';
@@ -15,6 +17,62 @@ class LanBackupUnsupportedException implements Exception {
 
   @override
   String toString() => '电脑端版本暂不支持录像备份';
+}
+
+class _StoredBackupCredential {
+  const _StoredBackupCredential({
+    required this.backupCredential,
+    required this.webAccessKey,
+    required this.version,
+  });
+
+  final String backupCredential;
+  final String webAccessKey;
+  final int version;
+}
+
+_StoredBackupCredential _parseStoredCredential(String value) {
+  final String normalized = value.trim();
+  final List<String> parts = normalized.split(':');
+  if (parts.length == 3 && parts[0] == 'v2') {
+    return _StoredBackupCredential(
+      backupCredential: parts[1],
+      webAccessKey: parts[2],
+      version: 2,
+    );
+  }
+  return _StoredBackupCredential(
+    backupCredential: normalized,
+    webAccessKey: normalized,
+    version: 1,
+  );
+}
+
+String _deriveDeviceCredential(String pairingKey, String deviceId) {
+  final String canonical =
+      'packingproof-backup-device-v2\n${deviceId.trim().toLowerCase()}';
+  return Hmac(
+    sha256,
+    _decodeSecret(pairingKey),
+  ).convert(utf8.encode(canonical)).toString();
+}
+
+List<int> _decodeSecret(String value) {
+  final String normalized = value.trim();
+  if (normalized.length >= 32 && normalized.length.isEven) {
+    try {
+      return List<int>.generate(
+        normalized.length ~/ 2,
+        (int index) => int.parse(
+          normalized.substring(index * 2, index * 2 + 2),
+          radix: 16,
+        ),
+      );
+    } on FormatException {
+      // 非十六进制旧密钥按 UTF-8 参与派生，兼容既有部署。
+    }
+  }
+  return utf8.encode(normalized);
 }
 
 class LanBackupNotHostException implements Exception {
@@ -218,6 +276,12 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     LanBackupPairingConfirmation? replacementConfirmation,
   }) async {
     final LanBackupEndpoint candidate = parsePairingQr(qrValue);
+    final String deviceCredential = _deriveDeviceCredential(
+      candidate.accessKey,
+      _signingDeviceId,
+    );
+    final String storedCredential =
+        'v2:$deviceCredential:${candidate.accessKey}';
     await _ensureWifiConnected();
     final int revision = ++_pairingRevision;
     final LanBackupSnapshot restoreSnapshot = _snapshot;
@@ -239,7 +303,13 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       }
       _activePairingRequest = request;
       request.followRedirects = false;
-      _setDeviceHeaders(request, candidate.accessKey);
+      _setSignedBackupHeaders(
+        request,
+        deviceCredential,
+        const <int>[],
+        method: 'GET',
+        path: capabilityUri.path,
+      );
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 8),
       );
@@ -287,7 +357,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       }
       await _channel.invokeMethod<void>('saveConnection', <String, Object?>{
         'baseUrl': candidate.baseUri.toString(),
-        'accessKey': candidate.accessKey,
+        'accessKey': storedCredential,
         'computerId': connectedEndpoint.computerId,
         'computerName': connectedEndpoint.computerName,
         'deviceName': assignedDeviceName,
@@ -296,7 +366,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         await _restorePersistedConnection(restoreSnapshot);
         return;
       }
-      _accessKey = candidate.accessKey;
+      _accessKey = storedCredential;
       _snapshot = _snapshot.copyWith(
         deviceName: assignedDeviceName,
         endpoint: connectedEndpoint,
@@ -429,7 +499,22 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           )
           .timeout(const Duration(seconds: 5));
       request.followRedirects = false;
-      _setDeviceHeaders(request, _accessKey);
+      final _StoredBackupCredential credential = _parseStoredCredential(
+        _accessKey,
+      );
+      if (credential.version >= 2) {
+        _setSignedBackupHeaders(
+          request,
+          credential.backupCredential,
+          const <int>[],
+          method: 'GET',
+          path: endpoint.baseUri
+              .replace(path: '/api/mobile-backup/capabilities')
+              .path,
+        );
+      } else {
+        _setDeviceHeaders(request, _accessKey);
+      }
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 8),
       );
@@ -736,7 +821,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   @override
   Map<String, String> get playbackHeaders => _accessKey.isEmpty
       ? const <String, String>{}
-      : <String, String>{'X-EPM-Access-Key': _accessKey};
+      : <String, String>{
+          'X-EPM-Access-Key': _parseStoredCredential(_accessKey).webAccessKey,
+        };
 
   Future<void> _ensureWifiConnected() async {
     if (!await _hasWifiConnection()) {
@@ -756,7 +843,10 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   }
 
   void _setDeviceHeaders(HttpClientRequest request, String accessKey) {
-    request.headers.set('X-EPM-Access-Key', accessKey);
+    final _StoredBackupCredential credential = _parseStoredCredential(
+      accessKey,
+    );
+    request.headers.set('X-EPM-Access-Key', credential.webAccessKey);
     if (_snapshot.deviceId.isNotEmpty) {
       request.headers.set('X-EPM-Device-Id', _snapshot.deviceId);
     }
@@ -766,6 +856,60 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         Uri.encodeComponent(_snapshot.deviceName),
       );
     }
+  }
+
+  void _setSignedBackupHeaders(
+    HttpClientRequest request,
+    String deviceCredential,
+    List<int> content, {
+    required String method,
+    required String path,
+  }) {
+    final String deviceId = _signingDeviceId;
+    if (deviceId.isEmpty) {
+      throw const FormatException('手机设备身份尚未准备好，请稍后重试');
+    }
+    final int timestamp = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    final Random random = Random.secure();
+    final String nonce = List<int>.generate(
+      16,
+      (_) => random.nextInt(256),
+    ).map((int value) => value.toRadixString(16).padLeft(2, '0')).join();
+    final String contentHash = sha256.convert(content).toString();
+    final String canonical = <String>[
+      method.toUpperCase(),
+      path,
+      '$timestamp',
+      nonce,
+      contentHash,
+      deviceId.toLowerCase(),
+    ].join('\n');
+    final String signature = Hmac(
+      sha256,
+      _decodeSecret(deviceCredential),
+    ).convert(utf8.encode(canonical)).toString();
+    request.headers.set('X-EPM-Auth-Version', '2');
+    request.headers.set('X-EPM-Timestamp', '$timestamp');
+    request.headers.set('X-EPM-Nonce', nonce);
+    request.headers.set('X-EPM-Content-SHA256', contentHash);
+    request.headers.set('X-EPM-Signature', signature);
+    request.headers.set('X-EPM-Device-Id', deviceId);
+    request.headers.set('X-EPM-Device-Kind', 'mobile');
+    if (_snapshot.deviceName.isNotEmpty) {
+      request.headers.set(
+        'X-EPM-Device-Name',
+        Uri.encodeComponent(_snapshot.deviceName),
+      );
+    }
+  }
+
+  String get _signingDeviceId {
+    final String deviceId = _snapshot.deviceId.trim();
+    if (deviceId.isNotEmpty) return deviceId;
+    if (!Platform.isAndroid) {
+      return '00000000-0000-0000-0000-000000000001';
+    }
+    throw const FormatException('手机设备身份尚未准备好，请稍后重试');
   }
 
   Future<void> _sendConnectionHeartbeat({bool connected = true}) async {

@@ -14,6 +14,11 @@ internal object RecordingStoragePolicy {
     fun needsWarning(availableBytes: Long): Boolean = availableBytes < WARNING_BYTES
     fun needsReclaim(availableBytes: Long): Boolean = availableBytes < MINIMUM_BYTES
 
+    fun isFreshAttestation(value: String): Boolean = runCatching {
+        val age = java.time.Duration.between(Instant.parse(value), Instant.now()).abs()
+        age <= java.time.Duration.ofMinutes(5)
+    }.getOrDefault(false)
+
     fun verifiedCandidates(
         candidates: List<RecordingStorageCandidate>,
     ): List<RecordingStorageCandidate> = candidates
@@ -21,6 +26,8 @@ internal object RecordingStoragePolicy {
             it.state == "completed" &&
                 it.backupCompletedAt != null &&
                 it.contentSha256 != null &&
+                it.verificationVersion >= BackupRequestAuthentication.VERSION &&
+                it.lastAttestedAt?.let(RecordingStoragePolicy::isFreshAttestation) == true &&
                 it.localDeletedAt == null
         }
         .sortedBy { runCatching { Instant.parse(it.fileCreatedAt) }.getOrDefault(Instant.MAX) }
@@ -32,6 +39,8 @@ internal data class RecordingStorageCandidate(
     val fileCreatedAt: String?,
     val backupCompletedAt: String?,
     val contentSha256: String?,
+    val verificationVersion: Int,
+    val lastAttestedAt: String?,
     val localDeletedAt: String?,
 )
 
@@ -108,6 +117,8 @@ internal class RecordingStorageManager(
         fileCreatedAt = LanBackupCleanupScheduler.nullableText(job, "fileCreatedAt"),
         backupCompletedAt = LanBackupCleanupScheduler.nullableText(job, "backupCompletedAt"),
         contentSha256 = LanBackupCleanupScheduler.nullableText(job, "contentSha256"),
+        verificationVersion = job.optInt("verificationVersion"),
+        lastAttestedAt = LanBackupCleanupScheduler.nullableText(job, "lastAttestedAt"),
         localDeletedAt = LanBackupCleanupScheduler.nullableText(job, "localDeletedAt"),
     )
 

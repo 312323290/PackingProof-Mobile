@@ -26,9 +26,11 @@ class RecordingStoragePolicyTest {
             .copy(contentSha256 = null)
         val deleted = verified("deleted", "2026-06-04T00:00:00Z")
             .copy(localDeletedAt = "2026-07-21T00:00:00Z")
+        val legacyUnsigned = verified("legacy", "2026-06-05T00:00:00Z")
+            .copy(verificationVersion = 0)
 
         val candidates = RecordingStoragePolicy.verifiedCandidates(
-            listOf(recent, unbacked, uploading, old, unverified, deleted),
+            listOf(recent, unbacked, uploading, old, unverified, deleted, legacyUnsigned),
         )
 
         assertEquals(listOf("old", "recent"), candidates.map { it.id })
@@ -40,6 +42,8 @@ class RecordingStoragePolicyTest {
         fileCreatedAt = createdAt,
         backupCompletedAt = "2026-07-22T00:00:00Z",
         contentSha256 = "a".repeat(64),
+        verificationVersion = BackupRequestAuthentication.VERSION,
+        lastAttestedAt = java.time.Instant.now().toString(),
         localDeletedAt = null,
     )
 }

@@ -39,7 +39,13 @@ void main() {
       ),
     );
 
-    expect(find.text('设备 A1B2C3 · 192.168.1.25'), findsOneWidget);
+    expect(find.text('设备 A1B2C3'), findsOneWidget);
+    final Text ip = tester.widget<Text>(
+      find.byKey(const Key('recordings-history-ip')),
+    );
+    expect(ip.data, ' · 192.168.1.25');
+    expect(ip.style?.fontSize, 12);
+    expect(ip.style?.fontWeight, FontWeight.w400);
     expect(find.text('订单历史'), findsNothing);
   });
 
@@ -83,6 +89,11 @@ void main() {
       find.byKey(const Key('recording-operation-mode-strip')),
       findsOneWidget,
     );
+    final Positioned stripPosition = tester.widget<Positioned>(
+      find.byKey(const Key('recording-operation-mode-strip')),
+    );
+    expect(stripPosition.left, 0);
+    expect(stripPosition.right, isNull);
     final Semantics semantics = tester.widget<Semantics>(
       find.descendant(
         of: find.byKey(const Key('recording-operation-mode-strip')),
@@ -96,7 +107,12 @@ void main() {
         matching: find.byType(DecoratedBox),
       ),
     );
-    expect((strip.decoration as BoxDecoration).color, const Color(0xFFFF9800));
+    final BoxDecoration stripDecoration = strip.decoration as BoxDecoration;
+    expect(stripDecoration.color, const Color(0xFFFF9800));
+    expect(
+      stripDecoration.borderRadius,
+      const BorderRadius.horizontal(right: Radius.circular(4)),
+    );
   });
 
   testWidgets('设置卡片按工作和语音关系排列', (WidgetTester tester) async {

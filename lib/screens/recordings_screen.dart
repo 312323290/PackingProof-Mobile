@@ -28,6 +28,43 @@ String recordingsHistoryTitle(String deviceName, String ipAddress) {
   return ip.isEmpty ? name : '$name · $ip';
 }
 
+class _RecordingsHistoryTitle extends StatelessWidget {
+  const _RecordingsHistoryTitle({
+    required this.deviceName,
+    required this.ipAddress,
+  });
+
+  final String deviceName;
+  final String ipAddress;
+
+  @override
+  Widget build(BuildContext context) {
+    final String name = deviceName.trim().isEmpty ? '设备' : deviceName.trim();
+    final String ip = ipAddress.trim();
+    return Semantics(
+      label: recordingsHistoryTitle(name, ip),
+      child: Row(
+        children: <Widget>[
+          Flexible(
+            child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+          if (ip.isNotEmpty)
+            Text(
+              ' · $ip',
+              key: const Key('recordings-history-ip'),
+              maxLines: 1,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class RecordingsScreen extends StatefulWidget {
   const RecordingsScreen({
     required this.sessions,
@@ -977,16 +1014,14 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: !widget.embedded,
-        title: Text(
-          _managing
-              ? '已选 ${_selectedIds.length} 项'
-              : historyMode
-              ? recordingsHistoryTitle(
-                  _backupSnapshot.deviceName,
-                  widget.orderReceiverSnapshot.ipAddress,
-                )
-              : '设置',
-        ),
+        title: _managing
+            ? Text('已选 ${_selectedIds.length} 项')
+            : historyMode
+            ? _RecordingsHistoryTitle(
+                deviceName: _backupSnapshot.deviceName,
+                ipAddress: widget.orderReceiverSnapshot.ipAddress,
+              )
+            : const Text('设置'),
         actions: <Widget>[
           if (historyMode && _sessions.isNotEmpty)
             TextButton(
@@ -2638,7 +2673,7 @@ class _RecordingTile extends StatelessWidget {
               ),
               Positioned(
                 key: const Key('recording-operation-mode-strip'),
-                right: 0,
+                left: 0,
                 top: 12,
                 bottom: 12,
                 width: 4,
@@ -2652,7 +2687,7 @@ class _RecordingTile extends StatelessWidget {
                           ? const Color(0xFFFF9800)
                           : colors.primary,
                       borderRadius: const BorderRadius.horizontal(
-                        left: Radius.circular(4),
+                        right: Radius.circular(4),
                       ),
                     ),
                   ),

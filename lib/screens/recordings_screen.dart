@@ -10,7 +10,6 @@ import '../models/lan_backup.dart';
 import '../models/recording_operation_mode.dart';
 import '../models/recording_session.dart';
 import '../services/order_info_receiver_service.dart';
-import '../services/lan_backup_discovery_service.dart';
 import '../models/work_mode.dart';
 import '../widgets/about_settings.dart';
 import '../widgets/two_button_confirm_dialog.dart';
@@ -107,7 +106,6 @@ class RecordingsScreen extends StatefulWidget {
     this.externalSearchQuery = '',
     this.active = true,
     this.focusBackupRevision = 0,
-    this.backupHostDiscovery,
     super.key,
   });
 
@@ -168,7 +166,6 @@ class RecordingsScreen extends StatefulWidget {
   final String externalSearchQuery;
   final bool active;
   final int focusBackupRevision;
-  final LanBackupHostDiscovery? backupHostDiscovery;
 
   @override
   State<RecordingsScreen> createState() => _RecordingsScreenState();
@@ -187,10 +184,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late int _localRecordingBytes;
   late Set<String> _localRecordingPaths;
   late LanBackupSnapshot _backupSnapshot;
-  late final LanBackupHostDiscovery _backupHostDiscovery;
-  late final bool _ownsBackupHostDiscovery;
-  LanBackupDiscoverySnapshot _backupDiscoverySnapshot =
-      const LanBackupDiscoverySnapshot();
   late UnbackedRetentionPolicy _unbackedRetention;
   late BackedRetentionPolicy _backedRetention;
   final List<RemoteRecording> _remoteRecordings = <RemoteRecording>[];
@@ -221,7 +214,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   int _remoteRequestGeneration = 0;
   int _localRequestGeneration = 0;
   RecordingSourceFilter _sourceFilter = RecordingSourceFilter.all;
-  bool _backupDiscoveryStarted = false;
 
   List<RecordingSession> get _filteredSessions {
     final String query = _query.trim().toLowerCase();
@@ -255,11 +247,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _sessions = List<RecordingSession>.of(widget.sessions);
     _refreshLocalRecordingStats();
     _backupSnapshot = widget.backupSnapshot;
-    _ownsBackupHostDiscovery = widget.backupHostDiscovery == null;
-    _backupHostDiscovery =
-        widget.backupHostDiscovery ?? LanBackupHostDiscoveryService();
-    _backupDiscoverySnapshot = _backupHostDiscovery.snapshot;
-    _backupHostDiscovery.addListener(_refreshBackupDiscovery);
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
     _hiddenRemoteIds = Set<int>.of(widget.hiddenRemoteRecordingIds);
@@ -269,7 +256,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(_loadLocal(reset: true, pageNumber: 1, prefetchNext: true));
         unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));
-        _startBackupHostDiscoveryIfNeeded();
       });
     }
   }
@@ -318,11 +304,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         _reloadRemoteAfterBackup(force: _remoteRecordings.isEmpty);
       });
     }
-    if (!oldWidget.active && widget.active) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _startBackupHostDiscoveryIfNeeded(),
-      );
-    }
     if (oldWidget.externalSearchQuery != widget.externalSearchQuery &&
         widget.externalSearchQuery.isNotEmpty) {
       _applyExternalSearch(widget.externalSearchQuery);
@@ -343,35 +324,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   @override
   void dispose() {
     widget.backupListenable?.removeListener(_refreshBackupSnapshot);
-    _backupHostDiscovery.removeListener(_refreshBackupDiscovery);
-    _backupHostDiscovery.cancel();
-    if (_ownsBackupHostDiscovery &&
-        _backupHostDiscovery is LanBackupHostDiscoveryService) {
-      _backupHostDiscovery.dispose();
-    }
     _remoteSearchTimer?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  void _refreshBackupDiscovery() {
-    if (!mounted) return;
-    setState(() => _backupDiscoverySnapshot = _backupHostDiscovery.snapshot);
-  }
-
-  void _startBackupHostDiscoveryIfNeeded() {
-    if (!mounted ||
-        widget.backupHostDiscovery == null ||
-        !widget.active ||
-        widget.mode != RecordingsScreenMode.history ||
-        _backupSnapshot.endpoint != null ||
-        _backupDiscoveryStarted ||
-        _backupDiscoverySnapshot.searching) {
-      return;
-    }
-    _backupDiscoveryStarted = true;
-    unawaited(_backupHostDiscovery.search());
   }
 
   void _refreshBackupSnapshot() {
@@ -380,8 +336,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     }
     final LanBackupSnapshot next =
         widget.backupSnapshotProvider?.call() ?? widget.backupSnapshot;
-    final bool disconnected =
-        _backupSnapshot.endpoint != null && next.endpoint == null;
     final Set<String> previousCompleted = _completedBackupSignatures(
       _backupSnapshot,
     );
@@ -415,12 +369,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         _historyPage = 0;
       }
     });
-    if (next.endpoint != null) {
-      _backupHostDiscovery.cancel();
-    } else {
-      if (disconnected) _backupDiscoveryStarted = false;
-      _startBackupHostDiscoveryIfNeeded();
-    }
     if (reconnected) {
       unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));
     } else if (completedChanged) {
@@ -1145,11 +1093,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               onUnbackedRetentionChanged: _setUnbackedRetention,
               onBackedRetentionChanged: _setBackedRetention,
               showRetention: false,
-              discovery: _backupDiscoverySnapshot,
-              onSearchHosts: () {
-                _backupDiscoveryStarted = true;
-                return _backupHostDiscovery.search();
-              },
             ),
             const SizedBox(height: 12),
             SearchBar(
@@ -1780,8 +1723,6 @@ class _ComputerBackupSettings extends StatelessWidget {
     required this.onUnbackedRetentionChanged,
     required this.onBackedRetentionChanged,
     this.showRetention = true,
-    this.discovery = const LanBackupDiscoverySnapshot(),
-    this.onSearchHosts,
   });
 
   final LanBackupSnapshot snapshot;
@@ -1798,8 +1739,6 @@ class _ComputerBackupSettings extends StatelessWidget {
   final ValueChanged<UnbackedRetentionPolicy> onUnbackedRetentionChanged;
   final ValueChanged<BackedRetentionPolicy> onBackedRetentionChanged;
   final bool showRetention;
-  final LanBackupDiscoverySnapshot discovery;
-  final Future<void> Function()? onSearchHosts;
 
   @override
   Widget build(BuildContext context) {
@@ -1944,115 +1883,23 @@ class _ComputerBackupSettings extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            if (discovery.searching) ...<Widget>[
-              LinearProgressIndicator(
-                key: const Key('backup-host-search-progress'),
-                value: discovery.progress,
-                minHeight: 4,
-                borderRadius: BorderRadius.circular(99),
-              ),
-              const SizedBox(height: 7),
-            ],
             Text(
-              discovery.message ?? '正在准备搜索同一 Wi-Fi 下的录像备份主机',
-              key: const Key('backup-host-search-status'),
+              '请在录像备份主机打开“连接手机/电脑”，扫描电脑上的二维码完成安全连接',
               style: TextStyle(
                 color: colors.onSurfaceVariant,
                 fontSize: 12,
-                height: 1.35,
+                height: 1.4,
               ),
             ),
-            if (discovery.hosts.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 10),
-              ...discovery.hosts.map(
-                (LanBackupDiscoveredHost host) => Container(
-                  key: ValueKey<String>(
-                    'discovered-backup-host-${host.nodeId}',
-                  ),
-                  margin: const EdgeInsets.only(bottom: 7),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colors.surface,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: colors.outlineVariant),
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      Icon(Icons.dns_rounded, color: colors.primary, size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
-                              host.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              host.address,
-                              style: TextStyle(
-                                color: colors.onSurfaceVariant,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        '可连接',
-                        style: TextStyle(
-                          color: colors.primary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Text(
-                '请在电脑打开“连接手机/电脑”，再扫描电脑上的二维码完成安全连接',
-                style: TextStyle(
-                  color: colors.onSurfaceVariant,
-                  fontSize: 11,
-                  height: 1.35,
-                ),
-              ),
-            ],
             const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const Key('search-backup-host-button'),
-                    onPressed: discovery.searching ? null : onSearchHosts,
-                    icon: Icon(
-                      discovery.searching
-                          ? Icons.sync_rounded
-                          : Icons.wifi_find_rounded,
-                      size: 18,
-                    ),
-                    label: Text(discovery.searching ? '正在搜索' : '重新搜索'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.icon(
-                    key: const Key('connect-computer-button'),
-                    onPressed: onConnect,
-                    icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
-                    label: const Text('扫码连接'),
-                  ),
-                ),
-              ],
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                key: const Key('connect-computer-button'),
+                onPressed: onConnect,
+                icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
+                label: const Text('扫码连接录像备份主机'),
+              ),
             ),
           ] else ...<Widget>[
             Row(

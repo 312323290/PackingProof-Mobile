@@ -12,7 +12,6 @@ import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/screens/recordings_screen.dart';
 import 'package:packing_proof_mobile/services/recording_database.dart';
 import 'package:packing_proof_mobile/services/order_info_receiver_service.dart';
-import 'package:packing_proof_mobile/services/lan_backup_discovery_service.dart';
 
 void main() {
   testWidgets('历史页标题显示当前录像设备名称', (WidgetTester tester) async {
@@ -322,8 +321,8 @@ void main() {
 
     expect(find.byKey(const Key('computer-backup-settings')), findsOneWidget);
     expect(find.text('电脑备份'), findsOneWidget);
-    expect(find.text('扫码连接'), findsOneWidget);
-    expect(find.text('重新搜索'), findsOneWidget);
+    expect(find.text('扫码连接录像备份主机'), findsOneWidget);
+    expect(find.text('重新搜索'), findsNothing);
     expect(find.text('全部完成'), findsOneWidget);
     expect(find.text('连接电脑后自动备份录像'), findsOneWidget);
     expect(find.text('总占用'), findsOneWidget);
@@ -349,12 +348,8 @@ void main() {
     final Rect backupCardRect = tester.getRect(
       find.byKey(const Key('computer-backup-settings')),
     );
-    final Rect searchButtonRect = tester.getRect(
-      find.byKey(const Key('search-backup-host-button')),
-    );
-    expect(searchButtonRect.left, backupCardRect.left + 16);
+    expect(connectButtonRect.left, backupCardRect.left + 16);
     expect(connectButtonRect.right, backupCardRect.right - 16);
-    expect(searchButtonRect.right, lessThan(connectButtonRect.left));
     expect(
       tester.widget(find.byKey(const Key('connect-computer-button'))),
       isA<FilledButton>(),
@@ -375,8 +370,7 @@ void main() {
     expect(find.text('本地'), findsOneWidget);
   });
 
-  testWidgets('电脑备份未连接时自动搜索并保留并排扫码入口', (WidgetTester tester) async {
-    final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery();
+  testWidgets('电脑备份未连接时不自动搜索且只保留扫码入口', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
@@ -384,7 +378,6 @@ void main() {
           workMode: WorkMode.continuousScan,
           speechEnabled: true,
           maxVolumeEnabled: true,
-          backupHostDiscovery: discovery,
           onConnectComputer: () {},
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
@@ -397,22 +390,10 @@ void main() {
     );
     await tester.pump();
 
-    expect(discovery.searchCount, 1);
-    expect(
-      find.byKey(const Key('backup-host-search-progress')),
-      findsOneWidget,
-    );
-    expect(find.text('正在搜索'), findsOneWidget);
-    expect(find.text('扫码连接'), findsOneWidget);
-
-    discovery.finish();
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('电脑1'), findsOneWidget);
-    expect(find.text('192.168.1.20:5280'), findsOneWidget);
-    expect(find.text('可连接'), findsOneWidget);
-    expect(find.text('重新搜索'), findsOneWidget);
+    expect(find.byKey(const Key('backup-host-search-progress')), findsNothing);
+    expect(find.text('正在搜索'), findsNothing);
+    expect(find.text('扫码连接录像备份主机'), findsOneWidget);
+    expect(find.text('重新搜索'), findsNothing);
   });
 
   testWidgets('电脑清理本地录像后立即刷新历史统计', (WidgetTester tester) async {
@@ -1863,47 +1844,4 @@ RecordingSession _session(
       BarcodeMarker(code: code, occurredAt: startedAt, offset: Duration.zero),
     ],
   );
-}
-
-class _FakeBackupHostDiscovery extends ChangeNotifier
-    implements LanBackupHostDiscovery {
-  final Completer<void> _completion = Completer<void>();
-  int searchCount = 0;
-  LanBackupDiscoverySnapshot _snapshot = const LanBackupDiscoverySnapshot();
-
-  @override
-  LanBackupDiscoverySnapshot get snapshot => _snapshot;
-
-  @override
-  Future<void> search() async {
-    searchCount++;
-    _snapshot = const LanBackupDiscoverySnapshot(
-      searching: true,
-      completed: 32,
-      total: 254,
-      message: '正在搜索 32 / 254',
-    );
-    notifyListeners();
-    await _completion.future;
-  }
-
-  void finish() {
-    _snapshot = const LanBackupDiscoverySnapshot(
-      completed: 254,
-      total: 254,
-      hosts: <LanBackupDiscoveredHost>[
-        LanBackupDiscoveredHost(
-          nodeId: 'host-1',
-          name: '电脑1',
-          address: '192.168.1.20:5280',
-        ),
-      ],
-      message: '找到 1 台录像备份主机',
-    );
-    notifyListeners();
-    _completion.complete();
-  }
-
-  @override
-  void cancel() {}
 }

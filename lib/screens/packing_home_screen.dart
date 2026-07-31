@@ -1028,28 +1028,32 @@ class _OperationModePill extends StatelessWidget {
       onTap: enabled ? onPressed : null,
       child: Ink(
         color: selected ? accent : Colors.transparent,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(
-                returning
-                    ? Icons.keyboard_return_rounded
-                    : Icons.local_shipping_rounded,
-                size: 16,
-                color: Colors.white,
-              ),
-              const SizedBox(width: 5),
-              Text(
-                mode.label,
-                style: const TextStyle(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 96, minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(
+                  returning
+                      ? Icons.keyboard_return_rounded
+                      : Icons.local_shipping_rounded,
+                  size: 18,
                   color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
                 ),
-              ),
-            ],
+                const SizedBox(width: 7),
+                Text(
+                  mode.label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

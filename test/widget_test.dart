@@ -77,6 +77,16 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('operation-mode-return-pill')), findsOneWidget);
+    final Rect readyShippingPill = tester.getRect(
+      find.byKey(const Key('operation-mode-shipping-pill')),
+    );
+    final Rect readyReturnPill = tester.getRect(
+      find.byKey(const Key('operation-mode-return-pill')),
+    );
+    expect(readyShippingPill.width, greaterThanOrEqualTo(96));
+    expect(readyShippingPill.height, greaterThanOrEqualTo(48));
+    expect(readyReturnPill.width, greaterThanOrEqualTo(96));
+    expect(readyReturnPill.height, greaterThanOrEqualTo(48));
     final Rect readyModePills = tester.getRect(
       find.byKey(const Key('recording-operation-mode-pills')),
     );
@@ -108,6 +118,11 @@ void main() {
     final Rect workingModePills = tester.getRect(
       find.byKey(const Key('recording-operation-mode-pills')),
     );
+    final Rect workingReturnPill = tester.getRect(
+      find.byKey(const Key('operation-mode-return-pill')),
+    );
+    expect(workingReturnPill.width, greaterThanOrEqualTo(96));
+    expect(workingReturnPill.height, greaterThanOrEqualTo(48));
     final Rect workingControlPanel = tester.getRect(
       find.byKey(const Key('recording-control-panel')),
     );
@@ -436,5 +451,7 @@ void main() {
     );
     expect(durationPill.bottom, lessThan(operationModePills.top));
     expect(operationModePills.bottom, lessThanOrEqualTo(controlPanel.top));
+    expect(operationModePills.width, lessThanOrEqualTo(320));
+    expect(operationModePills.height, greaterThanOrEqualTo(48));
   });
 }

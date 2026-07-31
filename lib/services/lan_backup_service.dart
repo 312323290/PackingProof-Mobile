@@ -165,6 +165,7 @@ abstract interface class LanBackupSink implements Listenable {
   Future<Map<int, ({RemoteRecordingStatus status, bool exists, String reason})>>
   fetchRemoteRecordingStatuses(Iterable<int> ids);
   Map<String, String> get playbackHeaders;
+  Future<TemporaryComputerPairing> createTemporaryComputerPairing();
   Future<void> dispose();
 }
 
@@ -824,6 +825,53 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       : <String, String>{
           'X-EPM-Access-Key': _parseStoredCredential(_accessKey).webAccessKey,
         };
+
+  @override
+  Future<TemporaryComputerPairing> createTemporaryComputerPairing() async {
+    final LanBackupEndpoint? endpoint = _snapshot.endpoint;
+    final _StoredBackupCredential credential = _parseStoredCredential(
+      _accessKey,
+    );
+    if (endpoint == null || credential.version < 2) {
+      throw const FormatException('请先重新扫码连接录像备份主机');
+    }
+    final Uri uri = endpoint.baseUri.replace(
+      path: '/api/mobile-backup/pairing-tokens',
+    );
+    final HttpClientRequest request = await _httpClient
+        .postUrl(uri)
+        .timeout(const Duration(seconds: 5));
+    request.followRedirects = false;
+    _setSignedBackupHeaders(
+      request,
+      credential.backupCredential,
+      const <int>[],
+      method: 'POST',
+      path: uri.path,
+    );
+    request.contentLength = 0;
+    final HttpClientResponse response = await request.close().timeout(
+      const Duration(seconds: 8),
+    );
+    final String body = await utf8.decoder.bind(response).join();
+    if (response.statusCode != HttpStatus.ok) {
+      throw const HttpException('暂时无法生成连接码，请确认备份电脑在线');
+    }
+    final Map<String, Object?> payload = Map<String, Object?>.from(
+      jsonDecode(body) as Map<Object?, Object?>,
+    );
+    final String link = '${payload['pairingLink'] ?? ''}'.trim();
+    final DateTime? expiresAt = DateTime.tryParse(
+      '${payload['expiresAt'] ?? ''}',
+    );
+    if (link.isEmpty || expiresAt == null) {
+      throw const FormatException('备份电脑返回的临时连接码无效');
+    }
+    return TemporaryComputerPairing(
+      pairingLink: link,
+      expiresAt: expiresAt.toLocal(),
+    );
+  }
 
   Future<void> _ensureWifiConnected() async {
     if (!await _hasWifiConnection()) {

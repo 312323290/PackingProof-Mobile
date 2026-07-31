@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/backup_retention_policy.dart';
 import '../models/barcode_marker.dart';
@@ -89,6 +90,7 @@ class RecordingsScreen extends StatefulWidget {
     this.onDisconnectBackup,
     this.onRetryConnection,
     this.onRetryBackup,
+    this.onCreateComputerPairing,
     this.onRefreshHistory,
     this.unbackedRetention = UnbackedRetentionPolicy.days30,
     this.backedRetention = BackedRetentionPolicy.days7,
@@ -131,6 +133,7 @@ class RecordingsScreen extends StatefulWidget {
   final Future<void> Function()? onDisconnectBackup;
   final Future<void> Function()? onRetryConnection;
   final Future<void> Function(String jobId)? onRetryBackup;
+  final Future<TemporaryComputerPairing> Function()? onCreateComputerPairing;
   final Future<void> Function()? onRefreshHistory;
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
@@ -1088,6 +1091,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               onDisconnect: _confirmDeleteComputer,
               onRetryConnection: widget.onRetryConnection,
               onRetry: widget.onRetryBackup,
+              onCreateComputerPairing: widget.onCreateComputerPairing,
               unbackedRetention: _unbackedRetention,
               backedRetention: _backedRetention,
               onUnbackedRetentionChanged: _setUnbackedRetention,
@@ -1718,6 +1722,7 @@ class _ComputerBackupSettings extends StatelessWidget {
     this.onDisconnect,
     this.onRetryConnection,
     this.onRetry,
+    this.onCreateComputerPairing,
     required this.unbackedRetention,
     required this.backedRetention,
     required this.onUnbackedRetentionChanged,
@@ -1734,6 +1739,7 @@ class _ComputerBackupSettings extends StatelessWidget {
   final Future<void> Function()? onDisconnect;
   final Future<void> Function()? onRetryConnection;
   final Future<void> Function(String jobId)? onRetry;
+  final Future<TemporaryComputerPairing> Function()? onCreateComputerPairing;
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
   final ValueChanged<UnbackedRetentionPolicy> onUnbackedRetentionChanged;
@@ -2085,6 +2091,12 @@ class _ComputerBackupSettings extends StatelessWidget {
                 ),
               ],
             ),
+            if (online && onCreateComputerPairing != null) ...<Widget>[
+              const SizedBox(height: 8),
+              _TemporaryComputerPairingButton(
+                onCreate: onCreateComputerPairing!,
+              ),
+            ],
             if (failed != null) ...<Widget>[
               const SizedBox(height: 4),
               SizedBox(
@@ -2103,6 +2115,111 @@ class _ComputerBackupSettings extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TemporaryComputerPairingButton extends StatefulWidget {
+  const _TemporaryComputerPairingButton({required this.onCreate});
+
+  final Future<TemporaryComputerPairing> Function() onCreate;
+
+  @override
+  State<_TemporaryComputerPairingButton> createState() =>
+      _TemporaryComputerPairingButtonState();
+}
+
+class _TemporaryComputerPairingButtonState
+    extends State<_TemporaryComputerPairingButton> {
+  bool _busy = false;
+
+  Future<void> _open() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final TemporaryComputerPairing pairing = await widget.onCreate();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext context) => Dialog(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '连接录制电脑',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('在录制电脑选择“管理保存主机”，再用电脑摄像头扫描此二维码'),
+                  const SizedBox(height: 16),
+                  SizedBox.square(
+                    dimension: 240,
+                    child: Semantics(
+                      key: const Key('computer-pairing-qr-code'),
+                      label: '录制电脑临时连接二维码',
+                      image: true,
+                      child: QrImageView(
+                        data: pairing.pairingLink,
+                        backgroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '连接码约 2 分钟内有效，使用一次后自动失效',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('完成'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$error'.replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: double.infinity,
+    child: OutlinedButton.icon(
+      key: const Key('create-computer-pairing-button'),
+      onPressed: _busy ? null : _open,
+      icon: _busy
+          ? const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.qr_code_2_rounded),
+      label: Text(_busy ? '正在生成' : '连接录制电脑'),
+    ),
+  );
 }
 
 class _WorkModeSettings extends StatelessWidget {

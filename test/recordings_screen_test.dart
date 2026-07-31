@@ -848,6 +848,58 @@ void main() {
     expect(scanCount, 1);
   });
 
+  testWidgets('已连接备份主机可生成一次性录制电脑连接码', (WidgetTester tester) async {
+    int createCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: LanBackupSnapshot(
+            endpoint: LanBackupEndpoint(
+              baseUri: Uri.parse('http://192.168.1.20:5280'),
+              accessKey: '',
+              computerId: 'computer-1',
+              computerName: '仓库电脑',
+            ),
+            connectionStatus: LanConnectionStatus.connected,
+          ),
+          onCreateComputerPairing: () async {
+            createCount++;
+            return TemporaryComputerPairing(
+              pairingLink:
+                  'http://192.168.1.20:5280/?pairToken=token&pairSecret=secret',
+              expiresAt: DateTime.now().add(const Duration(minutes: 2)),
+            );
+          },
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    final Finder button = find.byKey(
+      const Key('create-computer-pairing-button'),
+    );
+    expect(button, findsOneWidget);
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(createCount, 1);
+    expect(find.text('连接录制电脑'), findsOneWidget);
+    expect(find.textContaining('管理保存主机'), findsOneWidget);
+    expect(find.byKey(const Key('computer-pairing-qr-code')), findsOneWidget);
+    expect(find.textContaining('2 分钟内有效'), findsOneWidget);
+  });
+
   testWidgets('电脑不是备份主机时只显示重新扫码并覆盖旧版本失败提示', (WidgetTester tester) async {
     int scanCount = 0;
     await tester.pumpWidget(

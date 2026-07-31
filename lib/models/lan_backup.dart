@@ -105,6 +105,16 @@ class LanBackupEndpoint {
       baseUri.hasPort ? '${baseUri.host}:${baseUri.port}' : baseUri.host;
 }
 
+class TemporaryComputerPairing {
+  const TemporaryComputerPairing({
+    required this.pairingLink,
+    required this.expiresAt,
+  });
+
+  final String pairingLink;
+  final DateTime expiresAt;
+}
+
 class LanBackupJob {
   const LanBackupJob({
     required this.id,

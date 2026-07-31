@@ -26,6 +26,43 @@ class LanBackupConnectionException implements Exception {
   String toString() => message;
 }
 
+class LanBackupPairingConfirmation {
+  const LanBackupPairingConfirmation({
+    required this.computerId,
+    required this.baseUri,
+  });
+
+  final String computerId;
+  final Uri baseUri;
+
+  bool matches(LanBackupEndpoint endpoint) {
+    final String expectedId = computerId.trim();
+    final String actualId = endpoint.computerId.trim();
+    if (expectedId.isNotEmpty && actualId.isNotEmpty) {
+      return expectedId == actualId;
+    }
+    return _normalizedHostUri(baseUri) == _normalizedHostUri(endpoint.baseUri);
+  }
+}
+
+class LanBackupHostMismatchException implements Exception {
+  const LanBackupHostMismatchException({
+    required this.currentEndpoint,
+    required this.candidateEndpoint,
+  });
+
+  final LanBackupEndpoint currentEndpoint;
+  final LanBackupEndpoint candidateEndpoint;
+
+  LanBackupPairingConfirmation get confirmation => LanBackupPairingConfirmation(
+    computerId: candidateEndpoint.computerId,
+    baseUri: candidateEndpoint.baseUri,
+  );
+
+  @override
+  String toString() => '扫描到另一台备份电脑';
+}
+
 abstract interface class LanBackupSink implements Listenable {
   LanBackupSnapshot get snapshot;
 
@@ -34,7 +71,10 @@ abstract interface class LanBackupSink implements Listenable {
     required UnbackedRetentionPolicy unbackedRetention,
     required BackedRetentionPolicy backedRetention,
   });
-  Future<void> pair(String qrValue);
+  Future<void> pair(
+    String qrValue, {
+    LanBackupPairingConfirmation? replacementConfirmation,
+  });
   void cancelPairing();
   Future<void> disconnect();
   Future<bool> retryConnection();
@@ -166,7 +206,10 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   }
 
   @override
-  Future<void> pair(String qrValue) async {
+  Future<void> pair(
+    String qrValue, {
+    LanBackupPairingConfirmation? replacementConfirmation,
+  }) async {
     final LanBackupEndpoint candidate = parsePairingQr(qrValue);
     await _ensureWifiConnected();
     final int revision = ++_pairingRevision;
@@ -222,6 +265,15 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       final String assignedDeviceName =
           '${capabilities['deviceName'] ?? _snapshot.deviceName}'.trim();
       if (revision != _pairingRevision) return;
+      final LanBackupEndpoint? currentEndpoint = restoreSnapshot.endpoint;
+      if (currentEndpoint != null &&
+          !_isSameBackupHost(currentEndpoint, connectedEndpoint) &&
+          replacementConfirmation?.matches(connectedEndpoint) != true) {
+        throw LanBackupHostMismatchException(
+          currentEndpoint: currentEndpoint,
+          candidateEndpoint: connectedEndpoint,
+        );
+      }
       await _channel.invokeMethod<void>('saveConnection', <String, Object?>{
         'baseUrl': candidate.baseUri.toString(),
         'accessKey': candidate.accessKey,
@@ -243,6 +295,11 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       notifyListeners();
       unawaited(_sendConnectionHeartbeat());
       unawaited(refresh());
+    } on LanBackupHostMismatchException {
+      if (revision != _pairingRevision) return;
+      _snapshot = restoreSnapshot;
+      notifyListeners();
+      rethrow;
     } on FormatException {
       if (revision != _pairingRevision) return;
       _snapshot = _snapshot.copyWith(
@@ -824,6 +881,22 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     super.dispose();
   }
 }
+
+bool _isSameBackupHost(LanBackupEndpoint current, LanBackupEndpoint candidate) {
+  final String currentId = current.computerId.trim();
+  final String candidateId = candidate.computerId.trim();
+  if (currentId.isNotEmpty && candidateId.isNotEmpty) {
+    return currentId == candidateId;
+  }
+  return _normalizedHostUri(current.baseUri) ==
+      _normalizedHostUri(candidate.baseUri);
+}
+
+String _normalizedHostUri(Uri uri) => Uri(
+  scheme: uri.scheme.toLowerCase(),
+  host: uri.host.toLowerCase(),
+  port: uri.hasPort ? uri.port : null,
+).toString();
 
 LanConnectionStatus nativeBackupConnectionStatus({
   required LanConnectionStatus previous,

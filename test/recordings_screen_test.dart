@@ -774,9 +774,18 @@ void main() {
             ),
             jobs: const <LanBackupJob>[
               LanBackupJob(
-                id: 'job-1',
-                filePath: 'video.mp4',
+                id: 'old-offline-job',
+                filePath: 'old-video.mp4',
                 state: LanBackupJobState.failed,
+                uploadedBytes: 0,
+                totalBytes: 1024,
+                errorMessage: '电脑离线',
+                failureKind: LanBackupFailureKind.offlineOrTimeout,
+              ),
+              LanBackupJob(
+                id: 'credential-job',
+                filePath: 'video.mp4',
+                state: LanBackupJobState.paused,
                 uploadedBytes: 0,
                 totalBytes: 1024,
                 errorMessage: '电脑连接密钥已失效，请重新扫码',
@@ -789,6 +798,7 @@ void main() {
           onAutoBackupChanged: (_) async {},
           onBackupNow: () async {},
           onRetryBackup: (_) async {},
+          onDisconnectBackup: () async {},
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
           onMaxVolumeEnabledChanged: (_) async {},
@@ -800,7 +810,9 @@ void main() {
     );
 
     expect(find.text('仓库电脑 · 192.168.1.20:5280'), findsOneWidget);
+    expect(find.text('需扫码'), findsOneWidget);
     expect(find.text('重新扫码'), findsOneWidget);
+    expect(find.byKey(const Key('delete-computer-button')), findsOneWidget);
     expect(find.byKey(const Key('backup-now-button')), findsNothing);
     expect(find.byKey(const Key('auto-backup-button')), findsNothing);
     expect(find.text('重试失败任务'), findsNothing);

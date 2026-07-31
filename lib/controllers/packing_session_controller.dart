@@ -42,6 +42,16 @@ enum PackingSessionPhase {
   error,
 }
 
+class ComputerReplacementPrompt {
+  const ComputerReplacementPrompt({
+    required this.currentComputer,
+    required this.newComputer,
+  });
+
+  final String currentComputer;
+  final String newComputer;
+}
+
 class PackingSessionController extends ChangeNotifier {
   PackingSessionController({
     SessionRepository? repository,
@@ -124,6 +134,10 @@ class PackingSessionController extends ChangeNotifier {
   int _pairingSuccessRevision = 0;
   int _pairingFailureRevision = 0;
   String? _pairingFailureMessage;
+  int _pairingReplacementRevision = 0;
+  ComputerReplacementPrompt? _pairingReplacementPrompt;
+  String? _pendingReplacementQr;
+  LanBackupPairingConfirmation? _pendingReplacementConfirmation;
   Set<int> _hiddenRemoteRecordingIds = <int>{};
   StreamSubscription<OrderInfo>? _orderInfoSubscription;
   OrderInfo? _activeOrderInfo;
@@ -157,6 +171,7 @@ class PackingSessionController extends ChangeNotifier {
   bool get pairingScanActive => _pairingScanActive;
   int get pairingSuccessRevision => _pairingSuccessRevision;
   int get pairingFailureRevision => _pairingFailureRevision;
+  int get pairingReplacementRevision => _pairingReplacementRevision;
   String? get pairingMessage => _pairingMessage;
   bool get historyScanActive => _historyScanActive;
   bool get flashAvailable => Platform.isAndroid
@@ -177,6 +192,12 @@ class PackingSessionController extends ChangeNotifier {
     final String? message = _pairingFailureMessage;
     _pairingFailureMessage = null;
     return message;
+  }
+
+  ComputerReplacementPrompt? takeComputerReplacementPrompt() {
+    final ComputerReplacementPrompt? prompt = _pairingReplacementPrompt;
+    _pairingReplacementPrompt = null;
+    return prompt;
   }
 
   String? get scanWarningMessage =>
@@ -707,6 +728,7 @@ class PackingSessionController extends ChangeNotifier {
       return;
     }
     _pairingAttemptRevision++;
+    _clearPendingComputerReplacement();
     _pairingScanActive = true;
     _pairingMessage = '将电脑上的二维码放入框内';
     _stabilityTracker.reset();
@@ -719,6 +741,7 @@ class PackingSessionController extends ChangeNotifier {
     _pairingAttemptRevision++;
     _pairingScanActive = false;
     _pairingMessage = null;
+    _clearPendingComputerReplacement();
     _lanBackupService.cancelPairing();
     unawaited(_nativeCamera?.setPairingScanEnabled(false));
     notifyListeners();
@@ -1553,21 +1576,10 @@ class PackingSessionController extends ChangeNotifier {
     try {
       await _lanBackupService.pair(value);
       if (revision != _pairingAttemptRevision || !_pairingScanActive) return;
-      _pairingScanActive = false;
-      _pairingSuccessRevision++;
-      await _nativeCamera?.setPairingScanEnabled(false);
-      final LanBackupEndpoint? endpoint = _lanBackupService.snapshot.endpoint;
-      _pairingMessage = endpoint == null
-          ? '电脑连接成功'
-          : '电脑连接成功 · ${endpoint.computerName} · ${endpoint.displayAddress}';
-      _pairingFeedbackTimer?.cancel();
-      _pairingFeedbackTimer = Timer(const Duration(seconds: 3), () {
-        if (_disposed) return;
-        _pairingMessage = null;
-        notifyListeners();
-      });
-      await _backupAllRepositorySessions();
-      notifyListeners();
+      await _completePairingSuccess(revision);
+    } on LanBackupHostMismatchException catch (error) {
+      if (revision != _pairingAttemptRevision) return;
+      await _queueComputerReplacement(value, error);
     } on FormatException catch (error) {
       if (revision != _pairingAttemptRevision) return;
       if (isComputerQr) {
@@ -1584,9 +1596,100 @@ class PackingSessionController extends ChangeNotifier {
     }
   }
 
+  Future<void> confirmPendingComputerReplacement() async {
+    final String? qrValue = _pendingReplacementQr;
+    final LanBackupPairingConfirmation? confirmation =
+        _pendingReplacementConfirmation;
+    if (_pairingBusy || qrValue == null || confirmation == null) return;
+    final int revision = _pairingAttemptRevision;
+    _pairingBusy = true;
+    _pairingMessage = '正在确认新的备份电脑…';
+    notifyListeners();
+    try {
+      await _lanBackupService.pair(
+        qrValue,
+        replacementConfirmation: confirmation,
+      );
+      if (revision != _pairingAttemptRevision) return;
+      await _completePairingSuccess(revision);
+    } on LanBackupHostMismatchException catch (error) {
+      if (revision != _pairingAttemptRevision) return;
+      await _queueComputerReplacement(qrValue, error);
+    } on FormatException catch (error) {
+      if (revision != _pairingAttemptRevision) return;
+      await _completePairingFailure(error.message.toString());
+    } on Object catch (error) {
+      if (revision != _pairingAttemptRevision) return;
+      await _completePairingFailure(
+        error.toString().replaceFirst('Exception: ', ''),
+      );
+    } finally {
+      _pairingBusy = false;
+    }
+  }
+
+  void cancelPendingComputerReplacement() {
+    _clearPendingComputerReplacement();
+    _pairingMessage = null;
+    notifyListeners();
+  }
+
+  Future<void> _queueComputerReplacement(
+    String qrValue,
+    LanBackupHostMismatchException error,
+  ) async {
+    _pairingScanActive = false;
+    _pairingMessage = null;
+    _pendingReplacementQr = qrValue;
+    _pendingReplacementConfirmation = error.confirmation;
+    _pairingReplacementPrompt = ComputerReplacementPrompt(
+      currentComputer: _endpointDisplayName(error.currentEndpoint),
+      newComputer: _endpointDisplayName(error.candidateEndpoint),
+    );
+    _pairingReplacementRevision++;
+    try {
+      await _nativeCamera?.setPairingScanEnabled(false);
+    } on Object {
+      // The confirmation prompt must still be shown when camera teardown fails.
+    }
+    notifyListeners();
+  }
+
+  Future<void> _completePairingSuccess(int revision) async {
+    if (revision != _pairingAttemptRevision) return;
+    _clearPendingComputerReplacement();
+    _pairingScanActive = false;
+    _pairingSuccessRevision++;
+    await _nativeCamera?.setPairingScanEnabled(false);
+    final LanBackupEndpoint? endpoint = _lanBackupService.snapshot.endpoint;
+    _pairingMessage = endpoint == null
+        ? '电脑连接成功'
+        : '电脑连接成功 · ${endpoint.computerName} · ${endpoint.displayAddress}';
+    _pairingFeedbackTimer?.cancel();
+    _pairingFeedbackTimer = Timer(const Duration(seconds: 3), () {
+      if (_disposed) return;
+      _pairingMessage = null;
+      notifyListeners();
+    });
+    await _backupAllRepositorySessions();
+    notifyListeners();
+  }
+
+  void _clearPendingComputerReplacement() {
+    _pendingReplacementQr = null;
+    _pendingReplacementConfirmation = null;
+    _pairingReplacementPrompt = null;
+  }
+
+  static String _endpointDisplayName(LanBackupEndpoint endpoint) {
+    final String name = endpoint.computerName.trim();
+    return name.isNotEmpty ? name : endpoint.displayAddress;
+  }
+
   Future<void> _completePairingFailure(String message) async {
     _pairingScanActive = false;
     _pairingMessage = null;
+    _clearPendingComputerReplacement();
     _pairingFailureMessage = message;
     _pairingFailureRevision++;
     try {
@@ -1877,6 +1980,7 @@ class PackingSessionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _clearPendingComputerReplacement();
     _elapsedTimer?.cancel();
     _feedbackTimer?.cancel();
     _scanWarningTimer?.cancel();

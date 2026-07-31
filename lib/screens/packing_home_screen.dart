@@ -82,6 +82,34 @@ Future<void> showComputerPairingFailureDialog(
   );
 }
 
+@visibleForTesting
+Future<bool> showComputerReplacementDialog(
+  BuildContext context,
+  ComputerReplacementPrompt prompt,
+) async {
+  return await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext dialogContext) => AlertDialog(
+          title: const Text('更换备份电脑？'),
+          content: Text(
+            '当前：${prompt.currentComputer}\n新的电脑：${prompt.newComputer}\n\n更换后，后续录像将备份到新的电脑',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('继续绑定'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
+
 const String mobileAppDownloadUrl =
     'https://gitee.com/PackingProof/PackingProof-Mobile/releases';
 
@@ -166,6 +194,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   String _historySearchQuery = '';
   int _handledPairingSuccessRevision = 0;
   int _handledPairingFailureRevision = 0;
+  int _handledPairingReplacementRevision = 0;
   String _handledMobileUpdateSignature = '';
   bool _mobileUpdateNoticeScheduled = false;
   int _handledStorageNoticeRevision = 0;
@@ -279,6 +308,26 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     await showComputerPairingFailureDialog(context, message);
   }
 
+  Future<void> _returnToHistoryAndConfirmComputerReplacement(
+    ComputerReplacementPrompt prompt,
+  ) async {
+    setState(() {
+      _selectedTab = 0;
+      _transientReturnTab = 1;
+    });
+    _resetExitIntent();
+    await _controller.setPreviewActive(false);
+    await _controller.refreshSessions();
+    if (!mounted) return;
+    final bool confirmed = await showComputerReplacementDialog(context, prompt);
+    if (!mounted) return;
+    if (confirmed) {
+      await _controller.confirmPendingComputerReplacement();
+    } else {
+      _controller.cancelPendingComputerReplacement();
+    }
+  }
+
   void _resetExitIntent() {
     _exitArmedAt = null;
   }
@@ -358,6 +407,19 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
               unawaited(_returnToHistoryAndShowPairingFailure(message));
+            });
+          }
+        }
+        final int pairingReplacementRevision =
+            _controller.pairingReplacementRevision;
+        if (pairingReplacementRevision > _handledPairingReplacementRevision) {
+          _handledPairingReplacementRevision = pairingReplacementRevision;
+          final ComputerReplacementPrompt? prompt = _controller
+              .takeComputerReplacementPrompt();
+          if (prompt != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              unawaited(_returnToHistoryAndConfirmComputerReplacement(prompt));
             });
           }
         }

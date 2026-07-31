@@ -397,6 +397,161 @@ void main() {
     );
     expect(service.snapshot.connectionStatus, LanConnectionStatus.rePair);
   });
+
+  test('同一电脑更换密钥时直接更新且不会要求换绑确认', () async {
+    final MethodChannel channel = const MethodChannel(
+      'app.packingproof.mobile/lan_backup_same_host_test',
+    );
+    int savedConnections = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          if (call.method == 'saveConnection') savedConnections++;
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    final _SequenceHttpClient httpClient =
+        _SequenceHttpClient(<_StreamHttpResponse>[
+          _StreamHttpResponse(
+            HttpStatus.ok,
+            '{"protocol":"mobile-backup-v1","version":1,'
+            '"computerId":"computer-1","computerName":"仓库电脑"}',
+          ),
+          _StreamHttpResponse(
+            HttpStatus.ok,
+            '{"protocol":"mobile-backup-v1","version":1,'
+            '"computerId":"computer-1","computerName":"仓库电脑"}',
+          ),
+        ]);
+    final LanBackupService service = LanBackupService(
+      channel: channel,
+      httpClient: httpClient,
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+
+    await service.pair('http://192.168.1.20:5280/?key=0123456789abcdef');
+    await service.pair('http://192.168.1.30:5280/?key=fedcba9876543210');
+
+    expect(savedConnections, 2);
+    expect(service.snapshot.endpoint?.computerId, 'computer-1');
+    expect(
+      service.snapshot.endpoint?.baseUri.toString(),
+      'http://192.168.1.30:5280',
+    );
+  });
+
+  test('旧主机缺少稳定 ID 时仅按规范化地址识别同一电脑', () async {
+    final MethodChannel channel = const MethodChannel(
+      'app.packingproof.mobile/lan_backup_legacy_identity_test',
+    );
+    int savedConnections = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          if (call.method == 'saveConnection') savedConnections++;
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    final LanBackupService service = LanBackupService(
+      channel: channel,
+      httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
+        _capabilities('', '旧版电脑'),
+        _capabilities('computer-1', '升级后的电脑'),
+      ]),
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+
+    const String address = 'http://192.168.1.20:5280/';
+    await service.pair('$address?key=0123456789abcdef');
+    await service.pair('$address?key=fedcba9876543210');
+
+    expect(savedConnections, 2);
+    expect(service.snapshot.endpoint?.computerId, 'computer-1');
+  });
+
+  test('不同电脑验证后先确认且二次验证变化时不会静默换绑', () async {
+    final MethodChannel channel = const MethodChannel(
+      'app.packingproof.mobile/lan_backup_confirm_replace_test',
+    );
+    int savedConnections = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          if (call.method == 'saveConnection') savedConnections++;
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    final _SequenceHttpClient httpClient =
+        _SequenceHttpClient(<_StreamHttpResponse>[
+          _capabilities('computer-1', '原电脑'),
+          _capabilities('computer-2', '新电脑'),
+          _capabilities('computer-2', '新电脑'),
+          _capabilities('computer-3', '第三台电脑'),
+          _capabilities('computer-4', '已变化的电脑'),
+        ]);
+    final LanBackupService service = LanBackupService(
+      channel: channel,
+      httpClient: httpClient,
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+
+    await service.pair('http://192.168.1.20:5280/?key=0123456789abcdef');
+    final LanBackupHostMismatchException first = await _expectHostMismatch(
+      service.pair('http://192.168.1.30:5280/?key=fedcba9876543210'),
+    );
+    expect(first.currentEndpoint.computerName, '原电脑');
+    expect(first.candidateEndpoint.computerName, '新电脑');
+    expect(first.toString(), isNot(contains('fedcba9876543210')));
+    expect(savedConnections, 1);
+    expect(service.snapshot.endpoint?.computerId, 'computer-1');
+
+    await service.pair(
+      'http://192.168.1.30:5280/?key=fedcba9876543210',
+      replacementConfirmation: first.confirmation,
+    );
+    expect(savedConnections, 2);
+    expect(service.snapshot.endpoint?.computerId, 'computer-2');
+
+    final LanBackupHostMismatchException second = await _expectHostMismatch(
+      service.pair('http://192.168.1.40:5280/?key=0011223344556677'),
+    );
+    final LanBackupHostMismatchException changed = await _expectHostMismatch(
+      service.pair(
+        'http://192.168.1.40:5280/?key=0011223344556677',
+        replacementConfirmation: second.confirmation,
+      ),
+    );
+    expect(changed.candidateEndpoint.computerId, 'computer-4');
+    expect(savedConnections, 2);
+    expect(service.snapshot.endpoint?.computerId, 'computer-2');
+  });
+}
+
+_StreamHttpResponse _capabilities(String id, String name) =>
+    _StreamHttpResponse(
+      HttpStatus.ok,
+      '{"protocol":"mobile-backup-v1","version":1,'
+      '"computerId":"$id","computerName":"$name"}',
+    );
+
+Future<LanBackupHostMismatchException> _expectHostMismatch(
+  Future<void> pairing,
+) async {
+  try {
+    await pairing;
+  } on LanBackupHostMismatchException catch (error) {
+    return error;
+  }
+  throw TestFailure('预期要求确认更换备份电脑');
 }
 
 class _PendingHttpClient extends Fake implements HttpClient {

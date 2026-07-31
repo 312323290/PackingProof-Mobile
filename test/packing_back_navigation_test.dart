@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:packing_proof_mobile/screens/packing_home_screen.dart';
 import 'package:packing_proof_mobile/models/lan_backup.dart';
+import 'package:packing_proof_mobile/controllers/packing_session_controller.dart';
 
 void main() {
   final DateTime now = DateTime(2026, 7, 23, 12);
@@ -65,6 +66,38 @@ void main() {
 
     expect(find.text('连接电脑失败'), findsOneWidget);
     expect(find.text('请先连接与电脑相同的 Wi-Fi 后重试'), findsOneWidget);
+  });
+
+  testWidgets('更换备份电脑必须显示两端名称并由用户确认', (WidgetTester tester) async {
+    bool? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () async {
+              result = await showComputerReplacementDialog(
+                context,
+                const ComputerReplacementPrompt(
+                  currentComputer: '原电脑',
+                  newComputer: '新电脑',
+                ),
+              );
+            },
+            child: const Text('测试换绑'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('测试换绑'));
+    await tester.pumpAndSettle();
+    expect(find.text('更换备份电脑？'), findsOneWidget);
+    expect(find.textContaining('当前：原电脑'), findsOneWidget);
+    expect(find.textContaining('新的电脑：新电脑'), findsOneWidget);
+
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(result, isFalse);
   });
 
   testWidgets('电脑推荐版本过高时使用不阻塞工作的更新横幅', (WidgetTester tester) async {

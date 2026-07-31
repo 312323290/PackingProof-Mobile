@@ -1755,16 +1755,25 @@ class _ComputerBackupSettings extends StatelessWidget {
       (LanBackupJob? job) => job?.state == LanBackupJobState.paused,
       orElse: () => null,
     );
+    final LanBackupJob? credentialFailure = snapshot.jobs
+        .cast<LanBackupJob?>()
+        .firstWhere(
+          (LanBackupJob? job) =>
+              (job?.state == LanBackupJobState.failed ||
+                  job?.state == LanBackupJobState.paused) &&
+              job?.failureKind == LanBackupFailureKind.credentialInvalid,
+          orElse: () => null,
+        );
     final LanBackupJob? classifiedFailure = failed?.failureKind != null
         ? failed
         : paused?.failureKind != null
         ? paused
         : null;
     final LanBackupFailureKind? failureKind =
-        classifiedFailure?.failureKind ??
-        (snapshot.connectionStatus == LanConnectionStatus.rePair
-            ? LanBackupFailureKind.credentialInvalid
-            : null);
+        snapshot.connectionStatus == LanConnectionStatus.rePair ||
+            credentialFailure != null
+        ? LanBackupFailureKind.credentialInvalid
+        : classifiedFailure?.failureKind;
     final int pending = snapshot.jobs
         .where((LanBackupJob job) => job.state == LanBackupJobState.pending)
         .length;
@@ -1785,7 +1794,7 @@ class _ComputerBackupSettings extends StatelessWidget {
         : online
         ? '在线'
         : needsRepair
-        ? '需重连'
+        ? '需扫码'
         : '离线';
     final Color stateForeground = online
         ? colors.primary
@@ -1969,7 +1978,7 @@ class _ComputerBackupSettings extends StatelessWidget {
                 height: 1.4,
               ),
             ),
-          if (active != null) ...<Widget>[
+          if (active != null && !needsRepair) ...<Widget>[
             const SizedBox(height: 10),
             LinearProgressIndicator(value: active.progress),
           ],

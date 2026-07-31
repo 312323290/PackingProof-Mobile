@@ -276,6 +276,7 @@ internal class LanBackupWorker(
                     .put("trackingNumber", source.optString("trackingNumber"))
                     .put("startedAt", source.getString("startedAt"))
                     .put("durationMilliseconds", duration.coerceAtLeast(1L))
+                    .put("mode", source.optString("mode", "shipping"))
             source.optJSONObject("orderInfo")?.let { completed.put("orderInfo", it) }
             result.put(completed)
         }

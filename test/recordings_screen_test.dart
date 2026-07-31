@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/models/barcode_marker.dart';
 import 'package:packing_proof_mobile/models/lan_backup.dart';
 import 'package:packing_proof_mobile/models/recording_session.dart';
+import 'package:packing_proof_mobile/models/recording_operation_mode.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/screens/recordings_screen.dart';
 import 'package:packing_proof_mobile/services/recording_database.dart';
@@ -36,6 +37,54 @@ void main() {
 
     expect(find.text('设备 A1B2C3'), findsOneWidget);
     expect(find.text('订单历史'), findsNothing);
+  });
+
+  testWidgets('历史录像用颜色条和语义区分发货退货', (WidgetTester tester) async {
+    final DateTime startedAt = DateTime(2026, 7, 31, 10);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: <RecordingSession>[
+            RecordingSession(
+              id: 'return-session',
+              filePath: 'return.mp4',
+              startedAt: startedAt,
+              endedAt: startedAt.add(const Duration(seconds: 8)),
+              markers: const <BarcodeMarker>[],
+              operationMode: RecordingOperationMode.returnGoods,
+            ),
+          ],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const Key('recording-operation-mode-strip')),
+      findsOneWidget,
+    );
+    final Semantics semantics = tester.widget<Semantics>(
+      find.descendant(
+        of: find.byKey(const Key('recording-operation-mode-strip')),
+        matching: find.byType(Semantics),
+      ),
+    );
+    expect(semantics.properties.label, '退货录像');
+    final DecoratedBox strip = tester.widget<DecoratedBox>(
+      find.descendant(
+        of: find.byKey(const Key('recording-operation-mode-strip')),
+        matching: find.byType(DecoratedBox),
+      ),
+    );
+    expect((strip.decoration as BoxDecoration).color, const Color(0xFFFF9800));
   });
 
   testWidgets('设置卡片按工作和语音关系排列', (WidgetTester tester) async {

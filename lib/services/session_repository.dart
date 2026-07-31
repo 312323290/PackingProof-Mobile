@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/app_settings.dart';
 import '../models/backup_retention_policy.dart';
 import '../models/recording_session.dart';
+import '../models/recording_operation_mode.dart';
 import '../models/work_mode.dart';
 import '../models/storage_notice.dart';
 import 'recording_database.dart';
@@ -242,12 +243,14 @@ class SessionRepository {
     required String sessionId,
     required DateTime startedAt,
     required String trackingNumber,
+    RecordingOperationMode operationMode = RecordingOperationMode.shipping,
   }) => _serializeSessionMutation(
     () => _finalizeVideo(
       sourcePath: sourcePath,
       sessionId: sessionId,
       startedAt: startedAt,
       trackingNumber: trackingNumber,
+      operationMode: operationMode,
     ),
   );
 
@@ -256,6 +259,7 @@ class SessionRepository {
     required String sessionId,
     required DateTime startedAt,
     required String trackingNumber,
+    required RecordingOperationMode operationMode,
   }) async {
     await initialize();
     final Directory dateDirectory = Directory(
@@ -264,7 +268,7 @@ class SessionRepository {
     await dateDirectory.create(recursive: true);
     final String baseName = _sanitizeFileName(
       '${trackingNumber.trim().isEmpty ? '未识别面单' : trackingNumber.trim()}_'
-      '${_timestamp(startedAt)}_发货',
+      '${_timestamp(startedAt)}_${operationMode.label}',
     );
     String destinationPath = p.join(dateDirectory.path, '$baseName.mp4');
     final File source = File(sourcePath);

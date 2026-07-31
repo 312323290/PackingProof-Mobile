@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../models/backup_retention_policy.dart';
 import '../models/barcode_marker.dart';
 import '../models/lan_backup.dart';
+import '../models/recording_operation_mode.dart';
 import '../models/recording_session.dart';
 import '../services/order_info_receiver_service.dart';
 import '../models/work_mode.dart';
@@ -1426,6 +1427,7 @@ class _RecordingListItem {
               ),
             ],
       orderInfo: value.orderInfo,
+      operationMode: value.operationMode,
     );
   }
 }
@@ -2531,98 +2533,124 @@ class _RecordingTile extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(18),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: <Widget>[
-                if (managing) ...<Widget>[
-                  Checkbox(value: selected, onChanged: (_) => onTap()),
-                  const SizedBox(width: 4),
-                ],
-                _RecordingThumbnail(
-                  localPath: localThumbnail,
-                  remoteUri: remoteThumbnail,
-                  remoteHeaders: remoteHeaders,
-                  unavailable: unavailable,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              session.displayCode,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          _StatusChip(
-                            key: const Key('recording-source-chip'),
-                            label: sourceLabel,
-                            tone: sourceLabel == '电脑'
-                                ? _StatusChipTone.computer
-                                : _StatusChipTone.recordingDevice,
-                            identity: sourceIdentity,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 7),
-                      Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              key: const Key('recording-date-duration'),
-                              '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: colors.onSurfaceVariant,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                          if (backedUp) ...<Widget>[
-                            const SizedBox(width: 8),
-                            const _StatusChip(
-                              key: Key('recording-backed-up-chip'),
-                              label: '已备份',
-                              tone: _StatusChipTone.backupCompleted,
-                            ),
-                          ] else if (backupJob != null &&
-                              backupJob!.state !=
-                                  LanBackupJobState.completed) ...[
-                            const SizedBox(width: 8),
-                            _StatusChip(
-                              label: _backupLabel(backupJob!),
-                              tone: _backupTone(backupJob!),
-                            ),
-                          ] else if (localRecording) ...<Widget>[
-                            const SizedBox(width: 8),
-                            const _StatusChip(
-                              label: '未备份',
-                              tone: _StatusChipTone.backupPending,
-                            ),
-                          ],
-                        ],
-                      ),
+          child: Stack(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: <Widget>[
+                    if (managing) ...<Widget>[
+                      Checkbox(value: selected, onChanged: (_) => onTap()),
+                      const SizedBox(width: 4),
                     ],
+                    _RecordingThumbnail(
+                      localPath: localThumbnail,
+                      remoteUri: remoteThumbnail,
+                      remoteHeaders: remoteHeaders,
+                      unavailable: unavailable,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: Text(
+                                  session.displayCode,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              _StatusChip(
+                                key: const Key('recording-source-chip'),
+                                label: sourceLabel,
+                                tone: sourceLabel == '电脑'
+                                    ? _StatusChipTone.computer
+                                    : _StatusChipTone.recordingDevice,
+                                identity: sourceIdentity,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 7),
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: Text(
+                                  key: const Key('recording-date-duration'),
+                                  '${_dateTime(session.startedAt)}  ·  ${_duration(session.duration)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: colors.onSurfaceVariant,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              if (backedUp) ...<Widget>[
+                                const SizedBox(width: 8),
+                                const _StatusChip(
+                                  key: Key('recording-backed-up-chip'),
+                                  label: '已备份',
+                                  tone: _StatusChipTone.backupCompleted,
+                                ),
+                              ] else if (backupJob != null &&
+                                  backupJob!.state !=
+                                      LanBackupJobState.completed) ...[
+                                const SizedBox(width: 8),
+                                _StatusChip(
+                                  label: _backupLabel(backupJob!),
+                                  tone: _backupTone(backupJob!),
+                                ),
+                              ] else if (localRecording) ...<Widget>[
+                                const SizedBox(width: 8),
+                                const _StatusChip(
+                                  label: '未备份',
+                                  tone: _StatusChipTone.backupPending,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!managing)
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: colors.onSurfaceVariant,
+                      ),
+                  ],
+                ),
+              ),
+              Positioned(
+                key: const Key('recording-operation-mode-strip'),
+                right: 0,
+                top: 12,
+                bottom: 12,
+                width: 4,
+                child: Semantics(
+                  label: '${session.operationMode.label}录像',
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color:
+                          session.operationMode ==
+                              RecordingOperationMode.returnGoods
+                          ? const Color(0xFFFF9800)
+                          : colors.primary,
+                      borderRadius: const BorderRadius.horizontal(
+                        left: Radius.circular(4),
+                      ),
+                    ),
                   ),
                 ),
-                if (!managing)
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: colors.onSurfaceVariant,
-                  ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

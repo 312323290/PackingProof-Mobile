@@ -13,6 +13,7 @@ import '../models/backup_retention_policy.dart';
 import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/order_info.dart';
+import '../models/recording_operation_mode.dart';
 import '../models/speech_prompt.dart';
 import '../models/storage_notice.dart';
 import '../models/work_mode.dart';
@@ -93,6 +94,7 @@ class PackingSessionController extends ChangeNotifier {
   BarcodeMarker? _lastMarker;
   String _candidateCode = '';
   WorkMode _workMode = WorkMode.continuousScan;
+  RecordingOperationMode _operationMode = RecordingOperationMode.shipping;
   bool _speechEnabled = true;
   bool _orderSpeechEnabled = true;
   bool _maxVolumeEnabled = true;
@@ -182,6 +184,7 @@ class PackingSessionController extends ChangeNotifier {
   int get storageNoticeRevision => _storageNoticeRevision;
   bool get isRecording => _phase == PackingSessionPhase.recording;
   bool get isWorking => _workActive;
+  RecordingOperationMode get operationMode => _operationMode;
   Set<int> get hiddenRemoteRecordingIds =>
       Set<int>.unmodifiable(_hiddenRemoteRecordingIds);
   bool get isBusy =>
@@ -634,6 +637,14 @@ class PackingSessionController extends ChangeNotifier {
     await _repository.saveWorkMode(mode);
   }
 
+  void setOperationMode(RecordingOperationMode mode) {
+    if (_operationMode == mode || isWorking || isBusy) {
+      return;
+    }
+    _operationMode = mode;
+    notifyListeners();
+  }
+
   Future<void> setSpeechEnabled(bool enabled) async {
     if (_speechEnabled == enabled) {
       return;
@@ -835,12 +846,14 @@ class PackingSessionController extends ChangeNotifier {
       endedAt: endedAt,
       filePath: captured.path,
       recordingId: sessionId,
+      operationMode: _operationMode,
     );
     final String savedPath = await _repository.finalizeVideo(
       sourcePath: captured.path,
       sessionId: sessionId,
       startedAt: startedAt,
       trackingNumber: _firstTrackingNumber(drafts),
+      operationMode: _operationMode,
     );
     final List<RecordingSession> sessions = drafts
         .map(
@@ -870,6 +883,7 @@ class PackingSessionController extends ChangeNotifier {
       sessionId: segmentId,
       startedAt: draft.startedAt,
       trackingNumber: draft.markers.isEmpty ? '' : draft.markers.first.code,
+      operationMode: _operationMode,
     );
     final RecordingSession session = _standaloneSession(
       id: segmentId,
@@ -903,6 +917,7 @@ class PackingSessionController extends ChangeNotifier {
         sessionId: session.id,
         startedAt: session.startedAt,
         trackingNumber: trackingNumber,
+        operationMode: session.operationMode,
       );
       final RecordingSession finalized = finalPath == session.filePath
           ? session
@@ -1395,6 +1410,7 @@ class PackingSessionController extends ChangeNotifier {
       trackingNumber: transition.completed.markers.isEmpty
           ? ''
           : transition.completed.markers.first.code,
+      operationMode: _operationMode,
     );
     final RecordingSession completed = _standaloneSession(
       id: completedId,
@@ -1438,6 +1454,7 @@ class PackingSessionController extends ChangeNotifier {
       endedAt: draft.endedAt,
       markers: List<BarcodeMarker>.unmodifiable(draft.markers),
       orderInfo: orderInfo ?? _activeOrderInfo,
+      operationMode: _operationMode,
     );
   }
 
@@ -1463,6 +1480,7 @@ class PackingSessionController extends ChangeNotifier {
     mediaStart: session.mediaStart,
     mediaEnd: session.mediaEnd,
     orderInfo: orderInfo ?? session.orderInfo,
+    operationMode: session.operationMode,
   );
 
   void _handleOrderReceiverChanged() {

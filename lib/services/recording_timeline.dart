@@ -1,5 +1,6 @@
 import '../models/barcode_marker.dart';
 import '../models/recording_session.dart';
+import '../models/recording_operation_mode.dart';
 
 class RecordingTimeline {
   final List<RecordingSegmentDraft> _completedSegments =
@@ -56,6 +57,7 @@ class RecordingTimeline {
     required DateTime endedAt,
     required String filePath,
     required String recordingId,
+    RecordingOperationMode operationMode = RecordingOperationMode.shipping,
   }) {
     final DateTime? recordingStartedAt = _recordingStartedAt;
     if (recordingStartedAt == null || _segmentStartedAt == null) {
@@ -78,6 +80,7 @@ class RecordingTimeline {
         markers: List<BarcodeMarker>.unmodifiable(draft.markers),
         mediaStart: _difference(draft.startedAt, recordingStartedAt),
         mediaEnd: _difference(draft.endedAt, recordingStartedAt),
+        operationMode: operationMode,
       );
     }, growable: false);
   }

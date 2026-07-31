@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/models/barcode_marker.dart';
 import 'package:packing_proof_mobile/models/recording_session.dart';
+import 'package:packing_proof_mobile/models/recording_operation_mode.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/services/session_repository.dart';
 
@@ -75,6 +76,42 @@ void main() {
 
     expect(session.mediaStart, Duration.zero);
     expect(session.playbackEnd, const Duration(seconds: 30));
+    expect(session.operationMode, RecordingOperationMode.shipping);
+  });
+
+  test('退货录像模式可持久化并写入文件名', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'packing_proof_mobile_return_test',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final File source = File(
+      '${root.path}${Platform.pathSeparator}capture.mp4',
+    );
+    await source.writeAsBytes(<int>[0, 1, 2, 3]);
+    final SessionRepository repository = testRepository(root);
+    final DateTime startedAt = DateTime(2026, 7, 31, 9, 8, 7);
+
+    final String videoPath = await repository.finalizeVideo(
+      sourcePath: source.path,
+      sessionId: 'return-session',
+      startedAt: startedAt,
+      trackingNumber: 'RET123',
+      operationMode: RecordingOperationMode.returnGoods,
+    );
+    final RecordingSession restored = RecordingSession.fromJson(
+      RecordingSession(
+        id: 'return-session',
+        filePath: videoPath,
+        startedAt: startedAt,
+        endedAt: startedAt.add(const Duration(seconds: 5)),
+        markers: const <BarcodeMarker>[],
+        operationMode: RecordingOperationMode.returnGoods,
+      ).toJson(),
+    );
+
+    expect(videoPath, endsWith('RET123_20260731_090807_退货.mp4'));
+    expect(restored.operationMode, RecordingOperationMode.returnGoods);
+    expect(restored.toJson()['operationMode'], 'return');
   });
 
   test('剪辑录像只调整逻辑播放区间并保留面单号', () {

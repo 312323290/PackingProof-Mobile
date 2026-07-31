@@ -1,5 +1,6 @@
 import 'barcode_marker.dart';
 import 'order_info.dart';
+import 'recording_operation_mode.dart';
 
 class RecordingSession {
   const RecordingSession({
@@ -11,6 +12,7 @@ class RecordingSession {
     this.mediaStart = Duration.zero,
     this.mediaEnd,
     this.orderInfo,
+    this.operationMode = RecordingOperationMode.shipping,
   });
 
   final String id;
@@ -21,6 +23,7 @@ class RecordingSession {
   final Duration mediaStart;
   final Duration? mediaEnd;
   final OrderInfo? orderInfo;
+  final RecordingOperationMode operationMode;
 
   Duration get duration => endedAt.difference(startedAt);
 
@@ -71,6 +74,7 @@ class RecordingSession {
       mediaStart: mediaStart,
       mediaEnd: mediaEnd,
       orderInfo: orderInfo,
+      operationMode: operationMode,
     );
   }
 
@@ -83,6 +87,7 @@ class RecordingSession {
     'mediaStartMilliseconds': mediaStart.inMilliseconds,
     'mediaEndMilliseconds': playbackEnd.inMilliseconds,
     if (orderInfo != null) 'orderInfo': orderInfo!.toJson(),
+    'operationMode': operationMode.storageValue,
   };
 
   factory RecordingSession.fromJson(Map<String, Object?> json) {
@@ -112,6 +117,7 @@ class RecordingSession {
               Map<Object?, Object?>.from(json['orderInfo']! as Map),
             )
           : null,
+      operationMode: recordingOperationModeFromStorage(json['operationMode']),
     );
   }
 }

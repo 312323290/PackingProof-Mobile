@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'recording_session.dart';
+import 'recording_operation_mode.dart';
 import 'order_info.dart';
 
 enum LanBackupJobState { pending, uploading, paused, completed, failed }
@@ -311,6 +312,7 @@ class RemoteRecording {
     this.status = RemoteRecordingStatus.available,
     this.statusReason = '',
     this.orderInfo,
+    this.operationMode = RecordingOperationMode.shipping,
   });
 
   factory RemoteRecording.fromJson(Map<String, Object?> json, Uri baseUri) {
@@ -336,6 +338,7 @@ class RemoteRecording {
           : baseUri.resolve('${json['thumbnailUrl']}'),
       exists: json['exists'] != false,
       orderInfo: _orderInfoFromRemoteJson(json),
+      operationMode: recordingOperationModeFromStorage(json['mode']),
     );
   }
 
@@ -354,6 +357,7 @@ class RemoteRecording {
   final RemoteRecordingStatus status;
   final String statusReason;
   final OrderInfo? orderInfo;
+  final RecordingOperationMode operationMode;
 
   RemoteRecording withStatus({
     required RemoteRecordingStatus status,
@@ -375,6 +379,7 @@ class RemoteRecording {
     status: status,
     statusReason: reason,
     orderInfo: orderInfo,
+    operationMode: operationMode,
   );
 }
 
@@ -434,6 +439,7 @@ Map<String, Object?> recordingSessionBackupMap(RecordingSession session) {
     'endedAt': session.endedAt.toUtc().toIso8601String(),
     'mediaStartMs': session.mediaStart.inMilliseconds,
     'mediaEndMs': session.playbackEnd.inMilliseconds,
+    'mode': session.operationMode.storageValue,
     'markers': session.markers
         .map(
           (marker) => <String, Object?>{

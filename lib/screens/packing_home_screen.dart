@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app/app_build_config.dart';
 import '../controllers/packing_session_controller.dart';
 import '../models/barcode_marker.dart';
+import '../models/recording_operation_mode.dart';
 import '../models/work_mode.dart';
 import '../models/order_info.dart';
 import '../models/storage_notice.dart';
@@ -426,6 +427,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
                   currentCode: _controller.currentCode,
                   orderInfo: _controller.activeOrderInfo,
                   workMode: _controller.workMode,
+                  operationMode: _controller.operationMode,
                   errorMessage: _controller.errorMessage,
                   scanWarningMessage: _controller.scanWarningMessage,
                   pairingScanActive: _controller.pairingScanActive,
@@ -439,6 +441,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
                   onHistoryScanCancel: _cancelHistoryScanAndReturn,
                   onTorchPressed: _controller.toggleTorch,
                   onCameraSwitchPressed: _controller.switchCamera,
+                  onOperationModeChanged: _controller.setOperationMode,
                   onPrimaryPressed: _toggleWork,
                   onRetryPressed: _controller.retryInitialize,
                 ),
@@ -586,6 +589,7 @@ class PackingHomeView extends StatelessWidget {
     this.currentCode = '',
     this.orderInfo,
     this.workMode = WorkMode.continuousScan,
+    this.operationMode = RecordingOperationMode.shipping,
     this.errorMessage,
     this.scanWarningMessage,
     this.pairingScanActive = false,
@@ -599,6 +603,7 @@ class PackingHomeView extends StatelessWidget {
     this.onHistoryScanCancel,
     this.onTorchPressed,
     this.onCameraSwitchPressed,
+    this.onOperationModeChanged,
     this.previewOverride,
     this.watermarkTimestamp,
     super.key,
@@ -614,6 +619,7 @@ class PackingHomeView extends StatelessWidget {
   final String currentCode;
   final OrderInfo? orderInfo;
   final WorkMode workMode;
+  final RecordingOperationMode operationMode;
   final String? errorMessage;
   final String? scanWarningMessage;
   final bool pairingScanActive;
@@ -627,6 +633,7 @@ class PackingHomeView extends StatelessWidget {
   final VoidCallback? onHistoryScanCancel;
   final VoidCallback? onTorchPressed;
   final VoidCallback? onCameraSwitchPressed;
+  final ValueChanged<RecordingOperationMode>? onOperationModeChanged;
   final VoidCallback onPrimaryPressed;
   final VoidCallback onRetryPressed;
   final Widget? previewOverride;
@@ -746,9 +753,24 @@ class _CameraArea extends StatelessWidget {
         fit: StackFit.expand,
         children: <Widget>[
           Positioned.fill(child: preview),
+          if (!view.pairingScanActive && !view.historyScanActive)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 20,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: _OperationModePills(
+                  mode: view.operationMode,
+                  working: view._isWorking,
+                  enabled: !view._isBusy,
+                  onChanged: view.onOperationModeChanged,
+                ),
+              ),
+            ),
           Positioned(
             key: const Key('camera-watermark-position'),
-            top: 22,
+            top: !view.pairingScanActive && !view.historyScanActive ? 68 : 22,
             right: view.flashAvailable ? 72 : 18,
             child: _CameraWatermarkPreview(
               timestamp: view.watermarkTimestamp ?? DateTime.now(),
@@ -871,6 +893,103 @@ class _CameraArea extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _OperationModePills extends StatelessWidget {
+  const _OperationModePills({
+    required this.mode,
+    required this.working,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final RecordingOperationMode mode;
+  final bool working;
+  final bool enabled;
+  final ValueChanged<RecordingOperationMode>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<RecordingOperationMode> modes = working
+        ? <RecordingOperationMode>[mode]
+        : RecordingOperationMode.values;
+    return Semantics(
+      container: true,
+      label: '当前${mode.label}模式',
+      child: Material(
+        key: const Key('recording-operation-mode-pills'),
+        color: const Color(0xB3000000),
+        borderRadius: BorderRadius.circular(999),
+        clipBehavior: Clip.antiAlias,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: modes
+              .map(
+                (RecordingOperationMode value) => _OperationModePill(
+                  mode: value,
+                  selected: value == mode,
+                  enabled: enabled && !working && onChanged != null,
+                  onPressed: () => onChanged?.call(value),
+                ),
+              )
+              .toList(growable: false),
+        ),
+      ),
+    );
+  }
+}
+
+class _OperationModePill extends StatelessWidget {
+  const _OperationModePill({
+    required this.mode,
+    required this.selected,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final RecordingOperationMode mode;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool returning = mode == RecordingOperationMode.returnGoods;
+    final Color accent = returning
+        ? const Color(0xFFFFA726)
+        : const Color(0xFF42A5F5);
+    return InkWell(
+      key: Key('operation-mode-${mode.storageValue}-pill'),
+      onTap: enabled ? onPressed : null,
+      child: Ink(
+        color: selected ? accent : Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                returning
+                    ? Icons.keyboard_return_rounded
+                    : Icons.local_shipping_rounded,
+                size: 16,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                mode.label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

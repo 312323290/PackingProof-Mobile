@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/app/packing_proof_mobile_app.dart';
 import 'package:packing_proof_mobile/controllers/packing_session_controller.dart';
+import 'package:packing_proof_mobile/models/recording_operation_mode.dart';
 import 'package:packing_proof_mobile/screens/packing_home_screen.dart';
 
 void main() {
@@ -51,6 +52,54 @@ void main() {
     );
     expect(find.byType(TextField), findsNothing);
     expect(find.byKey(const Key('recording-button-shimmer')), findsNothing);
+  });
+
+  testWidgets('工作前可选择发货退货且工作中只显示当前模式', (WidgetTester tester) async {
+    RecordingOperationMode selected = RecordingOperationMode.shipping;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.ready,
+          elapsed: Duration.zero,
+          previewOverride: const ColoredBox(color: Colors.black),
+          operationMode: selected,
+          onOperationModeChanged: (RecordingOperationMode mode) {
+            selected = mode;
+          },
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const Key('operation-mode-shipping-pill')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('operation-mode-return-pill')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('operation-mode-return-pill')));
+    expect(selected, RecordingOperationMode.returnGoods);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.recording,
+          elapsed: const Duration(seconds: 2),
+          previewOverride: const ColoredBox(color: Colors.black),
+          operationMode: RecordingOperationMode.returnGoods,
+          onOperationModeChanged: (RecordingOperationMode mode) {
+            selected = mode;
+          },
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('operation-mode-shipping-pill')), findsNothing);
+    expect(find.byKey(const Key('operation-mode-return-pill')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('operation-mode-return-pill')));
+    expect(selected, RecordingOperationMode.returnGoods);
   });
 
   testWidgets('电脑配对成功后显示带地址的绿色提示', (WidgetTester tester) async {
@@ -246,7 +295,7 @@ void main() {
     final Positioned watermarkPosition = tester.widget<Positioned>(
       find.byKey(const Key('camera-watermark-position')),
     );
-    expect(watermarkPosition.top, 22);
+    expect(watermarkPosition.top, 68);
     expect(watermarkPosition.right, 18);
 
     final Text watermarkOutline = tester.widget<Text>(

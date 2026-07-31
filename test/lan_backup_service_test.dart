@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/models/barcode_marker.dart';
 import 'package:packing_proof_mobile/models/lan_backup.dart';
 import 'package:packing_proof_mobile/models/recording_session.dart';
+import 'package:packing_proof_mobile/models/recording_operation_mode.dart';
 import 'package:packing_proof_mobile/services/lan_backup_service.dart';
 
 void main() {
@@ -229,6 +230,7 @@ void main() {
       ],
       mediaStart: const Duration(seconds: 2),
       mediaEnd: const Duration(seconds: 10),
+      operationMode: RecordingOperationMode.returnGoods,
     );
 
     final Map<String, Object?> value = recordingSessionBackupMap(session);
@@ -236,6 +238,7 @@ void main() {
     expect(value['mediaStartMs'], 2000);
     expect(value['mediaEndMs'], 10000);
     expect(value['markers'], hasLength(1));
+    expect(value['mode'], 'return');
   });
 
   test('立即备份会要求原生任务强制重启', () async {

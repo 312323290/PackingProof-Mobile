@@ -815,24 +815,9 @@ class _CameraArea extends StatelessWidget {
         fit: StackFit.expand,
         children: <Widget>[
           Positioned.fill(child: preview),
-          if (!view.pairingScanActive && !view.historyScanActive)
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 20,
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: _OperationModePills(
-                  mode: view.operationMode,
-                  working: view._isWorking,
-                  enabled: !view._isBusy,
-                  onChanged: view.onOperationModeChanged,
-                ),
-              ),
-            ),
           Positioned(
             key: const Key('camera-watermark-position'),
-            top: !view.pairingScanActive && !view.historyScanActive ? 68 : 22,
+            top: view._isRecording ? 68 : 22,
             right: view.flashAvailable ? 72 : 18,
             child: _CameraWatermarkPreview(
               timestamp: view.watermarkTimestamp ?? DateTime.now(),
@@ -849,13 +834,28 @@ class _CameraArea extends StatelessWidget {
               child: CustomPaint(painter: _ScanGuidePainter()),
             ),
           ),
-          if (view._isRecording)
+          if (!view.pairingScanActive && !view.historyScanActive)
             Positioned(
               left: 0,
               right: 0,
               bottom: lowerOverlayInset,
               child: Align(
                 alignment: Alignment.bottomCenter,
+                child: _OperationModePills(
+                  mode: view.operationMode,
+                  working: view._isWorking,
+                  enabled: !view._isBusy,
+                  onChanged: view.onOperationModeChanged,
+                ),
+              ),
+            ),
+          if (view._isRecording)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 20,
+              child: Align(
+                alignment: Alignment.topCenter,
                 child: _RecordingDurationPill(elapsed: view.elapsed),
               ),
             ),
@@ -863,7 +863,7 @@ class _CameraArea extends StatelessWidget {
             Positioned(
               left: 18,
               right: 18,
-              bottom: 18,
+              bottom: lowerOverlayInset + 54,
               child: _ScanWarningToast(message: view.scanWarningMessage!),
             )
           else if (view.lastMarker != null)

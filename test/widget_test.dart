@@ -77,6 +77,13 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('operation-mode-return-pill')), findsOneWidget);
+    final Rect readyModePills = tester.getRect(
+      find.byKey(const Key('recording-operation-mode-pills')),
+    );
+    final Rect readyControlPanel = tester.getRect(
+      find.byKey(const Key('recording-control-panel')),
+    );
+    expect(readyModePills.bottom, lessThanOrEqualTo(readyControlPanel.top));
     await tester.tap(find.byKey(const Key('operation-mode-return-pill')));
     expect(selected, RecordingOperationMode.returnGoods);
 
@@ -98,6 +105,13 @@ void main() {
 
     expect(find.byKey(const Key('operation-mode-shipping-pill')), findsNothing);
     expect(find.byKey(const Key('operation-mode-return-pill')), findsOneWidget);
+    final Rect workingModePills = tester.getRect(
+      find.byKey(const Key('recording-operation-mode-pills')),
+    );
+    final Rect workingControlPanel = tester.getRect(
+      find.byKey(const Key('recording-control-panel')),
+    );
+    expect(workingModePills.bottom, lessThanOrEqualTo(workingControlPanel.top));
     await tester.tap(find.byKey(const Key('operation-mode-return-pill')));
     expect(selected, RecordingOperationMode.returnGoods);
   });
@@ -323,6 +337,9 @@ void main() {
     final Rect durationPill = tester.getRect(
       find.byKey(const Key('recording-duration-pill')),
     );
+    final Rect operationModePills = tester.getRect(
+      find.byKey(const Key('recording-operation-mode-pills')),
+    );
     final Rect controlPanel = tester.getRect(
       find.byKey(const Key('recording-control-panel')),
     );
@@ -333,8 +350,14 @@ void main() {
     expect(durationPill.center.dx, closeTo(previewViewport.center.dx, 1));
     expect(
       durationPill.center.dy,
+      lessThan(previewViewport.top + previewViewport.height * 0.2),
+    );
+    expect(operationModePills.bottom, lessThanOrEqualTo(controlPanel.top));
+    expect(
+      operationModePills.center.dy,
       greaterThan(previewViewport.top + previewViewport.height * 0.65),
     );
+    expect(durationPill.bottom, lessThan(operationModePills.top));
 
     final Text shippingCode = tester.widget<Text>(
       find.byKey(const Key('current-shipping-code')),
@@ -348,5 +371,70 @@ void main() {
       stopButton.style?.backgroundColor?.resolve(<WidgetState>{}),
       const Color(0xFFD92D20),
     );
+  });
+
+  testWidgets('扫码时隐藏模式选择且小屏录像覆盖层不重叠', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.ready,
+          elapsed: Duration.zero,
+          pairingScanActive: true,
+          previewOverride: const ColoredBox(color: Colors.black),
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+    expect(
+      find.byKey(const Key('recording-operation-mode-pills')),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.ready,
+          elapsed: Duration.zero,
+          historyScanActive: true,
+          previewOverride: const ColoredBox(color: Colors.black),
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+    expect(
+      find.byKey(const Key('recording-operation-mode-pills')),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PackingHomeView(
+          phase: PackingSessionPhase.recording,
+          elapsed: const Duration(seconds: 8),
+          previewOverride: const ColoredBox(color: Colors.black),
+          onPrimaryPressed: () {},
+          onRetryPressed: () {},
+        ),
+      ),
+    );
+
+    final Rect durationPill = tester.getRect(
+      find.byKey(const Key('recording-duration-pill')),
+    );
+    final Rect operationModePills = tester.getRect(
+      find.byKey(const Key('recording-operation-mode-pills')),
+    );
+    final Rect controlPanel = tester.getRect(
+      find.byKey(const Key('recording-control-panel')),
+    );
+    expect(durationPill.bottom, lessThan(operationModePills.top));
+    expect(operationModePills.bottom, lessThanOrEqualTo(controlPanel.top));
   });
 }

@@ -253,7 +253,6 @@ class PackingSessionController extends ChangeNotifier {
           // Order push can be retried from settings after recording is ready.
         }
       }
-      await _beginMaxVolumeIfNeeded();
       if (Platform.isAndroid) {
         final ContinuousCameraService nativeCamera = ContinuousCameraService();
         nativeCamera.onBarcodeFrame = _processNativeBarcodeFrame;
@@ -379,6 +378,7 @@ class PackingSessionController extends ChangeNotifier {
       return;
     }
 
+    await _beginMaxVolumeIfNeeded();
     await _boostMaxVolumeIfNeeded();
 
     _errorMessage = null;
@@ -408,6 +408,7 @@ class PackingSessionController extends ChangeNotifier {
       _activeOrderInfo = null;
       _timeline.reset();
       await WakelockPlus.disable();
+      await _endMaxVolumeSession();
       _setCameraError(error);
     } on Object catch (error) {
       await _setNativeWorkScanEnabled(false);
@@ -417,6 +418,7 @@ class PackingSessionController extends ChangeNotifier {
       _activeOrderInfo = null;
       _timeline.reset();
       await WakelockPlus.disable();
+      await _endMaxVolumeSession();
       _errorMessage = '无法开始录像，请重新检查摄像头\n$error';
       _setPhase(PackingSessionPhase.error);
       _speakErrorMessage(error.toString());
@@ -442,6 +444,7 @@ class PackingSessionController extends ChangeNotifier {
       _setActiveOrderInfo(null, announce: false);
       _stabilityTracker.reset();
       await WakelockPlus.disable();
+      await _endMaxVolumeSession();
       _setPhase(PackingSessionPhase.ready);
       await _releaseStorageNoticeAfterWork();
       return null;
@@ -464,6 +467,7 @@ class PackingSessionController extends ChangeNotifier {
       _workActive = false;
       _stopStorageMonitor();
       await WakelockPlus.disable();
+      await _endMaxVolumeSession();
       await Future<void>.delayed(transitionSettleDelay);
       _setPhase(PackingSessionPhase.ready);
       _speechService.resetIncidents();
@@ -478,6 +482,7 @@ class PackingSessionController extends ChangeNotifier {
       _workActive = false;
       _stopStorageMonitor();
       await WakelockPlus.disable();
+      await _endMaxVolumeSession();
       _errorMessage = '录像保存失败，请保留应用并重试\n$error';
       _setPhase(PackingSessionPhase.error);
       if (!silentStorageStop) {
@@ -655,7 +660,9 @@ class PackingSessionController extends ChangeNotifier {
     _maxVolumeEnabled = enabled;
     notifyListeners();
     if (enabled) {
-      await _beginMaxVolumeIfNeeded();
+      if (isWorking) {
+        await _beginMaxVolumeIfNeeded();
+      }
     } else {
       await _disableMaxVolume();
     }
@@ -944,7 +951,9 @@ class PackingSessionController extends ChangeNotifier {
     _appIsActive = true;
     await _lanBackupService.refresh();
     await _orderInfoReceiver.setBackgroundKeepAlive(false);
-    await _beginMaxVolumeIfNeeded();
+    if (isWorking) {
+      await _beginMaxVolumeIfNeeded();
+    }
     final bool needsInitialization = Platform.isAndroid
         ? _nativeInitialization == null
         : _cameraController?.value.isInitialized != true;
@@ -1340,6 +1349,7 @@ class PackingSessionController extends ChangeNotifier {
       _timeline.reset();
       _workActive = false;
       await WakelockPlus.disable();
+      await _endMaxVolumeSession();
       _errorMessage = '录像保存失败，请保留应用并重试\n$error';
       _setPhase(PackingSessionPhase.error);
       _speakErrorMessage(error.toString());

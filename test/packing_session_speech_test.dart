@@ -24,14 +24,18 @@ void main() {
 
   test('摄像头未就绪时保持静音', () async {
     final _FakeSpeechSink speech = _FakeSpeechSink();
+    final _FakeMaxVolumeSink volume = _FakeMaxVolumeSink();
     final PackingSessionController controller = PackingSessionController(
       repository: testRepository(root),
       speechService: speech,
+      maxVolumeService: volume,
     );
 
     await controller.startWork();
 
     expect(speech.prompts, isEmpty);
+    expect(volume.beginCount, 0);
+    expect(volume.boostCount, 0);
   });
 
   test('语音开关同步服务并持久化', () async {
@@ -77,7 +81,7 @@ void main() {
     expect((await repository.loadSettings()).maxVolumeEnabled, isFalse);
 
     await controller.setMaxVolumeEnabled(true);
-    expect(volume.beginCount, 1);
+    expect(volume.beginCount, 0);
     expect((await repository.loadSettings()).maxVolumeEnabled, isTrue);
   });
 }

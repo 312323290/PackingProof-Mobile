@@ -16,6 +16,7 @@ import '../models/order_info.dart';
 import '../models/storage_notice.dart';
 import '../models/lan_backup.dart';
 import '../services/preview_cover_transform.dart';
+import '../services/lan_backup_discovery_service.dart';
 import '../services/session_repository.dart';
 import '../services/speech_prompt_service.dart';
 import '../widgets/order_info_sheet.dart';
@@ -190,6 +191,7 @@ class PackingHomeScreen extends StatefulWidget {
 class _PackingHomeScreenState extends State<PackingHomeScreen>
     with WidgetsBindingObserver {
   late final PackingSessionController _controller;
+  late final LanBackupHostDiscoveryService _backupHostDiscovery;
   int _selectedTab = 1;
   String _historySearchQuery = '';
   int _handledPairingSuccessRevision = 0;
@@ -210,6 +212,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       repository: widget.repository,
       speechService: SpeechPromptService(),
     );
+    _backupHostDiscovery = LanBackupHostDiscoveryService();
     _watermarkClock = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _selectedTab == 1) setState(() {});
     });
@@ -234,6 +237,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _watermarkClock?.cancel();
+    _backupHostDiscovery.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -560,6 +564,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       backupSnapshot: _controller.backupSnapshot,
       backupListenable: _controller,
       backupSnapshotProvider: () => _controller.backupSnapshot,
+      backupHostDiscovery: _backupHostDiscovery,
       onWorkModeChanged: _controller.setWorkMode,
       onSpeechEnabledChanged: _controller.setSpeechEnabled,
       onOrderSpeechEnabledChanged: _controller.setOrderSpeechEnabled,

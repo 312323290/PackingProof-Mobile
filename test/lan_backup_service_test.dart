@@ -377,12 +377,15 @@ void main() {
       () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null),
     );
-    final LanBackupService service = LanBackupService(
-      channel: channel,
-      httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
+    final _SequenceHttpClient httpClient = _SequenceHttpClient(
+      <_StreamHttpResponse>[
         _nodeInfo('computer-1', '仓库电脑'),
         _enrollment('computer-1', '仓库电脑', 'a' * 64),
-      ]),
+      ],
+    );
+    final LanBackupService service = LanBackupService(
+      channel: channel,
+      httpClient: httpClient,
       wifiConnected: () async => true,
     );
     addTearDown(service.dispose);
@@ -392,6 +395,14 @@ void main() {
     expect(saved?['accessKey'], 'a' * 64);
     expect(saved?['computerId'], 'computer-1');
     expect(service.snapshot.message, '保存主机已允许连接');
+    final Map<String, Object?> enrollmentRequest = Map<String, Object?>.from(
+      jsonDecode(utf8.decode(httpClient.postBodies.single)) as Map,
+    );
+    expect(enrollmentRequest['clientVersion'], '0.5.10');
+    expect(enrollmentRequest['clientBuildNumber'], 11010);
+    expect(enrollmentRequest['backupProtocol'], 'mobile-backup-v2');
+    expect(enrollmentRequest['enrollmentVersion'], 2);
+    expect(enrollmentRequest['authVersion'], 3);
   });
 
   test('保存主机拒绝时不写入连接配置', () async {
@@ -429,6 +440,67 @@ void main() {
     expect(service.snapshot.endpoint, isNull);
   });
 
+  test('旧保存主机在申请令牌前提示更新电脑端', () async {
+    final _SequenceHttpClient client =
+        _SequenceHttpClient(<_StreamHttpResponse>[
+          _StreamHttpResponse(
+            HttpStatus.ok,
+            '{"protocol":"packingproof","protocolVersion":1,'
+            '"nodeId":"old-computer","nodeName":"旧电脑",'
+            '"capabilities":["host","mobile-backup"]}',
+          ),
+          _enrollment('old-computer', '旧电脑', 'a' * 64),
+        ]);
+    final LanBackupService service = LanBackupService(
+      httpClient: client,
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+
+    await expectLater(
+      service.connectToHost(Uri.parse('http://192.168.1.20:5280')),
+      throwsA(isA<LanBackupHostUpgradeRequiredException>()),
+    );
+    expect(client.responses, hasLength(1));
+    expect(service.snapshot.message, contains('更新 PackingProof'));
+  });
+
+  test('主机要求新版手机时保留连接配置并提示更新 App', () async {
+    final MethodChannel channel = const MethodChannel(
+      'app.packingproof.mobile/lan_backup_client_upgrade_test',
+    );
+    int savedConnections = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          if (call.method == 'saveConnection') savedConnections++;
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    final LanBackupService service = LanBackupService(
+      channel: channel,
+      httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
+        _nodeInfo('computer-1', '仓库电脑'),
+        _StreamHttpResponse(
+          426,
+          '{"errorCode":"backup_client_upgrade_required",'
+          '"error":"手机 App 版本过低，请更新后重新连接"}',
+        ),
+      ]),
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+
+    await expectLater(
+      service.connectToHost(Uri.parse('http://192.168.1.20:5280')),
+      throwsA(isA<LanBackupClientUpgradeRequiredException>()),
+    );
+    expect(savedConnections, 0);
+    expect(service.snapshot.message, '手机 App 版本过低，请更新后重新连接');
+  });
+
   test('存在待备份录像时更换主机要先确认且确认前不申请令牌', () async {
     final LanBackupService service = LanBackupService(
       httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
@@ -462,7 +534,10 @@ void main() {
 _StreamHttpResponse _nodeInfo(String id, String name) => _StreamHttpResponse(
   HttpStatus.ok,
   '{"protocol":"packingproof","protocolVersion":1,"nodeId":"$id",'
-  '"nodeName":"$name","capabilities":["host","mobile-backup"]}',
+  '"nodeName":"$name","capabilities":["host","mobile-backup"],'
+  '"backupCompatibility":{"hostVersion":"0.0.32",'
+  '"protocol":"mobile-backup-v2","enrollmentVersion":2,"authVersion":3,'
+  '"minimumMobileVersion":"0.5.10","minimumMobileBuildNumber":11010}}',
 );
 
 _StreamHttpResponse _enrollment(String id, String name, String token) =>
@@ -502,6 +577,7 @@ class _SequenceHttpClient extends Fake implements HttpClient {
   _SequenceHttpClient(this.responses);
 
   final List<_StreamHttpResponse> responses;
+  final List<List<int>> postBodies = <List<int>>[];
 
   @override
   Future<HttpClientRequest> getUrl(Uri url) async {
@@ -510,7 +586,10 @@ class _SequenceHttpClient extends Fake implements HttpClient {
 
   @override
   Future<HttpClientRequest> postUrl(Uri url) async {
-    return _CompletedHttpClientRequest(responses.removeAt(0));
+    return _CompletedHttpClientRequest(
+      responses.removeAt(0),
+      onBytes: postBodies.add,
+    );
   }
 
   @override
@@ -518,9 +597,10 @@ class _SequenceHttpClient extends Fake implements HttpClient {
 }
 
 class _CompletedHttpClientRequest extends Fake implements HttpClientRequest {
-  _CompletedHttpClientRequest(this.response);
+  _CompletedHttpClientRequest(this.response, {this.onBytes});
 
   final _StreamHttpResponse response;
+  final void Function(List<int> bytes)? onBytes;
   final HttpHeaders _headers = _IgnoringHttpHeaders();
 
   @override
@@ -533,7 +613,7 @@ class _CompletedHttpClientRequest extends Fake implements HttpClientRequest {
   set contentLength(int value) {}
 
   @override
-  void add(List<int> data) {}
+  void add(List<int> data) => onBytes?.call(List<int>.from(data));
 
   @override
   Future<HttpClientResponse> close() async => response;

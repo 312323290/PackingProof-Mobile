@@ -4,16 +4,22 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'lan_backup_compatibility.dart';
+
 class LanBackupDiscoveredHost {
   const LanBackupDiscoveredHost({
     required this.nodeId,
     required this.name,
     required this.address,
+    this.compatible = true,
+    this.compatibilityMessage,
   });
 
   final String nodeId;
   final String name;
   final String address;
+  final bool compatible;
+  final String? compatibilityMessage;
 
   Uri get baseUri => Uri.parse('http://$address');
 }
@@ -73,12 +79,17 @@ LanBackupDiscoveredHost? parseLanBackupDiscoveredHost(Uri uri, String body) {
   final int port = advertisedPort > 0 && advertisedPort <= 65535
       ? advertisedPort
       : uri.port;
+  final LanBackupHostCompatibility? compatibility =
+      parseLanBackupHostCompatibility(decoded['backupCompatibility']);
+  final bool compatible = compatibility?.supportsCurrentMobile == true;
   return LanBackupDiscoveredHost(
     nodeId: nodeId,
     name: '${decoded['nodeName'] ?? ''}'.trim().isEmpty
         ? '录像文件备份主机'
         : '${decoded['nodeName']}'.trim(),
     address: '${uri.host}:$port',
+    compatible: compatible,
+    compatibilityMessage: compatible ? null : '保存主机版本过低，请在电脑端更新 PackingProof',
   );
 }
 
@@ -178,6 +189,8 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
       hosts: List<LanBackupDiscoveredHost>.unmodifiable(hosts),
       message: hosts.isEmpty
           ? '未找到录像文件备份主机，可重新搜索或扫码连接'
+          : hosts.every((LanBackupDiscoveredHost host) => !host.compatible)
+          ? '找到保存主机，但电脑端版本过低，请先更新 PackingProof'
           : '找到 ${hosts.length} 台录像文件备份主机，请选择后等待电脑允许连接',
     );
     notifyListeners();

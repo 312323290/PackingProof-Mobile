@@ -8,10 +8,14 @@ void main() {
       uri,
       '{"protocol":"packingproof","protocolVersion":1,'
       '"nodeId":"host-1","nodeName":"仓库电脑","httpPort":5280,'
-      '"capabilities":["host","mobile-backup"]}',
+      '"capabilities":["host","mobile-backup"],'
+      '"backupCompatibility":{"hostVersion":"0.0.32",'
+      '"protocol":"mobile-backup-v2","enrollmentVersion":2,"authVersion":3,'
+      '"minimumMobileVersion":"0.5.10","minimumMobileBuildNumber":11010}}',
     );
     expect(host?.nodeId, 'host-1');
     expect(host?.address, '192.168.1.20:5280');
+    expect(host?.compatible, isTrue);
     expect(
       parseLanBackupDiscoveredHost(
         uri,
@@ -20,6 +24,19 @@ void main() {
       ),
       isNull,
     );
+  });
+
+  test('旧保存主机保留在搜索结果但明确要求更新电脑端', () {
+    final LanBackupDiscoveredHost? host = parseLanBackupDiscoveredHost(
+      Uri.parse('http://192.168.1.20:5280'),
+      '{"protocol":"packingproof","protocolVersion":1,'
+      '"nodeId":"old-host","nodeName":"旧电脑","httpPort":5280,'
+      '"capabilities":["host","mobile-backup"]}',
+    );
+
+    expect(host, isNotNull);
+    expect(host!.compatible, isFalse);
+    expect(host.compatibilityMessage, contains('更新 PackingProof'));
   });
 
   test('搜索进度来自真实候选地址完成数并合并同一主机', () async {

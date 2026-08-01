@@ -11,6 +11,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/backup_retention_policy.dart';
+import 'lan_backup_compatibility.dart';
 
 class LanBackupUnsupportedException implements Exception {
   const LanBackupUnsupportedException();
@@ -19,8 +20,21 @@ class LanBackupUnsupportedException implements Exception {
   String toString() => '电脑端版本暂不支持录像备份';
 }
 
-const int _backupAuthenticationVersion = 3;
-const String _backupProtocol = 'mobile-backup-v2';
+class LanBackupHostUpgradeRequiredException implements Exception {
+  const LanBackupHostUpgradeRequiredException();
+
+  @override
+  String toString() => '保存主机版本过低，请在电脑端更新 PackingProof';
+}
+
+class LanBackupClientUpgradeRequiredException implements Exception {
+  const LanBackupClientUpgradeRequiredException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
 
 List<int> _decodeSecret(String value) {
   final String normalized = value.trim();
@@ -168,8 +182,8 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   int _pairingRevision = 0;
   HttpClientRequest? _activePairingRequest;
   LanBackupSnapshot? _pairingRestoreSnapshot;
-  String _appVersion = '';
-  int _appBuildNumber = 0;
+  String _appVersion = currentMobileCompatibilityVersion;
+  int _appBuildNumber = currentMobileCompatibilityBuildNumber;
 
   @override
   LanBackupSnapshot get snapshot => _snapshot;
@@ -268,6 +282,13 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       );
       notifyListeners();
       rethrow;
+    } on LanBackupHostUpgradeRequiredException {
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.offline,
+        message: '保存主机版本过低，请在电脑端更新 PackingProof',
+      );
+      notifyListeners();
+      rethrow;
     }
     final Set<String> pendingHostIds = _snapshot.jobs
         .where((LanBackupJob job) => job.state != LanBackupJobState.completed)
@@ -311,6 +332,11 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           'deviceId': _signingDeviceId,
           'deviceName': _snapshot.deviceName,
           'deviceKind': 'mobile',
+          'clientVersion': _appVersion,
+          'clientBuildNumber': _appBuildNumber,
+          'backupProtocol': backupProtocol,
+          'enrollmentVersion': backupEnrollmentVersion,
+          'authVersion': backupAuthenticationVersion,
         }),
       );
       final HttpClientRequest request = await _httpClient
@@ -342,6 +368,15 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       if (response.statusCode == HttpStatus.tooManyRequests) {
         throw const LanBackupConnectionException('连接申请过于频繁，请稍后重试');
       }
+      if (response.statusCode == 426) {
+        final Object? decoded = jsonDecode(body);
+        final String message = decoded is Map
+            ? '${decoded['error'] ?? ''}'.trim()
+            : '';
+        throw LanBackupClientUpgradeRequiredException(
+          message.isEmpty ? '手机 App 版本过低，请更新后重新连接' : message,
+        );
+      }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException('电脑连接失败（${response.statusCode}）');
       }
@@ -349,10 +384,10 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         jsonDecode(body) as Map<Object?, Object?>,
       );
       final String deviceToken = '${enrollment['deviceToken'] ?? ''}'.trim();
-      if (enrollment['protocol'] != _backupProtocol ||
+      if (enrollment['protocol'] != backupProtocol ||
           (enrollment['version'] as num?)?.toInt() != 2 ||
           (enrollment['authVersion'] as num?)?.toInt() !=
-              _backupAuthenticationVersion ||
+              backupAuthenticationVersion ||
           '${enrollment['deviceId'] ?? ''}'.trim().toLowerCase() !=
               _signingDeviceId.toLowerCase() ||
           deviceToken.length < 32) {
@@ -410,6 +445,16 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           : _snapshot.copyWith(
               connectionStatus: LanConnectionStatus.notBackupHost,
               message: '这台电脑当前不是录像备份主机，请切换电脑用途或选择另一台主机',
+            );
+      notifyListeners();
+      rethrow;
+    } on LanBackupClientUpgradeRequiredException catch (error) {
+      if (revision != _pairingRevision) return;
+      _snapshot = restoreSnapshot.endpoint != null
+          ? restoreSnapshot
+          : _snapshot.copyWith(
+              connectionStatus: LanConnectionStatus.offline,
+              message: error.message,
             );
       notifyListeners();
       rethrow;
@@ -473,6 +518,11 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     if (!capabilities.contains('host') ||
         !capabilities.contains('mobile-backup')) {
       throw const LanBackupNotHostException();
+    }
+    final LanBackupHostCompatibility? compatibility =
+        parseLanBackupHostCompatibility(node['backupCompatibility']);
+    if (compatibility?.supportsCurrentMobile != true) {
+      throw const LanBackupHostUpgradeRequiredException();
     }
     final String nodeId = '${node['nodeId'] ?? ''}'.trim();
     if (nodeId.isEmpty) throw const LanBackupUnsupportedException();
@@ -928,7 +978,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       sha256,
       _decodeSecret(deviceCredential),
     ).convert(utf8.encode(canonical)).toString();
-    request.headers.set('X-EPM-Auth-Version', '$_backupAuthenticationVersion');
+    request.headers.set('X-EPM-Auth-Version', '$backupAuthenticationVersion');
     request.headers.set('X-EPM-Timestamp', '$timestamp');
     request.headers.set('X-EPM-Nonce', nonce);
     request.headers.set('X-EPM-Content-SHA256', contentHash);
@@ -1263,21 +1313,5 @@ MobileAppUpdateNotice? evaluateMobileAppUpdatePolicy(
 
 @visibleForTesting
 int compareAppVersions(String left, String right) {
-  final List<int> leftParts = _numericVersionParts(left);
-  final List<int> rightParts = _numericVersionParts(right);
-  final int length = leftParts.length > rightParts.length
-      ? leftParts.length
-      : rightParts.length;
-  for (int index = 0; index < length; index++) {
-    final int leftPart = index < leftParts.length ? leftParts[index] : 0;
-    final int rightPart = index < rightParts.length ? rightParts[index] : 0;
-    if (leftPart != rightPart) return leftPart.compareTo(rightPart);
-  }
-  return 0;
+  return compareBackupVersions(left, right);
 }
-
-List<int> _numericVersionParts(String value) => value
-    .split(RegExp(r'[^0-9]+'))
-    .where((String part) => part.isNotEmpty)
-    .map((String part) => int.tryParse(part) ?? 0)
-    .toList(growable: false);

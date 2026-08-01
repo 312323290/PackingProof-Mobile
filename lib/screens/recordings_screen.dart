@@ -366,11 +366,15 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     final LanBackupDiscoveredHost? preferredHost = preferredHostId.isEmpty
         ? null
         : next.hosts.cast<LanBackupDiscoveredHost?>().firstWhere(
-            (LanBackupDiscoveredHost? host) => host?.nodeId == preferredHostId,
+            (LanBackupDiscoveredHost? host) =>
+                host?.compatible == true && host?.nodeId == preferredHostId,
             orElse: () => null,
           );
     final LanBackupDiscoveredHost? automaticHost =
-        preferredHost ?? (next.hosts.length == 1 ? next.hosts.single : null);
+        preferredHost ??
+        (next.hosts.where((host) => host.compatible).length == 1
+            ? next.hosts.singleWhere((host) => host.compatible)
+            : null);
     if (!next.searching &&
         automaticHost != null &&
         !_autoConnectStarted &&
@@ -396,6 +400,16 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   }
 
   Future<void> _connectDiscoveredHost(LanBackupDiscoveredHost host) async {
+    if (!host.compatible) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(host.compatibilityMessage ?? '保存主机版本过低，请更新电脑端'),
+          ),
+        );
+      }
+      return;
+    }
     final Future<void> Function(
       LanBackupDiscoveredHost host,
       LanBackupPairingConfirmation? replacementConfirmation,
@@ -2054,13 +2068,20 @@ class _ComputerBackupSettings extends StatelessWidget {
                     key: ValueKey<String>(
                       'discovered-backup-host-${host.nodeId}',
                     ),
-                    onPressed: discovery.searching || onSelectHost == null
+                    onPressed:
+                        discovery.searching ||
+                            onSelectHost == null ||
+                            !host.compatible
                         ? null
                         : () => onSelectHost!(host),
                     icon: const Icon(Icons.dns_rounded),
                     label: Align(
                       alignment: Alignment.centerLeft,
-                      child: Text('${host.name} · ${host.address}'),
+                      child: Text(
+                        host.compatible
+                            ? '${host.name} · ${host.address}'
+                            : '${host.name} · 电脑端需更新',
+                      ),
                     ),
                   ),
                 ),

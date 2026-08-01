@@ -65,6 +65,14 @@ dart format <changed-files>
 - The release script must validate and reuse matching speech assets, generating only missing or changed fixed prompts before packaging.
 - Recording, camera, audio, permissions, background lifecycle, installation upgrades, and LAN backup changes still require real-device validation when affected.
 
+## Cross-Device Backup Compatibility
+
+- Treat every change to discovery, enrollment, device-token authentication, upload, or verified receipts as a two-sided protocol change. The phone and host must exchange explicit protocol, enrollment, authentication, application-version, and build capabilities.
+- Check host compatibility before requesting a device token. A host must reject an incompatible phone before displaying its approval prompt or issuing or rotating a token, and return a structured response that tells the user which side must update.
+- Compatibility failures may pause connection and backup only. Preserve local recordings, the database, pending backup tasks, the stable device ID, and the previous host hint so work can continue offline and resume after an update.
+- Keep concrete minimum versions and protocol numbers in the centralized compatibility policy code, not in this document. Update phone and desktop regression tests together whenever the wire contract changes.
+- Publish the compatible phone package before a desktop release raises the minimum phone version, and verify old-host, old-client, and newer-compatible combinations before release.
+
 ## Android Release
 
 Create an exact tag on a clean commit, then generate one formally signed APK:

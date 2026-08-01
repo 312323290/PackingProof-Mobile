@@ -13,6 +13,7 @@ class LanBackupDiscoveredHost {
     required this.address,
     this.compatible = true,
     this.compatibilityMessage,
+    this.reachable = true,
   });
 
   final String nodeId;
@@ -20,8 +21,25 @@ class LanBackupDiscoveredHost {
   final String address;
   final bool compatible;
   final String? compatibilityMessage;
+  final bool reachable;
 
   Uri get baseUri => Uri.parse('http://$address');
+
+  LanBackupDiscoveredHost copyWith({
+    String? nodeId,
+    String? name,
+    String? address,
+    bool? compatible,
+    String? compatibilityMessage,
+    bool? reachable,
+  }) => LanBackupDiscoveredHost(
+    nodeId: nodeId ?? this.nodeId,
+    name: name ?? this.name,
+    address: address ?? this.address,
+    compatible: compatible ?? this.compatible,
+    compatibilityMessage: compatibilityMessage ?? this.compatibilityMessage,
+    reachable: reachable ?? this.reachable,
+  );
 }
 
 class LanBackupDiscoverySnapshot {
@@ -46,6 +64,11 @@ abstract interface class LanBackupHostDiscovery implements Listenable {
   LanBackupDiscoverySnapshot get snapshot;
   Future<void> search();
   void cancel();
+}
+
+abstract interface class LanBackupHostCache {
+  Future<List<LanBackupDiscoveredHost>> load();
+  Future<void> save(List<LanBackupDiscoveredHost> hosts);
 }
 
 typedef LanBackupCandidateProvider = Future<List<Uri>> Function();
@@ -110,6 +133,7 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
     LanBackupCandidateProvider? candidateProvider,
     LanBackupHostProbe? probe,
     HttpClient? httpClient,
+    this.cache,
   }) : _candidateProvider = candidateProvider ?? _defaultCandidates,
        _httpClient = httpClient ?? HttpClient(),
        _ownsHttpClient = httpClient == null,
@@ -119,8 +143,10 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
   final LanBackupHostProbe? _probeOverride;
   final HttpClient _httpClient;
   final bool _ownsHttpClient;
+  final LanBackupHostCache? cache;
   int _revision = 0;
   Future<void>? _activeSearch;
+  bool _cacheLoaded = false;
   LanBackupDiscoverySnapshot _snapshot = const LanBackupDiscoverySnapshot();
 
   @override
@@ -140,11 +166,35 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
 
   Future<void> _runSearch() async {
     final int revision = ++_revision;
-    _snapshot = const LanBackupDiscoverySnapshot(
+    List<LanBackupDiscoveredHost> retainedHosts = _snapshot.hosts
+        .map((LanBackupDiscoveredHost host) => host.copyWith(reachable: false))
+        .toList(growable: true);
+    _snapshot = LanBackupDiscoverySnapshot(
       searching: true,
-      message: '正在查找同一 Wi-Fi 下的录像文件备份主机',
+      hosts: List<LanBackupDiscoveredHost>.unmodifiable(retainedHosts),
+      message: retainedHosts.isEmpty
+          ? '正在查找同一 Wi-Fi 下的录像文件备份主机'
+          : '正在重新搜索，已保留上次找到的电脑',
     );
     notifyListeners();
+    if (!_cacheLoaded && cache != null) {
+      _cacheLoaded = true;
+      try {
+        final List<LanBackupDiscoveredHost> cached = await cache!.load();
+        if (revision != _revision) return;
+        retainedHosts = _mergeHosts(retainedHosts, cached);
+        _snapshot = LanBackupDiscoverySnapshot(
+          searching: true,
+          hosts: List<LanBackupDiscoveredHost>.unmodifiable(retainedHosts),
+          message: retainedHosts.isEmpty
+              ? '正在查找同一 Wi-Fi 下的录像文件备份主机'
+              : '正在重新搜索，已保留上次找到的电脑',
+        );
+        notifyListeners();
+      } on Object {
+        // 搜索仍可继续，缓存损坏或暂不可读不应阻断连接。
+      }
+    }
     final List<Uri> candidates;
     try {
       candidates = await _candidateProvider();
@@ -153,23 +203,33 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
       _snapshot = const LanBackupDiscoverySnapshot(
         message: '暂时无法读取局域网地址，可重新搜索或扫码连接',
       );
+      if (retainedHosts.isNotEmpty) {
+        _snapshot = LanBackupDiscoverySnapshot(
+          hosts: List<LanBackupDiscoveredHost>.unmodifiable(retainedHosts),
+          message: '暂时无法搜索，已保留上次找到的电脑',
+        );
+      }
       notifyListeners();
       return;
     }
     if (revision != _revision) return;
     if (candidates.isEmpty) {
-      _snapshot = const LanBackupDiscoverySnapshot(
-        message: '未连接 Wi-Fi，请连接后重新搜索或扫码连接',
+      _snapshot = LanBackupDiscoverySnapshot(
+        hosts: List<LanBackupDiscoveredHost>.unmodifiable(retainedHosts),
+        message: retainedHosts.isEmpty
+            ? '未连接 Wi-Fi，请连接后重新搜索或扫码连接'
+            : '未连接 Wi-Fi，已保留上次找到的电脑',
       );
       notifyListeners();
       return;
     }
-    final List<LanBackupDiscoveredHost> hosts = <LanBackupDiscoveredHost>[];
+    final List<LanBackupDiscoveredHost> hosts = retainedHosts;
     int cursor = 0;
     int completed = 0;
     _snapshot = LanBackupDiscoverySnapshot(
       searching: true,
       total: candidates.length,
+      hosts: List<LanBackupDiscoveredHost>.unmodifiable(hosts),
       message: '正在搜索 0 / ${candidates.length}',
     );
     notifyListeners();
@@ -179,8 +239,15 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
         if (index >= candidates.length) return;
         final LanBackupDiscoveredHost? host = await _probe(candidates[index]);
         if (revision != _revision) return;
-        if (host != null && hosts.every((item) => item.nodeId != host.nodeId)) {
-          hosts.add(host);
+        if (host != null) {
+          final int existingIndex = hosts.indexWhere(
+            (LanBackupDiscoveredHost item) => item.nodeId == host.nodeId,
+          );
+          if (existingIndex >= 0) {
+            hosts[existingIndex] = host;
+          } else {
+            hosts.add(host);
+          }
           hosts.sort((a, b) => a.name.compareTo(b.name));
         }
         completed++;
@@ -206,17 +273,51 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
       ),
     );
     if (revision != _revision) return;
+    final List<LanBackupDiscoveredHost> reachableHosts = hosts
+        .where((LanBackupDiscoveredHost host) => host.reachable)
+        .toList(growable: false);
     _snapshot = LanBackupDiscoverySnapshot(
       completed: completed,
       total: candidates.length,
       hosts: List<LanBackupDiscoveredHost>.unmodifiable(hosts),
-      message: hosts.isEmpty
+      message: reachableHosts.isEmpty && hosts.isNotEmpty
+          ? '未找到在线保存主机，已保留上次搜索结果'
+          : hosts.isEmpty
           ? '未找到录像文件备份主机，可重新搜索或扫码连接'
-          : hosts.every((LanBackupDiscoveredHost host) => !host.compatible)
+          : reachableHosts.every(
+              (LanBackupDiscoveredHost host) => !host.compatible,
+            )
           ? '找到保存主机，但电脑端版本过低，请先更新 PackingProof'
-          : '找到 ${hosts.length} 台录像文件备份主机，请选择后等待电脑允许连接',
+          : reachableHosts.length == 1
+          ? '已找到保存主机，正在请求电脑允许连接'
+          : '找到 ${reachableHosts.length} 台保存主机，请选择一台连接',
     );
     notifyListeners();
+    final LanBackupHostCache? hostCache = cache;
+    if (hostCache != null && hosts.isNotEmpty) {
+      try {
+        await hostCache.save(List<LanBackupDiscoveredHost>.unmodifiable(hosts));
+      } on Object {
+        // 缓存失败不影响本次搜索结果和连接。
+      }
+    }
+  }
+
+  static List<LanBackupDiscoveredHost> _mergeHosts(
+    List<LanBackupDiscoveredHost> current,
+    List<LanBackupDiscoveredHost> cached,
+  ) {
+    final Map<String, LanBackupDiscoveredHost> merged =
+        <String, LanBackupDiscoveredHost>{};
+    for (final LanBackupDiscoveredHost host in cached) {
+      merged[host.nodeId] = host.copyWith(reachable: false);
+    }
+    for (final LanBackupDiscoveredHost host in current) {
+      merged[host.nodeId] = host;
+    }
+    final List<LanBackupDiscoveredHost> result = merged.values.toList();
+    result.sort((a, b) => a.name.compareTo(b.name));
+    return result;
   }
 
   Future<LanBackupDiscoveredHost?> _probe(Uri uri) async {

@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/services/lan_backup_discovery_service.dart';
+import 'package:packing_proof_mobile/services/lan_backup_host_file_cache.dart';
 
 void main() {
   test('只接受具备录像备份能力的主机', () {
@@ -106,4 +108,95 @@ void main() {
     await Future.wait(<Future<void>>[first, second]);
     expect(service.snapshot.completed, 1);
   });
+
+  test('重新搜索期间保留缓存列表并在发现后更新在线地址', () async {
+    final Completer<void> allowProbe = Completer<void>();
+    final _MemoryBackupHostCache cache =
+        _MemoryBackupHostCache(<LanBackupDiscoveredHost>[
+          const LanBackupDiscoveredHost(
+            nodeId: 'host-1',
+            name: '电脑1',
+            address: '192.168.1.20:5280',
+            reachable: false,
+          ),
+        ]);
+    final LanBackupHostDiscoveryService service = LanBackupHostDiscoveryService(
+      cache: cache,
+      candidateProvider: () async => <Uri>[
+        Uri.parse('http://192.168.1.30:5280'),
+      ],
+      probe: (Uri uri) async {
+        await allowProbe.future;
+        return const LanBackupDiscoveredHost(
+          nodeId: 'host-1',
+          name: '电脑1',
+          address: '192.168.1.30:5280',
+        );
+      },
+    );
+    addTearDown(service.dispose);
+
+    final Future<void> search = service.search();
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.snapshot.searching, isTrue);
+    expect(service.snapshot.hosts.single.address, '192.168.1.20:5280');
+    expect(service.snapshot.hosts.single.reachable, isFalse);
+
+    allowProbe.complete();
+    await search;
+    expect(service.snapshot.hosts.single.address, '192.168.1.30:5280');
+    expect(service.snapshot.hosts.single.reachable, isTrue);
+    expect(cache.saved.single.address, '192.168.1.30:5280');
+  });
+
+  test('文件缓存可跨服务实例恢复主机且不会把缓存当作在线', () async {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'packing-proof-host-cache-',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    final LanBackupHostFileCache cache = LanBackupHostFileCache(
+      rootDirectory: root,
+    );
+    final LanBackupHostDiscoveryService writer = LanBackupHostDiscoveryService(
+      cache: cache,
+      candidateProvider: () async => <Uri>[
+        Uri.parse('http://192.168.1.88:5280'),
+      ],
+      probe: (Uri uri) async => const LanBackupDiscoveredHost(
+        nodeId: 'host-88',
+        name: '电脑2',
+        address: '192.168.1.88:5280',
+      ),
+    );
+    await writer.search();
+    writer.dispose();
+
+    final LanBackupHostDiscoveryService reader = LanBackupHostDiscoveryService(
+      cache: cache,
+      candidateProvider: () async => const <Uri>[],
+    );
+    addTearDown(reader.dispose);
+    await reader.search();
+
+    expect(reader.snapshot.hosts.single.nodeId, 'host-88');
+    expect(reader.snapshot.hosts.single.reachable, isFalse);
+    expect(reader.snapshot.message, contains('已保留'));
+  });
+}
+
+class _MemoryBackupHostCache implements LanBackupHostCache {
+  _MemoryBackupHostCache(this.values);
+
+  final List<LanBackupDiscoveredHost> values;
+  List<LanBackupDiscoveredHost> saved = const <LanBackupDiscoveredHost>[];
+
+  @override
+  Future<List<LanBackupDiscoveredHost>> load() async => values;
+
+  @override
+  Future<void> save(List<LanBackupDiscoveredHost> hosts) async {
+    saved = List<LanBackupDiscoveredHost>.of(hosts);
+  }
 }

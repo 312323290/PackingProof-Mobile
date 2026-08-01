@@ -17,6 +17,7 @@ import '../models/storage_notice.dart';
 import '../models/lan_backup.dart';
 import '../services/preview_cover_transform.dart';
 import '../services/lan_backup_discovery_service.dart';
+import '../services/lan_backup_host_file_cache.dart';
 import '../services/session_repository.dart';
 import '../services/speech_prompt_service.dart';
 import '../widgets/order_info_sheet.dart';
@@ -212,7 +213,9 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       repository: widget.repository,
       speechService: SpeechPromptService(),
     );
-    _backupHostDiscovery = LanBackupHostDiscoveryService();
+    _backupHostDiscovery = LanBackupHostDiscoveryService(
+      cache: LanBackupHostFileCache(),
+    );
     _watermarkClock = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _selectedTab == 1) setState(() {});
     });

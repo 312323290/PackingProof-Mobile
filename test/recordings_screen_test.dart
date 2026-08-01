@@ -446,6 +446,100 @@ void main() {
     expect(find.textContaining('电脑上点击允许'), findsOneWidget);
   });
 
+  testWidgets('找到多台主机时保留简洁列表并由用户选择连接', (WidgetTester tester) async {
+    final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery(
+      hosts: const <LanBackupDiscoveredHost>[
+        LanBackupDiscoveredHost(
+          nodeId: 'host-1',
+          name: '电脑1',
+          address: '192.168.1.10:5280',
+        ),
+        LanBackupDiscoveredHost(
+          nodeId: 'host-2',
+          name: '电脑2',
+          address: '192.168.1.20:5280',
+        ),
+      ],
+    );
+    String? selectedHost;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: const LanBackupSnapshot(preferredHostId: 'host-1'),
+          backupHostDiscovery: discovery,
+          onConnectBackupHost: (host, confirmation) async {
+            selectedHost = host.nodeId;
+          },
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(selectedHost, isNull);
+    expect(find.text('找到的电脑'), findsOneWidget);
+    expect(find.text('电脑1'), findsOneWidget);
+    expect(find.text('电脑2'), findsOneWidget);
+    expect(find.text('连接'), findsNWidgets(2));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('discovered-backup-host-host-2')),
+    );
+    await tester.pump();
+    expect(selectedHost, 'host-2');
+  });
+
+  testWidgets('缓存主机保持显示但未重新发现前不可连接', (WidgetTester tester) async {
+    final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery(
+      hosts: const <LanBackupDiscoveredHost>[
+        LanBackupDiscoveredHost(
+          nodeId: 'host-cache',
+          name: '电脑1',
+          address: '192.168.1.10:5280',
+          reachable: false,
+        ),
+      ],
+    );
+    int connectCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupHostDiscovery: discovery,
+          onConnectBackupHost: (host, confirmation) async => connectCount++,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(connectCount, 0);
+    expect(find.text('电脑1'), findsOneWidget);
+    expect(find.textContaining('上次找到'), findsOneWidget);
+    expect(find.text('未在线'), findsOneWidget);
+    final OutlinedButton button = tester.widget<OutlinedButton>(
+      find.byKey(const ValueKey<String>('discovered-backup-host-host-cache')),
+    );
+    expect(button.onPressed, isNull);
+  });
+
   testWidgets('共享发现服务时隐藏的设置页不会重复申请', (WidgetTester tester) async {
     final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery();
     int connectCount = 0;
@@ -559,7 +653,9 @@ void main() {
   testWidgets('自动申请期间立即显示等待状态并在拒绝后刷新', (WidgetTester tester) async {
     final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery();
     final Completer<void> approval = Completer<void>();
-    LanBackupSnapshot snapshot = const LanBackupSnapshot();
+    final ValueNotifier<LanBackupSnapshot> snapshots =
+        ValueNotifier<LanBackupSnapshot>(const LanBackupSnapshot());
+    addTearDown(snapshots.dispose);
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
@@ -567,7 +663,8 @@ void main() {
           workMode: WorkMode.continuousScan,
           speechEnabled: true,
           maxVolumeEnabled: true,
-          backupSnapshotProvider: () => snapshot,
+          backupListenable: snapshots,
+          backupSnapshotProvider: () => snapshots.value,
           backupHostDiscovery: discovery,
           onConnectBackupHost: (host, confirmation) => approval.future,
           onWorkModeChanged: (_) async {},
@@ -584,7 +681,17 @@ void main() {
     expect(find.textContaining('电脑上点击“允许连接”'), findsOneWidget);
     expect(find.text('取消等待'), findsOneWidget);
 
-    snapshot = const LanBackupSnapshot(
+    snapshots.value = const LanBackupSnapshot(
+      connectionStatus: LanConnectionStatus.disconnected,
+      message: '尚未连接保存主机',
+    );
+    await tester.pump();
+
+    expect(find.textContaining('电脑上点击“允许连接”'), findsOneWidget);
+    expect(find.text('取消等待'), findsOneWidget);
+    expect(find.text('重新搜索'), findsNothing);
+
+    snapshots.value = const LanBackupSnapshot(
       connectionStatus: LanConnectionStatus.approvalDenied,
       message: '电脑端已拒绝本次连接',
     );
@@ -2060,6 +2167,17 @@ void main() {
 
 class _FakeBackupHostDiscovery extends ChangeNotifier
     implements LanBackupHostDiscovery {
+  _FakeBackupHostDiscovery({
+    this.hosts = const <LanBackupDiscoveredHost>[
+      LanBackupDiscoveredHost(
+        nodeId: 'host-1',
+        name: '保存主机',
+        address: '192.168.1.10:5280',
+      ),
+    ],
+  });
+
+  final List<LanBackupDiscoveredHost> hosts;
   int searchCount = 0;
   LanBackupDiscoverySnapshot _snapshot = const LanBackupDiscoverySnapshot();
 
@@ -2076,17 +2194,11 @@ class _FakeBackupHostDiscovery extends ChangeNotifier
     );
     notifyListeners();
     await Future<void>.delayed(Duration.zero);
-    _snapshot = const LanBackupDiscoverySnapshot(
+    _snapshot = LanBackupDiscoverySnapshot(
       completed: 1,
       total: 1,
-      hosts: <LanBackupDiscoveredHost>[
-        LanBackupDiscoveredHost(
-          nodeId: 'host-1',
-          name: '保存主机',
-          address: '192.168.1.10:5280',
-        ),
-      ],
-      message: '找到 1 台录像文件备份主机',
+      hosts: hosts,
+      message: '找到 ${hosts.length} 台录像文件备份主机',
     );
     notifyListeners();
   }

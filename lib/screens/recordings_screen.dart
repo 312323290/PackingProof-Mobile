@@ -244,6 +244,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   RecordingSourceFilter _sourceFilter = RecordingSourceFilter.all;
   bool _backupDiscoveryStarted = false;
   bool _autoConnectStarted = false;
+  bool _approvalRequestInFlight = false;
   LanBackupDiscoveredHost? _lastApprovalHost;
 
   List<RecordingSession> get _filteredSessions {
@@ -377,20 +378,18 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   void _refreshBackupDiscovery() {
     if (!mounted) return;
     final LanBackupDiscoverySnapshot next = _backupHostDiscovery.snapshot;
+    if (!_backupDiscoverySnapshot.searching && next.searching) {
+      _autoConnectStarted = false;
+    }
     setState(() => _backupDiscoverySnapshot = next);
-    final String preferredHostId = _backupSnapshot.preferredHostId.trim();
-    final LanBackupDiscoveredHost? preferredHost = preferredHostId.isEmpty
-        ? null
-        : next.hosts.cast<LanBackupDiscoveredHost?>().firstWhere(
-            (LanBackupDiscoveredHost? host) =>
-                host?.compatible == true && host?.nodeId == preferredHostId,
-            orElse: () => null,
-          );
-    final LanBackupDiscoveredHost? automaticHost =
-        preferredHost ??
-        (next.hosts.where((host) => host.compatible).length == 1
-            ? next.hosts.singleWhere((host) => host.compatible)
-            : null);
+    final List<LanBackupDiscoveredHost> reachableHosts = next.hosts
+        .where(
+          (LanBackupDiscoveredHost host) => host.compatible && host.reachable,
+        )
+        .toList(growable: false);
+    final LanBackupDiscoveredHost? automaticHost = reachableHosts.length == 1
+        ? reachableHosts.single
+        : null;
     if (!next.searching &&
         automaticHost != null &&
         widget.active &&
@@ -435,6 +434,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     connect = widget.onConnectBackupHost;
     if (connect == null) return;
     _lastApprovalHost = host;
+    _approvalRequestInFlight = true;
     if (mounted) {
       setState(() {
         _backupSnapshot = _backupSnapshot.copyWith(
@@ -479,15 +479,31 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(friendlyBackupConnectionError(error))),
       );
+    } finally {
+      _approvalRequestInFlight = false;
+      if (mounted) _refreshBackupSnapshot();
     }
+  }
+
+  void _cancelBackupApproval() {
+    _approvalRequestInFlight = false;
+    widget.onCancelBackupPairing?.call();
   }
 
   void _refreshBackupSnapshot() {
     if (!mounted) {
       return;
     }
-    final LanBackupSnapshot next =
+    LanBackupSnapshot next =
         widget.backupSnapshotProvider?.call() ?? widget.backupSnapshot;
+    if (_approvalRequestInFlight &&
+        (next.connectionStatus == LanConnectionStatus.disconnected ||
+            next.connectionStatus == LanConnectionStatus.connecting)) {
+      next = next.copyWith(
+        connectionStatus: LanConnectionStatus.awaitingApproval,
+        message: _backupSnapshot.message,
+      );
+    }
     final Set<String> previousCompleted = _completedBackupSignatures(
       _backupSnapshot,
     );
@@ -1257,7 +1273,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         address: _backupSnapshot.endpoint!.displayAddress,
                       ),
                     ),
-              onCancelApproval: widget.onCancelBackupPairing,
+              onCancelApproval: _cancelBackupApproval,
               unbackedRetention: _unbackedRetention,
               backedRetention: _backedRetention,
               onUnbackedRetentionChanged: _setUnbackedRetention,
@@ -2046,11 +2062,15 @@ class _ComputerBackupSettings extends StatelessWidget {
     final String disconnectedMessage = awaitingApproval || approvalFailed
         ? (snapshot.message ?? '请在电脑上处理连接申请')
         : discovery.searching
-        ? (discovery.message ?? '正在查找同一 Wi-Fi 下的保存主机')
-        : discovery.hosts.length > 1
-        ? '找到 ${discovery.hosts.length} 台保存主机，请选择一台'
-        : discovery.hosts.length == 1
+        ? (discovery.hosts.isEmpty
+              ? discovery.message ?? '正在查找同一 Wi-Fi 下的保存主机'
+              : '正在重新搜索，下面保留上次找到的电脑')
+        : discovery.hosts.where((host) => host.reachable).length > 1
+        ? '找到 ${discovery.hosts.where((host) => host.reachable).length} 台保存主机，请选择一台连接'
+        : discovery.hosts.where((host) => host.reachable).length == 1
         ? '已找到保存主机，正在等待电脑上点击允许'
+        : discovery.hosts.isNotEmpty
+        ? '暂未找到在线主机，已保留上次搜索结果'
         : discovery.message ?? '自动搜索保存主机，连接时需在电脑上允许';
 
     return Container(
@@ -2217,34 +2237,85 @@ class _ComputerBackupSettings extends StatelessWidget {
                 ],
               ),
             ),
-            if (discovery.hosts.length > 1) ...<Widget>[
+            if (discovery.hosts.isNotEmpty &&
+                !awaitingApproval &&
+                !approvalFailed) ...<Widget>[
               const SizedBox(height: 10),
+              Text(
+                '找到的电脑',
+                style: TextStyle(
+                  color: colors.onSurfaceVariant,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 7),
               ...discovery.hosts.map(
                 (LanBackupDiscoveredHost host) => Padding(
                   padding: const EdgeInsets.only(bottom: 7),
-                  child: OutlinedButton.icon(
+                  child: OutlinedButton(
                     key: ValueKey<String>(
                       'discovered-backup-host-${host.nodeId}',
                     ),
                     onPressed:
                         discovery.searching ||
-                            awaitingApproval ||
                             onSelectHost == null ||
-                            !host.compatible
+                            !host.compatible ||
+                            !host.reachable
                         ? null
                         : () => onSelectHost!(host),
                     style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
+                      minimumSize: const Size.fromHeight(58),
                       alignment: Alignment.centerLeft,
-                    ),
-                    icon: const Icon(Icons.storage_rounded, size: 19),
-                    label: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        host.compatible
-                            ? '${host.name} · ${host.address}'
-                            : '${host.name} · 电脑端需更新',
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 9,
                       ),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        const Icon(Icons.storage_rounded, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                host.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                host.compatible
+                                    ? host.reachable
+                                          ? '${host.address} · 可连接'
+                                          : '${host.address} · 上次找到'
+                                    : '${host.address} · 电脑端需更新',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          host.compatible && host.reachable
+                              ? '连接'
+                              : host.compatible
+                              ? '未在线'
+                              : '需更新',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

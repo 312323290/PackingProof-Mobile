@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/services/lan_backup_discovery_service.dart';
 
@@ -67,5 +69,41 @@ void main() {
     expect(service.snapshot.progress, 1);
     expect(service.snapshot.hosts.single.nodeId, 'host-1');
     expect(snapshots.any((item) => item.searching), isTrue);
+  });
+
+  test('局域网扫描从网段两端交错进行且排除本机地址', () {
+    final List<int> order = buildLanBackupHostScanOrder(localHost: 104);
+
+    expect(order.take(10), <int>[1, 254, 2, 253, 3, 252, 4, 251, 5, 250]);
+    expect(order, isNot(contains(104)));
+    expect(order.toSet().length, 253);
+  });
+
+  test('搜索进行中重复调用不会重启扫描或重复探测', () async {
+    final Completer<void> allowProbe = Completer<void>();
+    int candidateRequests = 0;
+    int probeRequests = 0;
+    final LanBackupHostDiscoveryService service = LanBackupHostDiscoveryService(
+      candidateProvider: () async {
+        candidateRequests++;
+        return <Uri>[Uri.parse('http://192.168.1.250:5280')];
+      },
+      probe: (Uri uri) async {
+        probeRequests++;
+        await allowProbe.future;
+        return null;
+      },
+    );
+    addTearDown(service.dispose);
+
+    final Future<void> first = service.search();
+    final Future<void> second = service.search();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(candidateRequests, 1);
+    expect(probeRequests, 1);
+    allowProbe.complete();
+    await Future.wait(<Future<void>>[first, second]);
+    expect(service.snapshot.completed, 1);
   });
 }

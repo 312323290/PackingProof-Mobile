@@ -52,6 +52,17 @@ typedef LanBackupCandidateProvider = Future<List<Uri>> Function();
 typedef LanBackupHostProbe = Future<LanBackupDiscoveredHost?> Function(Uri uri);
 
 @visibleForTesting
+List<int> buildLanBackupHostScanOrder({int? localHost}) {
+  final List<int> result = <int>[];
+  for (int low = 1; low <= 127; low++) {
+    final int high = 255 - low;
+    if (low != localHost) result.add(low);
+    if (high != localHost) result.add(high);
+  }
+  return result;
+}
+
+@visibleForTesting
 LanBackupDiscoveredHost? parseLanBackupDiscoveredHost(Uri uri, String body) {
   final Object? decoded;
   try {
@@ -109,13 +120,25 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
   final HttpClient _httpClient;
   final bool _ownsHttpClient;
   int _revision = 0;
+  Future<void>? _activeSearch;
   LanBackupDiscoverySnapshot _snapshot = const LanBackupDiscoverySnapshot();
 
   @override
   LanBackupDiscoverySnapshot get snapshot => _snapshot;
 
   @override
-  Future<void> search() async {
+  Future<void> search() {
+    final Future<void>? activeSearch = _activeSearch;
+    if (activeSearch != null) return activeSearch;
+
+    final Future<void> search = _runSearch();
+    _activeSearch = search;
+    return search.whenComplete(() {
+      if (identical(_activeSearch, search)) _activeSearch = null;
+    });
+  }
+
+  Future<void> _runSearch() async {
     final int revision = ++_revision;
     _snapshot = const LanBackupDiscoverySnapshot(
       searching: true,
@@ -178,7 +201,7 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
 
     await Future.wait(
       List<Future<void>>.generate(
-        candidates.length < 24 ? candidates.length : 24,
+        candidates.length < 32 ? candidates.length : 32,
         (_) => worker(),
       ),
     );
@@ -218,6 +241,7 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
   @override
   void cancel() {
     _revision++;
+    _activeSearch = null;
     if (_snapshot.searching) {
       _snapshot = LanBackupDiscoverySnapshot(
         completed: _snapshot.completed,
@@ -250,7 +274,9 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
       final List<int>? octets = _privateIpv4Octets(address);
       if (octets == null) continue;
       final String prefix = '${octets[0]}.${octets[1]}.${octets[2]}';
-      for (int host = 1; host < 255; host++) {
+      for (final int host in buildLanBackupHostScanOrder(
+        localHost: octets[3],
+      )) {
         final String candidate = '$prefix.$host';
         if (!localAddresses.contains(candidate)) candidates.add(candidate);
       }

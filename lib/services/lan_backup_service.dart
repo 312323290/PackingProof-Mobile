@@ -206,6 +206,10 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     _snapshot = snapshot;
   }
 
+  @visibleForTesting
+  Future<void> debugApplyHeartbeatResponseForTesting(String responseBody) =>
+      _applyHeartbeatResponse(responseBody);
+
   @override
   Future<void> initialize({
     required bool autoEnabled,
@@ -1114,7 +1118,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         _applyHeartbeatConnectionStatus(nextStatus);
         if (nextStatus == LanConnectionStatus.connected &&
             responseBody.isNotEmpty) {
-          _applyMobileAppUpdateResponse(responseBody);
+          await _applyHeartbeatResponse(responseBody);
         }
       }
     } on Object {
@@ -1169,11 +1173,29 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     }
   }
 
-  void _applyMobileAppUpdateResponse(String responseBody) {
+  Future<void> _applyHeartbeatResponse(String responseBody) async {
     try {
       final Object? decoded = jsonDecode(responseBody);
-      if (decoded is! Map<String, dynamic> ||
-          !decoded.containsKey('mobileAppUpdate') ||
+      if (decoded is! Map<String, dynamic>) return;
+
+      final String assignedDisplayName =
+          '${decoded['assignedDisplayName'] ?? ''}'.trim();
+      final LanBackupEndpoint? endpoint = _snapshot.endpoint;
+      if (assignedDisplayName.isNotEmpty &&
+          assignedDisplayName != _snapshot.deviceName &&
+          endpoint != null) {
+        await _channel.invokeMethod<void>('saveConnection', <String, Object?>{
+          'baseUrl': endpoint.baseUri.toString(),
+          'accessKey': _accessKey,
+          'computerId': endpoint.computerId,
+          'computerName': endpoint.computerName,
+          'deviceName': assignedDisplayName,
+        });
+        _snapshot = _snapshot.copyWith(deviceName: assignedDisplayName);
+        notifyListeners();
+      }
+
+      if (!decoded.containsKey('mobileAppUpdate') ||
           decoded['mobileAppUpdate'] is! Map) {
         return;
       }

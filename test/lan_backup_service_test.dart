@@ -377,12 +377,11 @@ void main() {
       () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null),
     );
-    final _SequenceHttpClient httpClient = _SequenceHttpClient(
-      <_StreamHttpResponse>[
-        _nodeInfo('computer-1', '仓库电脑'),
-        _enrollment('computer-1', '仓库电脑', 'a' * 64),
-      ],
-    );
+    final _SequenceHttpClient httpClient =
+        _SequenceHttpClient(<_StreamHttpResponse>[
+          _nodeInfo('computer-1', '仓库电脑'),
+          _enrollment('computer-1', '仓库电脑', 'a' * 64, deviceName: '手机3'),
+        ]);
     final LanBackupService service = LanBackupService(
       channel: channel,
       httpClient: httpClient,
@@ -394,6 +393,8 @@ void main() {
 
     expect(saved?['accessKey'], 'a' * 64);
     expect(saved?['computerId'], 'computer-1');
+    expect(saved?['deviceName'], '手机3');
+    expect(service.snapshot.deviceName, '手机3');
     expect(service.snapshot.message, '保存主机已允许连接');
     final Map<String, Object?> enrollmentRequest = Map<String, Object?>.from(
       jsonDecode(utf8.decode(httpClient.postBodies.single)) as Map,
@@ -403,6 +404,44 @@ void main() {
     expect(enrollmentRequest['backupProtocol'], 'mobile-backup-v2');
     expect(enrollmentRequest['enrollmentVersion'], 2);
     expect(enrollmentRequest['authVersion'], 3);
+  });
+
+  test('心跳分配的新昵称会立即显示并持久化', () async {
+    final MethodChannel channel = const MethodChannel(
+      'app.packingproof.mobile/lan_backup_heartbeat_name_test',
+    );
+    Map<Object?, Object?>? saved;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          if (call.method == 'saveConnection') {
+            saved = Map<Object?, Object?>.from(call.arguments! as Map);
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    final LanBackupService service = LanBackupService(channel: channel);
+    addTearDown(service.dispose);
+    service.debugSetSnapshotForTesting(
+      LanBackupSnapshot(
+        deviceName: '设备 A1B2C3',
+        endpoint: LanBackupEndpoint(
+          baseUri: Uri.parse('http://192.168.1.20:5280'),
+          accessKey: '',
+          computerId: 'computer-1',
+          computerName: '仓库电脑',
+        ),
+      ),
+    );
+
+    await service.debugApplyHeartbeatResponseForTesting(
+      '{"assignedDisplayName":"手机3"}',
+    );
+
+    expect(service.snapshot.deviceName, '手机3');
+    expect(saved?['deviceName'], '手机3');
   });
 
   test('保存主机拒绝时不写入连接配置', () async {
@@ -678,14 +717,24 @@ _StreamHttpResponse _nodeInfo(String id, String name) => _StreamHttpResponse(
   '"minimumMobileVersion":"0.5.10","minimumMobileBuildNumber":11010}}',
 );
 
-_StreamHttpResponse _enrollment(String id, String name, String token) =>
-    _StreamHttpResponse(
-      HttpStatus.ok,
-      '{"protocol":"mobile-backup-v2","version":2,"authVersion":3,'
-      '"computerId":"$id","computerName":"$name",'
-      '"deviceId":"00000000-0000-0000-0000-000000000001",'
-      '"deviceToken":"$token"}',
-    );
+_StreamHttpResponse _enrollment(
+  String id,
+  String name,
+  String token, {
+  String? deviceName,
+}) {
+  final Map<String, Object?> payload = <String, Object?>{
+    'protocol': 'mobile-backup-v2',
+    'version': 2,
+    'authVersion': 3,
+    'computerId': id,
+    'computerName': name,
+    'deviceId': '00000000-0000-0000-0000-000000000001',
+    'deviceToken': token,
+  };
+  if (deviceName != null) payload['deviceName'] = deviceName;
+  return _StreamHttpResponse(HttpStatus.ok, jsonEncode(payload));
+}
 
 Future<LanBackupHostMismatchException> _expectHostMismatch(
   Future<void> pairing,

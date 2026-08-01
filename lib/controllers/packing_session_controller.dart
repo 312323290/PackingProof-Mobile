@@ -25,6 +25,7 @@ import '../services/initial_recording_prompt_policy.dart';
 import '../services/lan_backup_service.dart';
 import '../services/max_volume_service.dart';
 import '../services/order_info_receiver_service.dart';
+import '../services/remote_video_clip_service.dart';
 import '../services/nv21_center_crop.dart';
 import '../services/recording_timeline.dart';
 import '../services/recording_database.dart';
@@ -816,6 +817,9 @@ class PackingSessionController extends ChangeNotifier {
 
   Map<String, String> get remotePlaybackHeaders =>
       _lanBackupService.playbackHeaders;
+
+  RemoteVideoClipSink? createRemoteVideoClipService(Uri remoteUri) =>
+      _lanBackupService.createRemoteVideoClipService(remoteUri);
 
   Future<void> previewSpeech() => _speechService.preview();
 

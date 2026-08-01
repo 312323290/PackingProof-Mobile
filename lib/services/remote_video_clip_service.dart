@@ -5,6 +5,14 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+typedef RemoteClipRequestAuthorizer =
+    void Function(
+      HttpClientRequest request,
+      List<int> body,
+      String method,
+      String path,
+    );
+
 class RemoteClipFrame {
   const RemoteClipFrame({required this.seconds, required this.uri});
   final double seconds;
@@ -12,7 +20,10 @@ class RemoteClipFrame {
 }
 
 abstract interface class RemoteVideoClipSink {
-  Future<List<RemoteClipFrame>> loadTimeline(int videoId, {int frameCount = 10});
+  Future<List<RemoteClipFrame>> loadTimeline(
+    int videoId, {
+    int frameCount = 10,
+  });
   Future<String> start(int videoId, double startSeconds, double endSeconds);
   Future<Map<String, Object?>> task(String taskId);
   Future<void> cancel(String taskId);
@@ -24,11 +35,15 @@ class RemoteVideoClipService implements RemoteVideoClipSink {
   RemoteVideoClipService({
     required this.baseUri,
     required this.accessHeaders,
+    this.deviceScoped = false,
+    this.requestAuthorizer,
     HttpClient? client,
   }) : _client = client ?? HttpClient();
 
   final Uri baseUri;
   final Map<String, String> accessHeaders;
+  final bool deviceScoped;
+  final RemoteClipRequestAuthorizer? requestAuthorizer;
   final HttpClient _client;
 
   @override
@@ -41,7 +56,9 @@ class RemoteVideoClipService implements RemoteVideoClipSink {
   }) async {
     final payload = await _json(
       'POST',
-      '/api/videos/$videoId/clip/timeline',
+      deviceScoped
+          ? '/api/mobile-backup/videos/$videoId/clip/timeline'
+          : '/api/videos/$videoId/clip/timeline',
       body: <String, Object>{'frameCount': frameCount},
     );
     return ((payload['frames'] as List<Object?>?) ?? const <Object?>[])
@@ -64,7 +81,9 @@ class RemoteVideoClipService implements RemoteVideoClipSink {
   ) async {
     final payload = await _json(
       'POST',
-      '/api/videos/$videoId/clip',
+      deviceScoped
+          ? '/api/mobile-backup/videos/$videoId/clip'
+          : '/api/videos/$videoId/clip',
       body: <String, Object>{
         'startSeconds': startSeconds,
         'endSeconds': endSeconds,
@@ -76,14 +95,20 @@ class RemoteVideoClipService implements RemoteVideoClipSink {
   }
 
   @override
-  Future<Map<String, Object?>> task(String taskId) =>
-      _json('GET', '/api/clip-tasks/${Uri.encodeComponent(taskId)}');
+  Future<Map<String, Object?>> task(String taskId) => _json(
+    'GET',
+    deviceScoped
+        ? '/api/mobile-backup/clip-tasks/${Uri.encodeComponent(taskId)}'
+        : '/api/clip-tasks/${Uri.encodeComponent(taskId)}',
+  );
 
   @override
   Future<void> cancel(String taskId) async {
     await _json(
       'POST',
-      '/api/clip-tasks/${Uri.encodeComponent(taskId)}/cancel',
+      deviceScoped
+          ? '/api/mobile-backup/clip-tasks/${Uri.encodeComponent(taskId)}/cancel'
+          : '/api/clip-tasks/${Uri.encodeComponent(taskId)}/cancel',
     );
   }
 
@@ -102,7 +127,10 @@ class RemoteVideoClipService implements RemoteVideoClipSink {
       p.join((await getTemporaryDirectory()).path, 'remote_clips'),
     )..createSync(recursive: true);
     final file = File(
-      p.join(directory.path, 'PackingProof-${DateTime.now().millisecondsSinceEpoch}.mp4'),
+      p.join(
+        directory.path,
+        'PackingProof-${DateTime.now().millisecondsSinceEpoch}.mp4',
+      ),
     );
     final sink = file.openWrite();
     int received = 0;
@@ -126,13 +154,17 @@ class RemoteVideoClipService implements RemoteVideoClipSink {
     Map<String, Object>? body,
   }) async {
     final uri = baseUri.resolve(path);
+    final List<int> encodedBody = body == null
+        ? const <int>[]
+        : utf8.encode(jsonEncode(body));
     final request = method == 'POST'
         ? await _client.postUrl(uri)
         : await _client.getUrl(uri);
     accessHeaders.forEach(request.headers.set);
-    if (body != null) {
+    requestAuthorizer?.call(request, encodedBody, method, uri.path);
+    if (encodedBody.isNotEmpty) {
       request.headers.contentType = ContentType.json;
-      request.write(jsonEncode(body));
+      request.add(encodedBody);
     }
     final response = await request.close().timeout(const Duration(seconds: 30));
     final text = await utf8.decoder.bind(response).join();
@@ -140,7 +172,9 @@ class RemoteVideoClipService implements RemoteVideoClipSink {
         ? <String, Object?>{}
         : Map<String, Object?>.from(jsonDecode(text) as Map);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('${payload['error'] ?? payload['message'] ?? '电脑剪辑失败'}');
+      throw HttpException(
+        '${payload['error'] ?? payload['message'] ?? '电脑剪辑失败'}',
+      );
     }
     return payload;
   }

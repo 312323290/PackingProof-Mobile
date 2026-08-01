@@ -44,6 +44,9 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   late Duration _playbackStart;
   late Duration _playbackEnd;
   bool _handlingBoundary = false;
+  bool get _canTrim =>
+      widget.remoteUri == null ||
+      (widget.remoteVideoId != null && widget.remoteClipService != null);
   bool _resumeAfterScrub = false;
   double? _scrubMilliseconds;
   final VideoShareService _shareService = VideoShareService();
@@ -183,16 +186,8 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
     }
     if (widget.remoteUri != null && widget.remoteVideoId != null) {
       final Uri remote = widget.remoteUri!;
-      final RemoteVideoClipSink service =
-          widget.remoteClipService ??
-          RemoteVideoClipService(
-            baseUri: Uri(
-              scheme: remote.scheme,
-              host: remote.host,
-              port: remote.hasPort ? remote.port : null,
-            ),
-            accessHeaders: widget.remoteHeaders,
-          );
+      final RemoteVideoClipSink? service = widget.remoteClipService;
+      if (service == null) return;
       final File? clip = await Navigator.of(context).push<File>(
         MaterialPageRoute<File>(
           builder: (_) => RemoteVideoTrimScreen(
@@ -505,8 +500,7 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
                       ],
                       Row(
                         children: <Widget>[
-                          if (widget.remoteUri == null ||
-                              widget.remoteVideoId != null) ...<Widget>[
+                          if (_canTrim) ...<Widget>[
                             Expanded(
                               child: FilledButton.icon(
                                 onPressed: _sharing ? null : _openTrim,

@@ -583,6 +583,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       onLoadLocalRecordings: _controller.loadLocalRecordings,
       onLoadRemoteRecordingStatuses: _controller.fetchRemoteRecordingStatuses,
       remotePlaybackHeaders: _controller.remotePlaybackHeaders,
+      remoteClipServiceFactory: _controller.createRemoteVideoClipService,
       onConnectComputer: _beginComputerPairing,
       onCancelBackupPairing: _controller.cancelComputerPairing,
       onConnectBackupHost: (host, confirmation) =>

@@ -17,6 +17,7 @@ import '../widgets/about_settings.dart';
 import '../widgets/two_button_confirm_dialog.dart';
 import '../services/recording_thumbnail_service.dart';
 import '../services/recording_database.dart';
+import '../services/remote_video_clip_service.dart';
 import 'video_playback_screen.dart';
 
 enum RecordingsScreenMode { history, settings }
@@ -113,6 +114,7 @@ class RecordingsScreen extends StatefulWidget {
     this.hiddenRemoteRecordingIds = const <int>{},
     this.onHideRemoteRecordings,
     this.remotePlaybackHeaders = const <String, String>{},
+    this.remoteClipServiceFactory,
     this.mode = RecordingsScreenMode.history,
     this.embedded = false,
     this.onConnectComputer,
@@ -176,6 +178,7 @@ class RecordingsScreen extends StatefulWidget {
   final Set<int> hiddenRemoteRecordingIds;
   final Future<void> Function(Set<int> ids)? onHideRemoteRecordings;
   final Map<String, String> remotePlaybackHeaders;
+  final RemoteVideoClipSink? Function(Uri remoteUri)? remoteClipServiceFactory;
   final RecordingsScreenMode mode;
   final bool embedded;
   final VoidCallback? onConnectComputer;
@@ -1458,6 +1461,13 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                                         ? item.remote?.id
                                         : null,
                                     remoteHeaders: widget.remotePlaybackHeaders,
+                                    remoteClipService: localAvailable
+                                        ? null
+                                        : item.remote == null
+                                        ? null
+                                        : widget.remoteClipServiceFactory?.call(
+                                            item.remote!.playUri,
+                                          ),
                                   ),
                             ),
                           );

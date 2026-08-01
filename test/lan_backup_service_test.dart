@@ -13,6 +13,20 @@ import 'package:packing_proof_mobile/services/lan_backup_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('主机显式声明全库剪辑能力时启用设备剪辑', () {
+    expect(
+      parseDeviceVideoClippingFeature(
+        '{"features":{"libraryScope":"host","deviceVideoClipping":true}}',
+      ),
+      isTrue,
+    );
+    expect(
+      parseDeviceVideoClippingFeature('{"features":{"videoLibrary":true}}'),
+      isFalse,
+    );
+    expect(parseDeviceVideoClippingFeature('not-json'), isFalse);
+  });
+
   test('Android 私有目录别名会识别为同一个备份文件', () {
     expect(
       isSameLanBackupFile(

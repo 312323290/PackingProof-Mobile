@@ -12,6 +12,7 @@ import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/backup_retention_policy.dart';
 import 'lan_backup_compatibility.dart';
+import 'remote_video_clip_service.dart';
 
 class LanBackupUnsupportedException implements Exception {
   const LanBackupUnsupportedException();
@@ -161,6 +162,7 @@ abstract interface class LanBackupSink implements Listenable {
   Future<Map<int, ({RemoteRecordingStatus status, bool exists, String reason})>>
   fetchRemoteRecordingStatuses(Iterable<int> ids);
   Map<String, String> get playbackHeaders;
+  RemoteVideoClipSink? createRemoteVideoClipService(Uri remoteUri);
   Future<void> dispose();
 }
 
@@ -197,6 +199,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   LanBackupSnapshot? _pairingRestoreSnapshot;
   String _appVersion = currentMobileCompatibilityVersion;
   int _appBuildNumber = currentMobileCompatibilityBuildNumber;
+  bool _deviceVideoClippingEnabled = false;
 
   @override
   LanBackupSnapshot get snapshot => _snapshot;
@@ -238,6 +241,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         <Object?, Object?>{};
     _accessKey = (await _channel.invokeMethod<String>('loadAccessKey')) ?? '';
     _applyNativeSnapshot(values);
+    unawaited(_refreshHostFeatures());
     _pollTimer ??= Timer.periodic(
       const Duration(seconds: 1),
       (_) => unawaited(refresh()),
@@ -452,6 +456,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         return;
       }
       _accessKey = deviceToken;
+      _deviceVideoClippingEnabled = await _readDeviceVideoClippingFeature(
+        connectedEndpoint.baseUri,
+      );
       _snapshot = _snapshot.copyWith(
         deviceName: assignedDeviceName,
         endpoint: connectedEndpoint,
@@ -642,6 +649,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       connectionStatus: LanConnectionStatus.disconnected,
     );
     _accessKey = '';
+    _deviceVideoClippingEnabled = false;
     notifyListeners();
   }
 
@@ -649,6 +657,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   Future<bool> retryConnection() async {
     final LanBackupEndpoint? endpoint = _snapshot.endpoint;
     if (endpoint == null || _accessKey.isEmpty) return false;
+    _deviceVideoClippingEnabled = false;
     if (_snapshot.connectionStatus == LanConnectionStatus.notBackupHost) {
       _snapshot = _snapshot.copyWith(message: '电脑用途改变后需要重新搜索，或扫码选择另一台录像备份主机');
       notifyListeners();
@@ -686,7 +695,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 8),
       );
-      await response.drain<void>();
+      final String responseBody = await utf8.decoder.bind(response).join();
       if (response.statusCode == HttpStatus.unauthorized ||
           response.statusCode == HttpStatus.forbidden) {
         _snapshot = _snapshot.copyWith(
@@ -709,6 +718,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException('电脑连接失败（${response.statusCode}）');
       }
+      _deviceVideoClippingEnabled = parseDeviceVideoClippingFeature(
+        responseBody,
+      );
       _snapshot = _snapshot.copyWith(
         connectionStatus: LanConnectionStatus.connected,
         message: '电脑已重新连接',
@@ -1000,6 +1012,70 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
 
   @override
   Map<String, String> get playbackHeaders => const <String, String>{};
+
+  @override
+  RemoteVideoClipSink? createRemoteVideoClipService(Uri remoteUri) {
+    final LanBackupEndpoint? endpoint = _snapshot.endpoint;
+    if (!_deviceVideoClippingEnabled ||
+        endpoint == null ||
+        _accessKey.isEmpty) {
+      return null;
+    }
+    if (remoteUri.scheme != endpoint.baseUri.scheme ||
+        remoteUri.host != endpoint.baseUri.host ||
+        remoteUri.port != endpoint.baseUri.port) {
+      return null;
+    }
+    return RemoteVideoClipService(
+      baseUri: endpoint.baseUri,
+      accessHeaders: const <String, String>{},
+      deviceScoped: true,
+      requestAuthorizer: (request, body, method, path) {
+        _setSignedBackupHeaders(
+          request,
+          _accessKey,
+          body,
+          method: method,
+          path: path,
+        );
+      },
+    );
+  }
+
+  Future<void> _refreshHostFeatures() async {
+    final LanBackupEndpoint? endpoint = _snapshot.endpoint;
+    if (endpoint == null || _accessKey.isEmpty) {
+      _deviceVideoClippingEnabled = false;
+      return;
+    }
+    _deviceVideoClippingEnabled = await _readDeviceVideoClippingFeature(
+      endpoint.baseUri,
+    );
+  }
+
+  Future<bool> _readDeviceVideoClippingFeature(Uri baseUri) async {
+    try {
+      final Uri uri = baseUri.replace(path: '/api/mobile-backup/capabilities');
+      final HttpClientRequest request = await _httpClient
+          .getUrl(uri)
+          .timeout(const Duration(seconds: 5));
+      _setSignedBackupHeaders(
+        request,
+        _accessKey,
+        const <int>[],
+        method: 'GET',
+        path: uri.path,
+      );
+      final HttpClientResponse response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
+      final String body = await utf8.decoder.bind(response).join();
+      return response.statusCode == HttpStatus.ok &&
+          parseDeviceVideoClippingFeature(body);
+    } on Object {
+      return false;
+    }
+  }
 
   Future<void> _ensureWifiConnected() async {
     if (!await _hasWifiConnection()) {
@@ -1348,6 +1424,21 @@ Uri buildRemoteRecordingsUri(
       if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
     },
   );
+}
+
+@visibleForTesting
+bool parseDeviceVideoClippingFeature(String responseBody) {
+  try {
+    final Object? decoded = jsonDecode(responseBody);
+    if (decoded is! Map || decoded['features'] is! Map) return false;
+    final Map<Object?, Object?> features = Map<Object?, Object?>.from(
+      decoded['features']! as Map,
+    );
+    return features['libraryScope'] == 'host' &&
+        features['deviceVideoClipping'] == true;
+  } on Object {
+    return false;
+  }
 }
 
 @visibleForTesting

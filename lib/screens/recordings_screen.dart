@@ -2026,13 +2026,6 @@ class _ComputerBackupSettings extends StatelessWidget {
         : discovery.searching || awaitingApproval || connecting
         ? colors.primary
         : colors.onSurfaceVariant;
-    final Color stateBackground = online
-        ? colors.secondaryContainer
-        : needsRepair || approvalFailed
-        ? const Color(0xFFFFE8CF)
-        : discovery.searching || awaitingApproval || connecting
-        ? colors.primaryContainer
-        : colors.surfaceContainerHighest;
     final String? status = awaitingApproval || approvalFailed
         ? snapshot.message
         : !snapshot.connected
@@ -2075,30 +2068,16 @@ class _ComputerBackupSettings extends StatelessWidget {
 
     return Container(
       key: const Key('computer-backup-settings'),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: colors.surfaceContainer,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             children: <Widget>[
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: colors.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.cloud_upload_rounded,
-                  color: colors.primary,
-                  size: 21,
-                ),
-              ),
-              const SizedBox(width: 11),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2114,8 +2093,8 @@ class _ComputerBackupSettings extends StatelessWidget {
                     if (paired)
                       Text(
                         snapshot.endpoint!.computerName.isEmpty
-                            ? snapshot.endpoint!.displayAddress
-                            : '${snapshot.endpoint!.computerName} · ${snapshot.endpoint!.displayAddress}',
+                            ? snapshot.endpoint!.baseUri.host
+                            : '${snapshot.endpoint!.computerName} · ${snapshot.endpoint!.baseUri.host}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -2147,29 +2126,30 @@ class _ComputerBackupSettings extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                key: const Key('computer-backup-state-pill'),
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: stateBackground,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-                child: Text(
-                  stateLabel,
-                  style: TextStyle(
-                    color: stateForeground,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
+              Text(
+                key: const Key('computer-backup-state-text'),
+                stateLabel,
+                style: TextStyle(
+                  color: stateForeground,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
               if (paired && onDisconnect != null) ...<Widget>[
-                const SizedBox(width: 2),
+                const SizedBox(width: 8),
                 IconButton(
                   key: const Key('delete-computer-button'),
                   tooltip: '删除电脑',
                   visualDensity: VisualDensity.compact,
-                  color: colors.onSurfaceVariant,
+                  style: IconButton.styleFrom(
+                    foregroundColor: colors.error,
+                    side: BorderSide(
+                      color: colors.error.withValues(alpha: 0.55),
+                    ),
+                    shape: const CircleBorder(),
+                    minimumSize: const Size.square(36),
+                    maximumSize: const Size.square(36),
+                  ),
                   onPressed: onDisconnect,
                   icon: const Icon(Icons.delete_outline_rounded, size: 20),
                 ),
@@ -2178,64 +2158,35 @@ class _ComputerBackupSettings extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           if (!paired) ...<Widget>[
-            Container(
+            Column(
               key: (awaitingApproval || approvalFailed)
                   ? const Key('backup-approval-status')
                   : const Key('backup-host-search-status'),
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-              decoration: BoxDecoration(
-                color: awaitingApproval
-                    ? colors.primaryContainer.withValues(alpha: 0.65)
-                    : approvalFailed
-                    ? const Color(0xFFFFE8CF)
-                    : colors.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Icon(
-                        awaitingApproval
-                            ? Icons.hourglass_top_rounded
-                            : approvalFailed
-                            ? Icons.info_outline_rounded
-                            : Icons.wifi_find_rounded,
-                        size: 18,
-                        color: stateForeground,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          disconnectedMessage,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            fontSize: 12,
-                            height: 1.35,
-                            fontWeight: awaitingApproval || approvalFailed
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ],
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  disconnectedMessage,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: awaitingApproval || approvalFailed
+                        ? FontWeight.w700
+                        : FontWeight.w500,
                   ),
-                  if (discovery.searching) ...<Widget>[
-                    const SizedBox(height: 10),
-                    LinearProgressIndicator(
-                      key: const Key('backup-host-search-progress'),
-                      value: discovery.progress,
-                      minHeight: 4,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ],
+                ),
+                if (discovery.searching) ...<Widget>[
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    key: const Key('backup-host-search-progress'),
+                    value: discovery.progress,
+                    minHeight: 4,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
                 ],
-              ),
+              ],
             ),
             if (discovery.hosts.isNotEmpty &&
                 !awaitingApproval &&
@@ -2252,70 +2203,74 @@ class _ComputerBackupSettings extends StatelessWidget {
               const SizedBox(height: 7),
               ...discovery.hosts.map(
                 (LanBackupDiscoveredHost host) => Padding(
-                  padding: const EdgeInsets.only(bottom: 7),
-                  child: OutlinedButton(
-                    key: ValueKey<String>(
-                      'discovered-backup-host-${host.nodeId}',
-                    ),
-                    onPressed:
-                        discovery.searching ||
-                            onSelectHost == null ||
-                            !host.compatible ||
-                            !host.reachable
-                        ? null
-                        : () => onSelectHost!(host),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(58),
-                      alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 9,
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Material(
+                    color: colors.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(10),
+                    child: InkWell(
+                      key: ValueKey<String>(
+                        'discovered-backup-host-${host.nodeId}',
                       ),
-                    ),
-                    child: Row(
-                      children: <Widget>[
-                        const Icon(Icons.storage_rounded, size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                host.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                host.compatible
-                                    ? host.reachable
-                                          ? '${host.address} · 可连接'
-                                          : '${host.address} · 上次找到'
-                                    : '${host.address} · 电脑端需更新',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 11),
-                              ),
-                            ],
-                          ),
+                      onTap:
+                          discovery.searching ||
+                              onSelectHost == null ||
+                              !host.compatible ||
+                              !host.reachable
+                          ? null
+                          : () => onSelectHost!(host),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          host.compatible && host.reachable
-                              ? '连接'
-                              : host.compatible
-                              ? '未在线'
-                              : '需更新',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
+                        child: Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    host.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    host.compatible
+                                        ? host.reachable
+                                              ? host.address
+                                              : '${host.address} · 上次找到'
+                                        : '${host.address} · 电脑端需更新',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              host.compatible && host.reachable
+                                  ? '连接'
+                                  : host.compatible
+                                  ? '未在线'
+                                  : '需更新',
+                              style: TextStyle(
+                                color: host.compatible && host.reachable
+                                    ? colors.primary
+                                    : colors.onSurfaceVariant,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -2325,7 +2280,7 @@ class _ComputerBackupSettings extends StatelessWidget {
             if (awaitingApproval)
               SizedBox(
                 width: double.infinity,
-                child: OutlinedButton.icon(
+                child: FilledButton.tonalIcon(
                   key: const Key('cancel-backup-approval-button'),
                   onPressed: onCancelApproval,
                   style: OutlinedButton.styleFrom(
@@ -2339,7 +2294,7 @@ class _ComputerBackupSettings extends StatelessWidget {
               Row(
                 children: <Widget>[
                   Expanded(
-                    child: FilledButton.icon(
+                    child: FilledButton.tonalIcon(
                       key: const Key('search-backup-host-button'),
                       onPressed: discovery.searching
                           ? null
@@ -2366,12 +2321,12 @@ class _ComputerBackupSettings extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: FilledButton.tonalIcon(
                       key: const Key('connect-computer-button'),
                       onPressed: discovery.searching ? null : onConnect,
                       icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
                       label: const Text('扫码连接'),
-                      style: OutlinedButton.styleFrom(
+                      style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(48),
                       ),
                     ),
@@ -2380,38 +2335,16 @@ class _ComputerBackupSettings extends StatelessWidget {
               ),
           ],
           if (snapshot.endpoint != null) ...<Widget>[
-            Container(
-              key: const Key('connected-computer-address'),
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-              decoration: BoxDecoration(
-                color: colors.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Icon(Icons.storage_rounded, size: 18, color: stateForeground),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          status ?? remainingLabel,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            fontSize: 12,
-                            height: 1.35,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+            Text(
+              key: const Key('connected-computer-summary'),
+              status ?? remainingLabel,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.onSurfaceVariant,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -2443,7 +2376,7 @@ class _ComputerBackupSettings extends StatelessWidget {
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
-              child: FilledButton.icon(
+              child: FilledButton.tonalIcon(
                 key: const Key('retry-backup-approval-button'),
                 onPressed: onRequestApproval,
                 icon: const Icon(Icons.refresh_rounded),
@@ -2483,7 +2416,7 @@ class _ComputerBackupSettings extends StatelessWidget {
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton.icon(
+                child: FilledButton.tonalIcon(
                   key: const Key('backup-now-button'),
                   onPressed: online && onRetry != null
                       ? () => onRetry!(failed.id)
@@ -2492,70 +2425,47 @@ class _ComputerBackupSettings extends StatelessWidget {
                   label: const Text('重试备份'),
                 ),
               ),
-            ] else if (!allBackedUp || !online || connecting) ...<Widget>[
+            ] else if (!online || connecting) ...<Widget>[
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton.icon(
+                child: FilledButton.tonalIcon(
                   key: const Key('backup-now-button'),
-                  onPressed: connecting
-                      ? null
-                      : !online
-                      ? onRetryConnection
-                      : onBackupNow,
+                  onPressed: connecting ? null : onRetryConnection,
                   icon: Icon(
-                    connecting
-                        ? Icons.sync_rounded
-                        : !online
-                        ? Icons.refresh_rounded
-                        : Icons.backup_rounded,
+                    connecting ? Icons.sync_rounded : Icons.refresh_rounded,
                   ),
-                  label: Text(
-                    connecting
-                        ? '正在连接'
-                        : !online
-                        ? '重新连接'
-                        : '立即备份',
-                  ),
+                  label: Text(connecting ? '正在连接' : '重新连接'),
                 ),
               ),
-            ],
-            if (!needsRepair &&
-                !approvalFailed &&
-                !awaitingApproval) ...<Widget>[
-              const SizedBox(height: 8),
-              Container(
-                key: const Key('auto-backup-setting'),
-                padding: const EdgeInsets.only(left: 12, right: 4),
-                decoration: BoxDecoration(
-                  color: colors.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: <Widget>[
-                    Icon(
-                      Icons.sync_rounded,
-                      size: 18,
-                      color: colors.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '自动备份',
-                        style: TextStyle(
-                          color: colors.onSurfaceVariant,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
+            ] else ...<Widget>[
+              const SizedBox(height: 12),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: FilledButton.tonal(
+                      key: const Key('backup-now-button'),
+                      onPressed: !allBackedUp ? onBackupNow : null,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(46),
                       ),
+                      child: const Text('立即备份'),
                     ),
-                    Switch(
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.tonal(
                       key: const Key('auto-backup-button'),
-                      value: snapshot.autoEnabled,
-                      onChanged: onAutoChanged,
+                      onPressed: onAutoChanged == null
+                          ? null
+                          : () => onAutoChanged!(!snapshot.autoEnabled),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(46),
+                      ),
+                      child: Text(snapshot.autoEnabled ? '暂停自动备份' : '继续自动备份'),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ],
           ],

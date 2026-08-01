@@ -337,7 +337,9 @@ void main() {
     expect(find.text('全部完成'), findsOneWidget);
     expect(find.text(' · 连接后自动备份'), findsOneWidget);
     expect(find.text('未连接'), findsOneWidget);
-    expect(find.byKey(const Key('computer-backup-state-pill')), findsOneWidget);
+    expect(find.byKey(const Key('computer-backup-state-text')), findsOneWidget);
+    expect(find.byKey(const Key('computer-backup-state-pill')), findsNothing);
+    expect(find.byIcon(Icons.cloud_upload_rounded), findsNothing);
     expect(find.text('总占用'), findsOneWidget);
     expect(find.text('0 MB'), findsOneWidget);
     expect(
@@ -362,10 +364,18 @@ void main() {
       find.byKey(const Key('computer-backup-settings')),
     );
     expect(connectButtonRect.left, greaterThan(backupCardRect.left + 16));
-    expect(connectButtonRect.right, backupCardRect.right - 16);
+    expect(connectButtonRect.right, backupCardRect.right - 14);
     expect(
       tester.widget(find.byKey(const Key('connect-computer-button'))),
-      isA<OutlinedButton>(),
+      isA<FilledButton>(),
+    );
+    expect(
+      tester
+          .widget(find.byKey(const Key('search-backup-host-button')))
+          .runtimeType,
+      tester
+          .widget(find.byKey(const Key('connect-computer-button')))
+          .runtimeType,
     );
     expect(
       tester.getSize(find.byKey(const Key('search-backup-host-button'))).height,
@@ -534,10 +544,10 @@ void main() {
     expect(find.text('电脑1'), findsOneWidget);
     expect(find.textContaining('上次找到'), findsOneWidget);
     expect(find.text('未在线'), findsOneWidget);
-    final OutlinedButton button = tester.widget<OutlinedButton>(
+    final InkWell button = tester.widget<InkWell>(
       find.byKey(const ValueKey<String>('discovered-backup-host-host-cache')),
     );
-    expect(button.onPressed, isNull);
+    expect(button.onTap, isNull);
   });
 
   testWidgets('共享发现服务时隐藏的设置页不会重复申请', (WidgetTester tester) async {
@@ -845,14 +855,20 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const Key('connected-computer-address')), findsOneWidget);
-    expect(find.text('仓库电脑 · 192.168.1.20:5280'), findsOneWidget);
+    expect(find.byKey(const Key('connected-computer-summary')), findsOneWidget);
+    expect(find.byKey(const Key('connected-computer-address')), findsNothing);
+    expect(find.text('仓库电脑 · 192.168.1.20'), findsOneWidget);
   });
 
   testWidgets('本机录像全部备份后只显示完成状态', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final String videoPath = File('pubspec.yaml').absolute.path;
     final DateTime startedAt = DateTime(2026, 7, 19, 12);
     int backupCount = 0;
+    bool? autoBackupEnabled;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -898,6 +914,9 @@ void main() {
             connectionStatus: LanConnectionStatus.connected,
           ),
           onBackupNow: () async => backupCount++,
+          onAutoBackupChanged: (bool enabled) async {
+            autoBackupEnabled = enabled;
+          },
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
           onMaxVolumeEnabledChanged: (_) async {},
@@ -909,8 +928,31 @@ void main() {
     );
 
     expect(find.text('备份完成'), findsOneWidget);
-    expect(find.byKey(const Key('backup-now-button')), findsNothing);
-    expect(find.byType(Switch), findsOneWidget);
+    expect(find.byKey(const Key('backup-now-button')), findsOneWidget);
+    expect(find.byKey(const Key('auto-backup-button')), findsOneWidget);
+    expect(find.text('暂停自动备份'), findsOneWidget);
+    expect(find.byType(Switch), findsNothing);
+    final Rect backupCardRect = tester.getRect(
+      find.byKey(const Key('computer-backup-settings')),
+    );
+    expect(backupCardRect.height, lessThanOrEqualTo(190));
+    final Rect backupNowRect = tester.getRect(
+      find.byKey(const Key('backup-now-button')),
+    );
+    final Rect autoBackupRect = tester.getRect(
+      find.byKey(const Key('auto-backup-button')),
+    );
+    expect(backupNowRect.height, autoBackupRect.height);
+    expect(backupNowRect.width, autoBackupRect.width);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('backup-now-button')))
+          .onPressed,
+      isNull,
+    );
+    await tester.tap(find.byKey(const Key('auto-backup-button')));
+    await tester.pump();
+    expect(autoBackupEnabled, isFalse);
     expect(backupCount, 0);
 
     await tester.drag(find.byType(ListView), const Offset(0, -460));
@@ -981,7 +1023,6 @@ void main() {
 
   testWidgets('电脑离线时使用中性状态且不请求远程历史', (WidgetTester tester) async {
     int loadCount = 0;
-    bool? autoBackupEnabled;
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
@@ -1006,9 +1047,7 @@ void main() {
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
           onMaxVolumeEnabledChanged: (_) async {},
-          onAutoBackupChanged: (bool enabled) async {
-            autoBackupEnabled = enabled;
-          },
+          onAutoBackupChanged: (_) async {},
           onSpeechPreview: () async {},
           onSessionUpdated: (_) async {},
           onDeleteSessions: (_) async {},
@@ -1021,22 +1060,27 @@ void main() {
     expect(find.text('电脑离线，备份已暂停'), findsOneWidget);
     expect(loadCount, 0);
     expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(find.byKey(const Key('auto-backup-button')), findsOneWidget);
-    expect(
-      tester.widget(find.byKey(const Key('auto-backup-button'))),
-      isA<Switch>(),
-    );
-    expect(find.text('自动备份'), findsOneWidget);
-    expect(find.byType(Switch), findsOneWidget);
+    expect(find.byKey(const Key('auto-backup-button')), findsNothing);
+    expect(find.byType(Switch), findsNothing);
     expect(
       tester
           .widget<IconButton>(find.byKey(const Key('delete-computer-button')))
           .tooltip,
       '删除电脑',
     );
-    await tester.tap(find.byType(Switch));
-    await tester.pump();
-    expect(autoBackupEnabled, isFalse);
+    final IconButton deleteButton = tester.widget<IconButton>(
+      find.byKey(const Key('delete-computer-button')),
+    );
+    expect(
+      deleteButton.style?.shape?.resolve(<WidgetState>{}),
+      isA<CircleBorder>(),
+    );
+    expect(
+      deleteButton.style?.foregroundColor?.resolve(<WidgetState>{}),
+      Theme.of(
+        tester.element(find.byKey(const Key('delete-computer-button'))),
+      ).colorScheme.error,
+    );
   });
 
   testWidgets('删除电脑需要两次确认并显示名称与地址', (WidgetTester tester) async {
@@ -1177,7 +1221,7 @@ void main() {
       ),
     );
 
-    expect(find.text('仓库电脑 · 192.168.1.20:5280'), findsOneWidget);
+    expect(find.text('仓库电脑 · 192.168.1.20'), findsOneWidget);
     expect(find.text('需允许'), findsOneWidget);
     expect(find.text('重新申请'), findsOneWidget);
     expect(find.byKey(const Key('delete-computer-button')), findsOneWidget);

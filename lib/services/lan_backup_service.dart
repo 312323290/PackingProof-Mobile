@@ -172,12 +172,14 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     HttpClient? httpClient,
     Future<bool> Function()? wifiConnected,
     Future<PackageInfo> Function()? packageInfoLoader,
+    Future<void> Function(Duration)? retryDelay,
   }) : _channel = channel ?? _defaultChannel,
        _httpClient = httpClient ?? HttpClient(),
        // Keep the public injection name readable while the stored callback remains private.
        // ignore: prefer_initializing_formals
        _wifiConnected = wifiConnected,
-       _packageInfoLoader = packageInfoLoader ?? PackageInfo.fromPlatform;
+       _packageInfoLoader = packageInfoLoader ?? PackageInfo.fromPlatform,
+       _retryDelay = retryDelay ?? Future<void>.delayed;
 
   static const MethodChannel _defaultChannel = MethodChannel(
     'app.packingproof.mobile/lan_backup',
@@ -187,6 +189,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   final HttpClient _httpClient;
   final Future<bool> Function()? _wifiConnected;
   final Future<PackageInfo> Function() _packageInfoLoader;
+  final Future<void> Function(Duration) _retryDelay;
   Timer? _pollTimer;
   Timer? _heartbeatTimer;
   Future<void>? _refreshFuture;
@@ -361,22 +364,45 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           'authVersion': backupAuthenticationVersion,
         }),
       );
-      final HttpClientRequest request = await _httpClient
-          .postUrl(enrollmentUri)
-          .timeout(const Duration(seconds: 5));
-      if (revision != _pairingRevision) {
-        request.abort();
-        return;
+      HttpClientResponse? response;
+      String body = '';
+      for (int attempt = 0; attempt < 25; attempt++) {
+        final HttpClientRequest request = await _httpClient
+            .postUrl(enrollmentUri)
+            .timeout(const Duration(seconds: 5));
+        if (revision != _pairingRevision) {
+          request.abort();
+          return;
+        }
+        _activePairingRequest = request;
+        request.followRedirects = false;
+        request.headers.contentType = ContentType.json;
+        request.contentLength = enrollmentBody.length;
+        request.add(enrollmentBody);
+        response = await request.close().timeout(const Duration(seconds: 90));
+        body = await utf8.decoder.bind(response).join();
+        if (revision != _pairingRevision) return;
+        final ({String code, String message}) attemptError =
+            _decodeEnrollmentError(body);
+        if (response.statusCode != HttpStatus.tooManyRequests ||
+            attemptError.code != 'enrollment_approval_busy' ||
+            attempt == 24) {
+          break;
+        }
+
+        _snapshot = _snapshot.copyWith(
+          connectionStatus: LanConnectionStatus.awaitingApproval,
+          message: '保存主机正在确认另一台设备，稍后会自动继续',
+        );
+        notifyListeners();
+        await _retryDelay(const Duration(seconds: 3));
+        if (revision != _pairingRevision) return;
       }
-      _activePairingRequest = request;
-      request.followRedirects = false;
-      request.headers.contentType = ContentType.json;
-      request.contentLength = enrollmentBody.length;
-      request.add(enrollmentBody);
-      final HttpClientResponse response = await request.close().timeout(
-        const Duration(seconds: 90),
-      );
-      final String body = await utf8.decoder.bind(response).join();
+      if (response == null) {
+        throw const LanBackupApprovalUnavailableException(
+          '电脑端暂时无法处理连接申请，请稍后再试',
+        );
+      }
       if (revision != _pairingRevision) return;
       if (response.statusCode == HttpStatus.notFound) {
         throw const LanBackupUnsupportedException();

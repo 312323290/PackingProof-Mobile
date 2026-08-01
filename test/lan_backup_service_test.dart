@@ -613,6 +613,46 @@ void main() {
     }
   });
 
+  test('保存主机正在确认其他设备时自动重试并保持等待状态', () async {
+    final MethodChannel channel = const MethodChannel(
+      'app.packingproof.mobile/lan_backup_approval_busy_test',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async => null);
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    final List<Duration> delays = <Duration>[];
+    late final LanBackupService service;
+    service = LanBackupService(
+      channel: channel,
+      httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
+        _nodeInfo('computer-1', '仓库电脑'),
+        _StreamHttpResponse(
+          HttpStatus.tooManyRequests,
+          '{"errorCode":"enrollment_approval_busy","retryAfterSeconds":3}',
+        ),
+        _enrollment('computer-1', '仓库电脑', 'a' * 64),
+      ]),
+      wifiConnected: () async => true,
+      retryDelay: (Duration delay) async {
+        delays.add(delay);
+        expect(
+          service.snapshot.connectionStatus,
+          LanConnectionStatus.awaitingApproval,
+        );
+        expect(service.snapshot.message, contains('稍后会自动继续'));
+      },
+    );
+    addTearDown(service.dispose);
+
+    await service.connectToHost(Uri.parse('http://192.168.1.20:5280'));
+
+    expect(delays, <Duration>[const Duration(seconds: 3)]);
+    expect(service.snapshot.connectionStatus, LanConnectionStatus.connected);
+  });
+
   test('旧保存主机在申请令牌前提示更新电脑端', () async {
     final _SequenceHttpClient client =
         _SequenceHttpClient(<_StreamHttpResponse>[

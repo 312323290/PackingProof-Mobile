@@ -50,6 +50,11 @@ internal class LanBackupPlugin(
             when (call.method) {
                 "initialize", "snapshot" -> {
                     if (call.method == "initialize") {
+                        val migration = store.migrateLegacyConnection()
+                        if (migration != null) {
+                            credentials.clear()
+                            WorkManager.getInstance(context).cancelAllWorkByTag("lan-backup")
+                        }
                         store.discardUnavailableJobs()
                         store.saveRetentionPolicies(
                             call.argument<Int>("unbackedRetentionDays"),
@@ -64,7 +69,7 @@ internal class LanBackupPlugin(
                 "isWifiConnected" -> result.success(isWifiConnected())
                 "saveConnection" -> {
                     val baseUrl = call.argument<String>("baseUrl") ?: error("缺少电脑地址")
-                    val accessKey = call.argument<String>("accessKey") ?: error("缺少电脑密钥")
+                    val accessKey = call.argument<String>("accessKey") ?: error("缺少设备令牌")
                     val computerId = call.argument<String>("computerId") ?: ""
                     WorkManager.getInstance(context).cancelAllWorkByTag("lan-backup")
                     store.saveConnection(
@@ -75,6 +80,7 @@ internal class LanBackupPlugin(
                     )
                     credentials.save(accessKey)
                     store.retargetJobs(computerId)
+                    store.clearMigrationHint()
                     schedulePending()
                     result.success(null)
                 }
@@ -222,6 +228,7 @@ internal class LanBackupPlugin(
         "deviceName" to store.deviceName(),
         "connection" to store.connection()?.toFlutterValue(),
         "jobs" to store.jobs().map { it.toFlutterValue() },
+        "migrationHost" to store.migrationHint()?.toFlutterValue(),
     )
 
     fun notifySnapshotChanged() {

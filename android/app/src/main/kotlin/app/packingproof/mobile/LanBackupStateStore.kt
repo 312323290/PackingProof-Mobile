@@ -12,8 +12,27 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 
+internal data class LanBackupConnectionMigration(
+    val computerId: String,
+    val computerName: String,
+)
+
+internal fun planLanBackupConnectionMigration(
+    schemaVersion: Int,
+    computerId: String?,
+    computerName: String?,
+): LanBackupConnectionMigration? = if (schemaVersion >= 1) {
+    null
+} else {
+    LanBackupConnectionMigration(
+        computerId = computerId.orEmpty().trim(),
+        computerName = computerName.orEmpty().trim(),
+    )
+}
+
 internal class LanBackupStateStore(private val context: Context) {
     companion object {
+        private const val CONNECTION_SCHEMA_VERSION = 1
         private const val PREFS = "lan_backup_connection"
         private const val RETENTION_PREFS = "lan_backup_retention"
         private const val DEVICE_PREFS = "lan_backup_device"
@@ -52,6 +71,7 @@ internal class LanBackupStateStore(private val context: Context) {
         deviceName: String = "",
     ) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt("schemaVersion", CONNECTION_SCHEMA_VERSION)
             .putString("baseUrl", baseUrl)
             .putString("computerId", computerId)
             .putString("computerName", computerName)
@@ -78,8 +98,43 @@ internal class LanBackupStateStore(private val context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
     }
 
+    fun migrateLegacyConnection(): JSONObject? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val migration = planLanBackupConnectionMigration(
+            prefs.getInt("schemaVersion", 0),
+            prefs.getString("computerId", ""),
+            prefs.getString("computerName", ""),
+        ) ?: return null
+        prefs.edit()
+            .clear()
+            .putInt("schemaVersion", CONNECTION_SCHEMA_VERSION)
+            .putString("migrationComputerId", migration.computerId)
+            .putString("migrationComputerName", migration.computerName)
+            .apply()
+        return JSONObject()
+            .put("migrated", true)
+            .put("computerId", migration.computerId)
+            .put("computerName", migration.computerName)
+    }
+
+    fun migrationHint(): JSONObject? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val computerId = prefs.getString("migrationComputerId", "").orEmpty().trim()
+        val computerName = prefs.getString("migrationComputerName", "").orEmpty().trim()
+        if (computerId.isEmpty() && computerName.isEmpty()) return null
+        return JSONObject().put("computerId", computerId).put("computerName", computerName)
+    }
+
+    fun clearMigrationHint() {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove("migrationComputerId")
+            .remove("migrationComputerName")
+            .apply()
+    }
+
     fun retargetJobs(computerId: String) = withJobLock {
         jobsUnlocked().forEach { job ->
+            if (job.optString("state") == "completed") return@forEach
             val sameComputer = job.optString("destinationComputerId") == computerId
             val repairsConnectionFailure = job.optString("failureKind") in setOf(
                 LanBackupFailureKind.CREDENTIAL_INVALID.wireValue,

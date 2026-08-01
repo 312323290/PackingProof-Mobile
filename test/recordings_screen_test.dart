@@ -335,7 +335,9 @@ void main() {
     expect(find.text('扫码连接'), findsOneWidget);
     expect(find.text('重新搜索'), findsOneWidget);
     expect(find.text('全部完成'), findsOneWidget);
-    expect(find.text('连接电脑后自动备份录像'), findsOneWidget);
+    expect(find.text(' · 连接后自动备份'), findsOneWidget);
+    expect(find.text('未连接'), findsOneWidget);
+    expect(find.byKey(const Key('computer-backup-state-pill')), findsOneWidget);
     expect(find.text('总占用'), findsOneWidget);
     expect(find.text('0 MB'), findsOneWidget);
     expect(
@@ -364,6 +366,10 @@ void main() {
     expect(
       tester.widget(find.byKey(const Key('connect-computer-button'))),
       isA<OutlinedButton>(),
+    );
+    expect(
+      tester.getSize(find.byKey(const Key('search-backup-host-button'))).height,
+      connectButtonRect.height,
     );
     expect(find.byKey(const Key('scan-search-button')), findsOneWidget);
     expect(find.byKey(const Key('paste-search-button')), findsOneWidget);
@@ -736,7 +742,7 @@ void main() {
     expect(find.text('仓库电脑 · 192.168.1.20:5280'), findsOneWidget);
   });
 
-  testWidgets('本机录像全部备份后按钮显示灰色备份完成', (WidgetTester tester) async {
+  testWidgets('本机录像全部备份后只显示完成状态', (WidgetTester tester) async {
     final String videoPath = File('pubspec.yaml').absolute.path;
     final DateTime startedAt = DateTime(2026, 7, 19, 12);
     int backupCount = 0;
@@ -796,11 +802,8 @@ void main() {
     );
 
     expect(find.text('备份完成'), findsOneWidget);
-    expect(find.text('全部完成'), findsOneWidget);
-    final OutlinedButton button = tester.widget<OutlinedButton>(
-      find.byKey(const Key('backup-now-button')),
-    );
-    expect(button.onPressed, isNull);
+    expect(find.byKey(const Key('backup-now-button')), findsNothing);
+    expect(find.byType(Switch), findsOneWidget);
     expect(backupCount, 0);
 
     await tester.drag(find.byType(ListView), const Offset(0, -460));
@@ -911,19 +914,20 @@ void main() {
     expect(find.text('电脑离线，备份已暂停'), findsOneWidget);
     expect(loadCount, 0);
     expect(find.byType(CircularProgressIndicator), findsNothing);
-    final OutlinedButton autoBackupButton = tester.widget<OutlinedButton>(
-      find.byKey(const Key('auto-backup-button')),
+    expect(find.byKey(const Key('auto-backup-button')), findsOneWidget);
+    expect(
+      tester.widget(find.byKey(const Key('auto-backup-button'))),
+      isA<Switch>(),
     );
-    expect(autoBackupButton.onPressed, isNotNull);
-    expect(find.text('暂停备份'), findsOneWidget);
-    expect(find.byType(Switch), findsNothing);
+    expect(find.text('自动备份'), findsOneWidget);
+    expect(find.byType(Switch), findsOneWidget);
     expect(
       tester
           .widget<IconButton>(find.byKey(const Key('delete-computer-button')))
           .tooltip,
       '删除电脑',
     );
-    await tester.tap(find.byKey(const Key('auto-backup-button')));
+    await tester.tap(find.byType(Switch));
     await tester.pump();
     expect(autoBackupEnabled, isFalse);
   });

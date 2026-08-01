@@ -1988,24 +1988,34 @@ class _ComputerBackupSettings extends StatelessWidget {
     final bool approvalFailed =
         snapshot.connectionStatus == LanConnectionStatus.approvalDenied ||
         snapshot.connectionStatus == LanConnectionStatus.approvalUnavailable;
-    final String stateLabel = awaitingApproval
+    final String stateLabel = discovery.searching && !paired
+        ? '搜索中'
+        : awaitingApproval
         ? '等待允许'
+        : approvalFailed
+        ? '未允许'
         : connecting
         ? '连接中'
         : online
         ? '在线'
         : needsRepair
         ? '需允许'
-        : '离线';
+        : paired
+        ? '离线'
+        : '未连接';
     final Color stateForeground = online
         ? colors.primary
-        : needsRepair
+        : needsRepair || approvalFailed
         ? const Color(0xFFA35A16)
+        : discovery.searching || awaitingApproval || connecting
+        ? colors.primary
         : colors.onSurfaceVariant;
     final Color stateBackground = online
         ? colors.secondaryContainer
-        : needsRepair
+        : needsRepair || approvalFailed
         ? const Color(0xFFFFE8CF)
+        : discovery.searching || awaitingApproval || connecting
+        ? colors.primaryContainer
         : colors.surfaceContainerHighest;
     final String? status = awaitingApproval || approvalFailed
         ? snapshot.message
@@ -2027,9 +2037,21 @@ class _ComputerBackupSettings extends StatelessWidget {
         ? (failed.errorMessage ?? '备份失败')
         : paused != null
         ? (paused.errorMessage ?? '等待自动续传')
+        : allBackedUp && online
+        ? '备份完成'
         : pending > 0
         ? '还有 $pending 个录像等待备份'
         : null;
+
+    final String disconnectedMessage = awaitingApproval || approvalFailed
+        ? (snapshot.message ?? '请在电脑上处理连接申请')
+        : discovery.searching
+        ? (discovery.message ?? '正在查找同一 Wi-Fi 下的保存主机')
+        : discovery.hosts.length > 1
+        ? '找到 ${discovery.hosts.length} 台保存主机，请选择一台'
+        : discovery.hosts.length == 1
+        ? '已找到保存主机，正在等待电脑上点击允许'
+        : discovery.message ?? '自动搜索保存主机，连接时需在电脑上允许';
 
     return Container(
       key: const Key('computer-backup-settings'),
@@ -2041,95 +2063,160 @@ class _ComputerBackupSettings extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          if (!paired) ...<Widget>[
-            const Text(
-              '电脑备份',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 7),
-            Row(
-              children: <Widget>[
-                Text(
-                  remainingLabel,
-                  style: TextStyle(
-                    color: colors.primary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '连接电脑后自动备份录像',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: colors.onSurfaceVariant,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              discovery.searching
-                  ? '正在自动查找保存主机。找到后会申请连接，仍需在电脑上点击允许'
-                  : '选择保存主机后，需在电脑上点击允许才会连接',
-              style: TextStyle(
-                color: colors.onSurfaceVariant,
-                fontSize: 12,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (discovery.searching) ...<Widget>[
-              LinearProgressIndicator(
-                key: const Key('backup-host-search-progress'),
-                value: discovery.progress,
-                minHeight: 4,
-                borderRadius: BorderRadius.circular(99),
-              ),
-              const SizedBox(height: 7),
-            ],
-            Text(
-              discovery.message ?? '正在准备搜索同一 Wi-Fi 下的录像文件备份主机',
-              key: const Key('backup-host-search-status'),
-              style: TextStyle(
-                color: colors.onSurfaceVariant,
-                fontSize: 12,
-                height: 1.35,
-              ),
-            ),
-            if ((awaitingApproval || approvalFailed) &&
-                snapshot.message?.isNotEmpty == true) ...<Widget>[
-              const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
               Container(
-                key: const Key('backup-approval-status'),
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
-                  color: awaitingApproval
-                      ? colors.primaryContainer
-                      : colors.errorContainer,
+                  color: colors.primaryContainer,
                   borderRadius: BorderRadius.circular(12),
                 ),
+                child: Icon(
+                  Icons.cloud_upload_rounded,
+                  color: colors.primary,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Text(
+                      '电脑备份',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    if (paired)
+                      Text(
+                        snapshot.endpoint!.computerName.isEmpty
+                            ? snapshot.endpoint!.displayAddress
+                            : '${snapshot.endpoint!.computerName} · ${snapshot.endpoint!.displayAddress}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.onSurfaceVariant,
+                          fontSize: 12,
+                        ),
+                      )
+                    else
+                      Row(
+                        children: <Widget>[
+                          Text(
+                            remainingLabel,
+                            style: TextStyle(
+                              color: colors.onSurfaceVariant,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            ' · 连接后自动备份',
+                            style: TextStyle(
+                              color: colors.onSurfaceVariant,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                key: const Key('computer-backup-state-pill'),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: stateBackground,
+                  borderRadius: BorderRadius.circular(99),
+                ),
                 child: Text(
-                  snapshot.message!,
+                  stateLabel,
                   style: TextStyle(
-                    color: awaitingApproval
-                        ? colors.onPrimaryContainer
-                        : colors.onErrorContainer,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
+                    color: stateForeground,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
+              if (paired && onDisconnect != null) ...<Widget>[
+                const SizedBox(width: 2),
+                IconButton(
+                  key: const Key('delete-computer-button'),
+                  tooltip: '删除电脑',
+                  visualDensity: VisualDensity.compact,
+                  color: colors.onSurfaceVariant,
+                  onPressed: onDisconnect,
+                  icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                ),
+              ],
             ],
+          ),
+          const SizedBox(height: 12),
+          if (!paired) ...<Widget>[
+            Container(
+              key: (awaitingApproval || approvalFailed)
+                  ? const Key('backup-approval-status')
+                  : const Key('backup-host-search-status'),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+              decoration: BoxDecoration(
+                color: awaitingApproval
+                    ? colors.primaryContainer.withValues(alpha: 0.65)
+                    : approvalFailed
+                    ? const Color(0xFFFFE8CF)
+                    : colors.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Icon(
+                        awaitingApproval
+                            ? Icons.hourglass_top_rounded
+                            : approvalFailed
+                            ? Icons.info_outline_rounded
+                            : Icons.wifi_find_rounded,
+                        size: 18,
+                        color: stateForeground,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          disconnectedMessage,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontSize: 12,
+                            height: 1.35,
+                            fontWeight: awaitingApproval || approvalFailed
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (discovery.searching) ...<Widget>[
+                    const SizedBox(height: 10),
+                    LinearProgressIndicator(
+                      key: const Key('backup-host-search-progress'),
+                      value: discovery.progress,
+                      minHeight: 4,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ],
+                ],
+              ),
+            ),
             if (discovery.hosts.length > 1) ...<Widget>[
               const SizedBox(height: 10),
               ...discovery.hosts.map(
@@ -2146,7 +2233,11 @@ class _ComputerBackupSettings extends StatelessWidget {
                             !host.compatible
                         ? null
                         : () => onSelectHost!(host),
-                    icon: const Icon(Icons.dns_rounded),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                      alignment: Alignment.centerLeft,
+                    ),
+                    icon: const Icon(Icons.storage_rounded, size: 19),
                     label: Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
@@ -2166,6 +2257,9 @@ class _ComputerBackupSettings extends StatelessWidget {
                 child: OutlinedButton.icon(
                   key: const Key('cancel-backup-approval-button'),
                   onPressed: onCancelApproval,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
                   icon: const Icon(Icons.close_rounded, size: 18),
                   label: const Text('取消等待'),
                 ),
@@ -2194,6 +2288,9 @@ class _ComputerBackupSettings extends StatelessWidget {
                             ? '再次申请'
                             : '重新搜索',
                       ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -2203,105 +2300,52 @@ class _ComputerBackupSettings extends StatelessWidget {
                       onPressed: discovery.searching ? null : onConnect,
                       icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
                       label: const Text('扫码连接'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
                     ),
                   ),
                 ],
               ),
-          ] else ...<Widget>[
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      const Text(
-                        '电脑备份',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        remainingLabel,
-                        style: TextStyle(
-                          color: colors.onSurfaceVariant,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: stateBackground,
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                  child: Text(
-                    stateLabel,
-                    style: TextStyle(
-                      color: stateForeground,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.outlined(
-                  key: const Key('delete-computer-button'),
-                  tooltip: '删除电脑',
-                  style: IconButton.styleFrom(
-                    foregroundColor: const Color(0xFFC43D32),
-                    side: const BorderSide(color: Color(0xFFC43D32)),
-                  ),
-                  onPressed: onDisconnect,
-                  icon: const Icon(Icons.delete_outline_rounded),
-                ),
-              ],
-            ),
           ],
-          const SizedBox(height: 4),
           if (snapshot.endpoint != null) ...<Widget>[
-            Row(
+            Container(
               key: const Key('connected-computer-address'),
-              children: <Widget>[
-                Icon(Icons.computer_rounded, size: 16, color: stateForeground),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    snapshot.endpoint!.computerName.isEmpty
-                        ? snapshot.endpoint!.displayAddress
-                        : '${snapshot.endpoint!.computerName} · ${snapshot.endpoint!.displayAddress}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: stateForeground,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+              decoration: BoxDecoration(
+                color: colors.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Icon(Icons.storage_rounded, size: 18, color: stateForeground),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          status ?? remainingLabel,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontSize: 12,
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 5),
-          ],
-          if (status != null && paired)
-            Text(
-              status,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: colors.onSurfaceVariant,
-                fontSize: 13,
-                height: 1.4,
+                ],
               ),
             ),
+          ],
           if (active != null && !needsRepair) ...<Widget>[
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             LinearProgressIndicator(value: active.progress),
           ],
           if (showRetention) ...<Widget>[
@@ -2313,8 +2357,8 @@ class _ComputerBackupSettings extends StatelessWidget {
               onBackedRetentionChanged: onBackedRetentionChanged,
             ),
           ],
-          const SizedBox(height: 10),
           if (paired && awaitingApproval) ...<Widget>[
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -2325,6 +2369,7 @@ class _ComputerBackupSettings extends StatelessWidget {
               ),
             ),
           ] else if (paired && approvalFailed) ...<Widget>[
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
@@ -2335,9 +2380,10 @@ class _ComputerBackupSettings extends StatelessWidget {
               ),
             ),
           ] else if (paired && failureKind != null) ...<Widget>[
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
-              child: OutlinedButton.icon(
+              child: FilledButton.icon(
                 key: const Key('backup-failure-action-button'),
                 onPressed: switch (failureKind.recoveryAction) {
                   LanBackupRecoveryAction.rescan => onRequestApproval,
@@ -2362,65 +2408,82 @@ class _ComputerBackupSettings extends StatelessWidget {
               ),
             ),
           ] else if (paired) ...<Widget>[
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const Key('backup-now-button'),
-                    onPressed: connecting
-                        ? null
-                        : !online
-                        ? onRetryConnection
-                        : !allBackedUp
-                        ? onBackupNow
-                        : null,
-                    icon: Icon(
-                      connecting
-                          ? Icons.sync_rounded
-                          : !online
-                          ? Icons.refresh_rounded
-                          : allBackedUp && online
-                          ? Icons.check_circle_rounded
-                          : Icons.backup_rounded,
-                    ),
-                    label: Text(
-                      connecting
-                          ? '连接中'
-                          : !online
-                          ? '重试连接'
-                          : allBackedUp
-                          ? '备份完成'
-                          : '立即备份',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const Key('auto-backup-button'),
-                    onPressed: onAutoChanged == null
-                        ? null
-                        : () => onAutoChanged!(!snapshot.autoEnabled),
-                    icon: Icon(
-                      snapshot.autoEnabled
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
-                    ),
-                    label: Text(snapshot.autoEnabled ? '暂停备份' : '继续备份'),
-                  ),
-                ),
-              ],
-            ),
             if (failed != null) ...<Widget>[
-              const SizedBox(height: 4),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
-                child: OutlinedButton.icon(
+                child: FilledButton.icon(
+                  key: const Key('backup-now-button'),
                   onPressed: online && onRetry != null
                       ? () => onRetry!(failed.id)
                       : null,
                   icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('重试失败任务'),
+                  label: const Text('重试备份'),
+                ),
+              ),
+            ] else if (!allBackedUp || !online || connecting) ...<Widget>[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  key: const Key('backup-now-button'),
+                  onPressed: connecting
+                      ? null
+                      : !online
+                      ? onRetryConnection
+                      : onBackupNow,
+                  icon: Icon(
+                    connecting
+                        ? Icons.sync_rounded
+                        : !online
+                        ? Icons.refresh_rounded
+                        : Icons.backup_rounded,
+                  ),
+                  label: Text(
+                    connecting
+                        ? '正在连接'
+                        : !online
+                        ? '重新连接'
+                        : '立即备份',
+                  ),
+                ),
+              ),
+            ],
+            if (!needsRepair &&
+                !approvalFailed &&
+                !awaitingApproval) ...<Widget>[
+              const SizedBox(height: 8),
+              Container(
+                key: const Key('auto-backup-setting'),
+                padding: const EdgeInsets.only(left: 12, right: 4),
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Icon(
+                      Icons.sync_rounded,
+                      size: 18,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '自动备份',
+                        style: TextStyle(
+                          color: colors.onSurfaceVariant,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    Switch(
+                      key: const Key('auto-backup-button'),
+                      value: snapshot.autoEnabled,
+                      onChanged: onAutoChanged,
+                    ),
+                  ],
                 ),
               ),
             ],

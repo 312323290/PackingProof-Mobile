@@ -13,6 +13,7 @@ import 'package:packing_proof_mobile/screens/recordings_screen.dart';
 import 'package:packing_proof_mobile/services/recording_database.dart';
 import 'package:packing_proof_mobile/services/order_info_receiver_service.dart';
 import 'package:packing_proof_mobile/services/lan_backup_discovery_service.dart';
+import 'package:packing_proof_mobile/services/lan_backup_service.dart';
 
 void main() {
   testWidgets('历史页标题显示当前录像设备名称', (WidgetTester tester) async {
@@ -56,6 +57,15 @@ void main() {
       recordingsHistoryTitle('  手机2  ', ' 192.168.1.26 '),
       '手机2 · 192.168.1.26',
     );
+  });
+
+  test('未知连接错误不会向用户暴露状态码或异常类型', () {
+    final String message = friendlyBackupConnectionError(
+      const HttpException('电脑连接失败（426）'),
+    );
+    expect(message, '暂时无法连接保存主机，请稍后再试');
+    expect(message, isNot(contains('426')));
+    expect(message, isNot(contains('Exception')));
   });
 
   testWidgets('历史录像用颜色条和语义区分发货退货', (WidgetTester tester) async {
@@ -428,6 +438,192 @@ void main() {
     expect(discovery.searchCount, 1);
     expect(connectCount, 1);
     expect(find.textContaining('电脑上点击允许'), findsOneWidget);
+  });
+
+  testWidgets('共享发现服务时隐藏的设置页不会重复申请', (WidgetTester tester) async {
+    final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery();
+    int connectCount = 0;
+    RecordingsScreen buildScreen({
+      required RecordingsScreenMode mode,
+      required bool active,
+    }) => RecordingsScreen(
+      mode: mode,
+      active: active,
+      sessions: const <RecordingSession>[],
+      workMode: WorkMode.continuousScan,
+      speechEnabled: true,
+      maxVolumeEnabled: true,
+      backupHostDiscovery: discovery,
+      onConnectBackupHost: (host, confirmation) async => connectCount++,
+      onWorkModeChanged: (_) async {},
+      onSpeechEnabledChanged: (_) async {},
+      onMaxVolumeEnabledChanged: (_) async {},
+      onSpeechPreview: () async {},
+      onSessionUpdated: (_) async {},
+      onDeleteSessions: (_) async {},
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: IndexedStack(
+          index: 0,
+          children: <Widget>[
+            buildScreen(mode: RecordingsScreenMode.history, active: true),
+            buildScreen(mode: RecordingsScreenMode.settings, active: false),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(discovery.searchCount, 1);
+    expect(connectCount, 1);
+  });
+
+  testWidgets('切换到历史页后才启动保存主机搜索', (WidgetTester tester) async {
+    final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery();
+    late StateSetter setHostState;
+    bool active = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (BuildContext context, StateSetter setState) {
+            setHostState = setState;
+            return RecordingsScreen(
+              active: active,
+              sessions: const <RecordingSession>[],
+              workMode: WorkMode.continuousScan,
+              speechEnabled: true,
+              maxVolumeEnabled: true,
+              backupHostDiscovery: discovery,
+              onConnectBackupHost: (host, confirmation) async {},
+              onWorkModeChanged: (_) async {},
+              onSpeechEnabledChanged: (_) async {},
+              onMaxVolumeEnabledChanged: (_) async {},
+              onSpeechPreview: () async {},
+              onSessionUpdated: (_) async {},
+              onDeleteSessions: (_) async {},
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(discovery.searchCount, 0);
+
+    setHostState(() => active = true);
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(discovery.searchCount, 1);
+  });
+
+  testWidgets('等待电脑允许时显示醒目状态并只允许取消等待', (WidgetTester tester) async {
+    int cancelCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: const LanBackupSnapshot(
+            connectionStatus: LanConnectionStatus.awaitingApproval,
+            message: '已向“仓库电脑”发送连接申请，请在电脑上点击“允许连接”',
+          ),
+          onCancelBackupPairing: () => cancelCount++,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('backup-approval-status')), findsOneWidget);
+    expect(find.textContaining('仓库电脑'), findsOneWidget);
+    expect(find.text('重新搜索'), findsNothing);
+    expect(find.text('扫码连接'), findsNothing);
+    await tester.tap(find.byKey(const Key('cancel-backup-approval-button')));
+    expect(cancelCount, 1);
+  });
+
+  testWidgets('自动申请期间立即显示等待状态并在拒绝后刷新', (WidgetTester tester) async {
+    final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery();
+    final Completer<void> approval = Completer<void>();
+    LanBackupSnapshot snapshot = const LanBackupSnapshot();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshotProvider: () => snapshot,
+          backupHostDiscovery: discovery,
+          onConnectBackupHost: (host, confirmation) => approval.future,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('电脑上点击“允许连接”'), findsOneWidget);
+    expect(find.text('取消等待'), findsOneWidget);
+
+    snapshot = const LanBackupSnapshot(
+      connectionStatus: LanConnectionStatus.approvalDenied,
+      message: '电脑端已拒绝本次连接',
+    );
+    approval.completeError(const LanBackupApprovalDeniedException());
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('电脑端已拒绝本次连接'), findsWidgets);
+    expect(find.text('再次申请'), findsOneWidget);
+    expect(find.textContaining('403'), findsNothing);
+  });
+
+  testWidgets('审批失败后直接提供再次申请且不要求重新搜索', (WidgetTester tester) async {
+    final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery();
+    int requestCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupSnapshot: const LanBackupSnapshot(
+            connectionStatus: LanConnectionStatus.approvalDenied,
+            message: '电脑端已拒绝本次连接',
+          ),
+          backupHostDiscovery: discovery,
+          onConnectBackupHost: (host, confirmation) async => requestCount++,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('电脑端已拒绝本次连接'), findsOneWidget);
+    expect(find.text('再次申请'), findsOneWidget);
+    expect(find.textContaining('403'), findsNothing);
+    await tester.tap(find.text('再次申请'));
+    await tester.pump();
+    expect(requestCount, 2);
   });
 
   testWidgets('电脑清理本地录像后立即刷新历史统计', (WidgetTester tester) async {

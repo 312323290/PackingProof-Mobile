@@ -30,6 +30,18 @@ String recordingsHistoryTitle(String deviceName, String ipAddress) {
   return ip.isEmpty ? name : '$name · $ip';
 }
 
+@visibleForTesting
+String friendlyBackupConnectionError(Object error) {
+  if (error is LanBackupConnectionException ||
+      error is LanBackupHostUpgradeRequiredException ||
+      error is LanBackupClientUpgradeRequiredException ||
+      error is LanBackupNotHostException ||
+      error is LanBackupUnsupportedException) {
+    return error.toString();
+  }
+  return '暂时无法连接保存主机，请稍后再试';
+}
+
 class _RecordingsHistoryTitle extends StatelessWidget {
   const _RecordingsHistoryTitle({
     required this.deviceName,
@@ -104,6 +116,7 @@ class RecordingsScreen extends StatefulWidget {
     this.mode = RecordingsScreenMode.history,
     this.embedded = false,
     this.onConnectComputer,
+    this.onCancelBackupPairing,
     this.onConnectBackupHost,
     this.backupHostDiscovery,
     this.onScanSearch,
@@ -166,6 +179,7 @@ class RecordingsScreen extends StatefulWidget {
   final RecordingsScreenMode mode;
   final bool embedded;
   final VoidCallback? onConnectComputer;
+  final VoidCallback? onCancelBackupPairing;
   final Future<void> Function(
     LanBackupDiscoveredHost host,
     LanBackupPairingConfirmation? replacementConfirmation,
@@ -230,6 +244,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   RecordingSourceFilter _sourceFilter = RecordingSourceFilter.all;
   bool _backupDiscoveryStarted = false;
   bool _autoConnectStarted = false;
+  LanBackupDiscoveredHost? _lastApprovalHost;
 
   List<RecordingSession> get _filteredSessions {
     final String query = _query.trim().toLowerCase();
@@ -324,6 +339,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(_loadLocal(reset: true, pageNumber: 1, prefetchNext: true));
         _reloadRemoteAfterBackup(force: _remoteRecordings.isEmpty);
+        _startBackupHostDiscoveryIfNeeded();
       });
     }
     if (oldWidget.externalSearchQuery != widget.externalSearchQuery &&
@@ -377,6 +393,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             : null);
     if (!next.searching &&
         automaticHost != null &&
+        widget.active &&
+        widget.mode == RecordingsScreenMode.history &&
         !_autoConnectStarted &&
         _backupSnapshot.endpoint == null &&
         widget.onConnectBackupHost != null) {
@@ -416,10 +434,21 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     )?
     connect = widget.onConnectBackupHost;
     if (connect == null) return;
+    _lastApprovalHost = host;
+    if (mounted) {
+      setState(() {
+        _backupSnapshot = _backupSnapshot.copyWith(
+          connectionStatus: LanConnectionStatus.awaitingApproval,
+          message: '已向“${host.name}”发送连接申请，请在电脑上点击“允许连接”',
+        );
+      });
+    }
     try {
       await connect(host, null);
+      _refreshBackupSnapshot();
     } on LanBackupHostMismatchException catch (error) {
       if (!mounted) return;
+      _refreshBackupSnapshot();
       final bool replace =
           await showDialog<bool>(
             context: context,
@@ -446,10 +475,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       if (replace) await connect(host, error.confirmation);
     } on Object catch (error) {
       if (!mounted) return;
+      _refreshBackupSnapshot();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString().replaceFirst('Exception: ', '')),
-        ),
+        SnackBar(content: Text(friendlyBackupConnectionError(error))),
       );
     }
   }
@@ -1218,7 +1246,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                 return _backupHostDiscovery.search();
               },
               onSelectHost: _connectDiscoveredHost,
-              onRequestApproval: _backupSnapshot.endpoint == null
+              onRequestApproval: _lastApprovalHost != null
+                  ? () => _connectDiscoveredHost(_lastApprovalHost!)
+                  : _backupSnapshot.endpoint == null
                   ? null
                   : () => _connectDiscoveredHost(
                       LanBackupDiscoveredHost(
@@ -1227,6 +1257,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         address: _backupSnapshot.endpoint!.displayAddress,
                       ),
                     ),
+              onCancelApproval: widget.onCancelBackupPairing,
               unbackedRetention: _unbackedRetention,
               backedRetention: _backedRetention,
               onUnbackedRetentionChanged: _setUnbackedRetention,
@@ -1866,6 +1897,7 @@ class _ComputerBackupSettings extends StatelessWidget {
     this.onSearchHosts,
     this.onSelectHost,
     this.onRequestApproval,
+    this.onCancelApproval,
   });
 
   final LanBackupSnapshot snapshot;
@@ -1886,6 +1918,7 @@ class _ComputerBackupSettings extends StatelessWidget {
   final Future<void> Function()? onSearchHosts;
   final Future<void> Function(LanBackupDiscoveredHost host)? onSelectHost;
   final Future<void> Function()? onRequestApproval;
+  final VoidCallback? onCancelApproval;
 
   @override
   Widget build(BuildContext context) {
@@ -1950,7 +1983,14 @@ class _ComputerBackupSettings extends StatelessWidget {
         failureKind == LanBackupFailureKind.notBackupHost;
     final bool connecting =
         snapshot.connectionStatus == LanConnectionStatus.connecting;
-    final String stateLabel = connecting
+    final bool awaitingApproval =
+        snapshot.connectionStatus == LanConnectionStatus.awaitingApproval;
+    final bool approvalFailed =
+        snapshot.connectionStatus == LanConnectionStatus.approvalDenied ||
+        snapshot.connectionStatus == LanConnectionStatus.approvalUnavailable;
+    final String stateLabel = awaitingApproval
+        ? '等待允许'
+        : connecting
         ? '连接中'
         : online
         ? '在线'
@@ -1967,7 +2007,9 @@ class _ComputerBackupSettings extends StatelessWidget {
         : needsRepair
         ? const Color(0xFFFFE8CF)
         : colors.surfaceContainerHighest;
-    final String? status = !snapshot.connected
+    final String? status = awaitingApproval || approvalFailed
+        ? snapshot.message
+        : !snapshot.connected
         ? '扫描电脑二维码后自动备份'
         : failureKind == LanBackupFailureKind.notBackupHost
         ? '连接的电脑当前不是录像备份主机，请切换电脑用途或重新搜索'
@@ -2059,6 +2101,35 @@ class _ComputerBackupSettings extends StatelessWidget {
                 height: 1.35,
               ),
             ),
+            if ((awaitingApproval || approvalFailed) &&
+                snapshot.message?.isNotEmpty == true) ...<Widget>[
+              const SizedBox(height: 10),
+              Container(
+                key: const Key('backup-approval-status'),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: awaitingApproval
+                      ? colors.primaryContainer
+                      : colors.errorContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  snapshot.message!,
+                  style: TextStyle(
+                    color: awaitingApproval
+                        ? colors.onPrimaryContainer
+                        : colors.onErrorContainer,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
             if (discovery.hosts.length > 1) ...<Widget>[
               const SizedBox(height: 10),
               ...discovery.hosts.map(
@@ -2070,6 +2141,7 @@ class _ComputerBackupSettings extends StatelessWidget {
                     ),
                     onPressed:
                         discovery.searching ||
+                            awaitingApproval ||
                             onSelectHost == null ||
                             !host.compatible
                         ? null
@@ -2088,27 +2160,53 @@ class _ComputerBackupSettings extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: FilledButton.icon(
-                    key: const Key('search-backup-host-button'),
-                    onPressed: discovery.searching ? null : onSearchHosts,
-                    icon: const Icon(Icons.wifi_find_rounded, size: 18),
-                    label: Text(discovery.searching ? '正在搜索' : '重新搜索'),
-                  ),
+            if (awaitingApproval)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  key: const Key('cancel-backup-approval-button'),
+                  onPressed: onCancelApproval,
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('取消等待'),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const Key('connect-computer-button'),
-                    onPressed: discovery.searching ? null : onConnect,
-                    icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
-                    label: const Text('扫码连接'),
+              )
+            else
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: FilledButton.icon(
+                      key: const Key('search-backup-host-button'),
+                      onPressed: discovery.searching
+                          ? null
+                          : approvalFailed && onRequestApproval != null
+                          ? onRequestApproval
+                          : onSearchHosts,
+                      icon: Icon(
+                        approvalFailed
+                            ? Icons.refresh_rounded
+                            : Icons.wifi_find_rounded,
+                        size: 18,
+                      ),
+                      label: Text(
+                        discovery.searching
+                            ? '正在搜索'
+                            : approvalFailed
+                            ? '再次申请'
+                            : '重新搜索',
+                      ),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      key: const Key('connect-computer-button'),
+                      onPressed: discovery.searching ? null : onConnect,
+                      icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                      label: const Text('扫码连接'),
+                    ),
+                  ),
+                ],
+              ),
           ] else ...<Widget>[
             Row(
               children: <Widget>[
@@ -2216,7 +2314,27 @@ class _ComputerBackupSettings extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 10),
-          if (paired && failureKind != null) ...<Widget>[
+          if (paired && awaitingApproval) ...<Widget>[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                key: const Key('cancel-backup-approval-button'),
+                onPressed: onCancelApproval,
+                icon: const Icon(Icons.close_rounded),
+                label: const Text('取消等待'),
+              ),
+            ),
+          ] else if (paired && approvalFailed) ...<Widget>[
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                key: const Key('retry-backup-approval-button'),
+                onPressed: onRequestApproval,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('再次申请'),
+              ),
+            ),
+          ] else if (paired && failureKind != null) ...<Widget>[
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(

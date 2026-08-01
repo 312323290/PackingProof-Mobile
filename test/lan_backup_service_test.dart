@@ -434,10 +434,130 @@ void main() {
 
     await expectLater(
       service.connectToHost(Uri.parse('http://192.168.1.20:5280')),
-      throwsA(isA<LanBackupConnectionException>()),
+      throwsA(isA<LanBackupApprovalDeniedException>()),
     );
     expect(savedConnections, 0);
     expect(service.snapshot.endpoint, isNull);
+    expect(
+      service.snapshot.connectionStatus,
+      LanConnectionStatus.approvalDenied,
+    );
+    expect(service.snapshot.message, '电脑端已拒绝本次连接');
+  });
+
+  test('重新申请被拒绝时保留原电脑和待备份任务', () async {
+    final LanBackupService service = LanBackupService(
+      httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
+        _nodeInfo('computer-1', '仓库电脑'),
+        _StreamHttpResponse(
+          HttpStatus.forbidden,
+          '{"errorCode":"enrollment_denied"}',
+        ),
+      ]),
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+    service.debugSetSnapshotForTesting(
+      LanBackupSnapshot(
+        endpoint: LanBackupEndpoint(
+          baseUri: Uri.parse('http://192.168.1.20:5280'),
+          accessKey: '',
+          computerId: 'computer-1',
+          computerName: '仓库电脑',
+        ),
+        jobs: const <LanBackupJob>[
+          LanBackupJob(
+            id: 'pending-job',
+            filePath: 'pending.mp4',
+            state: LanBackupJobState.pending,
+            uploadedBytes: 0,
+            totalBytes: 100,
+            destinationComputerId: 'computer-1',
+          ),
+        ],
+        connectionStatus: LanConnectionStatus.rePair,
+      ),
+    );
+
+    await expectLater(
+      service.connectToHost(Uri.parse('http://192.168.1.20:5280')),
+      throwsA(isA<LanBackupApprovalDeniedException>()),
+    );
+
+    expect(service.snapshot.endpoint?.computerId, 'computer-1');
+    expect(service.snapshot.jobs.single.id, 'pending-job');
+    expect(
+      service.snapshot.connectionStatus,
+      LanConnectionStatus.approvalDenied,
+    );
+  });
+
+  test('等待电脑审批时显示明确状态并可取消恢复', () async {
+    final Completer<HttpClientResponse> enrollment =
+        Completer<HttpClientResponse>();
+    final _DeferredEnrollmentHttpClient client = _DeferredEnrollmentHttpClient(
+      _nodeInfo('computer-1', '仓库电脑'),
+      enrollment,
+    );
+    final LanBackupService service = LanBackupService(
+      httpClient: client,
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+
+    final Future<void> pairing = service.connectToHost(
+      Uri.parse('http://192.168.1.20:5280'),
+    );
+    while (!client.postRequested) {
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    expect(
+      service.snapshot.connectionStatus,
+      LanConnectionStatus.awaitingApproval,
+    );
+    expect(service.snapshot.message, contains('请在电脑上点击“允许连接”'));
+    service.cancelPairing();
+    enrollment.complete(_enrollment('computer-1', '仓库电脑', 'a' * 64));
+    await pairing;
+    expect(service.snapshot.connectionStatus, LanConnectionStatus.disconnected);
+    expect(service.snapshot.endpoint, isNull);
+  });
+
+  test('审批不可用和限流均显示友好提示且不暴露状态码', () async {
+    for (final ({int status, String body, String expected}) sample
+        in <({int status, String body, String expected})>[
+          (
+            status: HttpStatus.serviceUnavailable,
+            body: '{"errorCode":"enrollment_approval_unavailable"}',
+            expected: '电脑端暂时无法显示确认窗口，请打开保存主机界面后重试',
+          ),
+          (
+            status: HttpStatus.tooManyRequests,
+            body: '',
+            expected: '申请太频繁，请稍等几秒再试',
+          ),
+        ]) {
+      final LanBackupService service = LanBackupService(
+        httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
+          _nodeInfo('computer-1', '仓库电脑'),
+          _StreamHttpResponse(sample.status, sample.body),
+        ]),
+        wifiConnected: () async => true,
+      );
+      addTearDown(service.dispose);
+
+      await expectLater(
+        service.connectToHost(Uri.parse('http://192.168.1.20:5280')),
+        throwsA(isA<LanBackupApprovalUnavailableException>()),
+      );
+      expect(service.snapshot.message, sample.expected);
+      expect(service.snapshot.message, isNot(contains('${sample.status}')));
+      expect(
+        service.snapshot.connectionStatus,
+        LanConnectionStatus.approvalUnavailable,
+      );
+    }
   });
 
   test('旧保存主机在申请令牌前提示更新电脑端', () async {
@@ -499,6 +619,24 @@ void main() {
     );
     expect(savedConnections, 0);
     expect(service.snapshot.message, '手机 App 版本过低，请更新后重新连接');
+  });
+
+  test('主机返回空白 426 时仍使用手机版本升级提示', () async {
+    final LanBackupService service = LanBackupService(
+      httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
+        _nodeInfo('computer-1', '仓库电脑'),
+        _StreamHttpResponse(426, 'Proxy rejected request'),
+      ]),
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+
+    await expectLater(
+      service.connectToHost(Uri.parse('http://192.168.1.20:5280')),
+      throwsA(isA<LanBackupClientUpgradeRequiredException>()),
+    );
+    expect(service.snapshot.message, '手机 App 版本过低，请更新后重新连接');
+    expect(service.snapshot.message, isNot(contains('426')));
   });
 
   test('存在待备份录像时更换主机要先确认且确认前不申请令牌', () async {
@@ -617,6 +755,53 @@ class _CompletedHttpClientRequest extends Fake implements HttpClientRequest {
 
   @override
   Future<HttpClientResponse> close() async => response;
+}
+
+class _DeferredEnrollmentHttpClient extends Fake implements HttpClient {
+  _DeferredEnrollmentHttpClient(this.nodeInfo, this.enrollment);
+
+  final _StreamHttpResponse nodeInfo;
+  final Completer<HttpClientResponse> enrollment;
+  bool postRequested = false;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async {
+    return _CompletedHttpClientRequest(nodeInfo);
+  }
+
+  @override
+  Future<HttpClientRequest> postUrl(Uri url) async {
+    postRequested = true;
+    return _DeferredHttpClientRequest(enrollment.future);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _DeferredHttpClientRequest extends Fake implements HttpClientRequest {
+  _DeferredHttpClientRequest(this.response);
+
+  final Future<HttpClientResponse> response;
+  final HttpHeaders _headers = _IgnoringHttpHeaders();
+
+  @override
+  HttpHeaders get headers => _headers;
+
+  @override
+  set followRedirects(bool value) {}
+
+  @override
+  set contentLength(int value) {}
+
+  @override
+  void add(List<int> data) {}
+
+  @override
+  void abort([Object? exception, StackTrace? stackTrace]) {}
+
+  @override
+  Future<HttpClientResponse> close() => response;
 }
 
 class _StreamHttpResponse extends Stream<List<int>>

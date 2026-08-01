@@ -70,6 +70,19 @@ class LanBackupConnectionException implements Exception {
   String toString() => message;
 }
 
+class LanBackupApprovalDeniedException extends LanBackupConnectionException {
+  const LanBackupApprovalDeniedException() : super('电脑端已拒绝本次连接');
+}
+
+class LanBackupApprovalUnavailableException
+    extends LanBackupConnectionException {
+  const LanBackupApprovalUnavailableException(super.message);
+}
+
+class LanBackupApprovalTimeoutException extends LanBackupConnectionException {
+  const LanBackupApprovalTimeoutException() : super('电脑端还未处理连接申请，请打开电脑端后再次申请');
+}
+
 class LanBackupPairingConfirmation {
   const LanBackupPairingConfirmation({
     required this.computerId,
@@ -320,7 +333,8 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     final LanBackupSnapshot restoreSnapshot = _snapshot;
     _pairingRestoreSnapshot = restoreSnapshot;
     _snapshot = _snapshot.copyWith(
-      connectionStatus: LanConnectionStatus.connecting,
+      connectionStatus: LanConnectionStatus.awaitingApproval,
+      message: '已向“${candidateEndpoint.computerName}”发送连接申请，请在电脑上点击“允许连接”',
     );
     notifyListeners();
     try {
@@ -359,26 +373,36 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       if (response.statusCode == HttpStatus.notFound) {
         throw const LanBackupUnsupportedException();
       }
+      final ({String code, String message}) enrollmentError =
+          _decodeEnrollmentError(body);
       if (response.statusCode == HttpStatus.forbidden) {
-        throw const LanBackupConnectionException('保存主机未允许连接，请重新申请');
+        throw const LanBackupApprovalDeniedException();
       }
       if (response.statusCode == HttpStatus.conflict) {
         throw const LanBackupNotHostException();
       }
       if (response.statusCode == HttpStatus.tooManyRequests) {
-        throw const LanBackupConnectionException('连接申请过于频繁，请稍后重试');
+        throw const LanBackupApprovalUnavailableException('申请太频繁，请稍等几秒再试');
+      }
+      if (response.statusCode == HttpStatus.serviceUnavailable) {
+        throw LanBackupApprovalUnavailableException(
+          enrollmentError.code == 'enrollment_approval_unavailable' &&
+                  enrollmentError.message.isNotEmpty
+              ? enrollmentError.message
+              : '电脑端暂时无法显示确认窗口，请打开保存主机界面后重试',
+        );
       }
       if (response.statusCode == 426) {
-        final Object? decoded = jsonDecode(body);
-        final String message = decoded is Map
-            ? '${decoded['error'] ?? ''}'.trim()
-            : '';
         throw LanBackupClientUpgradeRequiredException(
-          message.isEmpty ? '手机 App 版本过低，请更新后重新连接' : message,
+          enrollmentError.message.isEmpty
+              ? '手机 App 版本过低，请更新后重新连接'
+              : enrollmentError.message,
         );
       }
       if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('电脑连接失败（${response.statusCode}）');
+        throw const LanBackupApprovalUnavailableException(
+          '电脑端暂时无法处理连接申请，请稍后再试',
+        );
       }
       final Map<String, Object?> enrollment = Map<String, Object?>.from(
         jsonDecode(body) as Map<Object?, Object?>,
@@ -450,50 +474,92 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       rethrow;
     } on LanBackupClientUpgradeRequiredException catch (error) {
       if (revision != _pairingRevision) return;
-      _snapshot = restoreSnapshot.endpoint != null
-          ? restoreSnapshot
-          : _snapshot.copyWith(
-              connectionStatus: LanConnectionStatus.offline,
-              message: error.message,
-            );
+      _snapshot = restoreSnapshot.copyWith(
+        connectionStatus: LanConnectionStatus.offline,
+        message: error.message,
+      );
+      notifyListeners();
+      rethrow;
+    } on LanBackupApprovalDeniedException catch (error) {
+      if (revision != _pairingRevision) return;
+      _snapshot = restoreSnapshot.copyWith(
+        connectionStatus: LanConnectionStatus.approvalDenied,
+        message: error.message,
+      );
+      notifyListeners();
+      rethrow;
+    } on LanBackupApprovalUnavailableException catch (error) {
+      if (revision != _pairingRevision) return;
+      _snapshot = restoreSnapshot.copyWith(
+        connectionStatus: LanConnectionStatus.approvalUnavailable,
+        message: error.message,
+      );
       notifyListeners();
       rethrow;
     } on FormatException {
       if (revision != _pairingRevision) return;
-      _snapshot = _snapshot.copyWith(
-        connectionStatus: LanConnectionStatus.rePair,
+      const friendly = LanBackupApprovalUnavailableException(
+        '电脑端返回了无法识别的连接结果，请更新电脑端后再试',
+      );
+      _snapshot = restoreSnapshot.copyWith(
+        connectionStatus: LanConnectionStatus.approvalUnavailable,
+        message: friendly.message,
       );
       notifyListeners();
-      rethrow;
+      throw friendly;
     } on SocketException {
       if (revision != _pairingRevision) return;
-      _snapshot = _snapshot.copyWith(
-        connectionStatus: LanConnectionStatus.offline,
-      );
-      notifyListeners();
-      throw const LanBackupConnectionException(
+      const friendly = LanBackupConnectionException(
         '无法通过局域网连接电脑，请确认手机和电脑连接了同一个 Wi-Fi',
       );
+      _snapshot = restoreSnapshot.copyWith(
+        connectionStatus: LanConnectionStatus.offline,
+        message: friendly.message,
+      );
+      notifyListeners();
+      throw friendly;
     } on TimeoutException {
       if (revision != _pairingRevision) return;
-      _snapshot = _snapshot.copyWith(
-        connectionStatus: LanConnectionStatus.offline,
+      const error = LanBackupApprovalTimeoutException();
+      _snapshot = restoreSnapshot.copyWith(
+        connectionStatus: LanConnectionStatus.approvalUnavailable,
+        message: error.message,
       );
       notifyListeners();
-      throw const LanBackupConnectionException('等待保存主机允许连接超时，请重新申请');
-    } on Object {
+      throw error;
+    } on Object catch (error) {
       if (revision != _pairingRevision) return;
-      _snapshot = _snapshot.copyWith(
-        connectionStatus: LanConnectionStatus.offline,
+      const friendly = LanBackupApprovalUnavailableException(
+        '电脑端暂时无法处理连接申请，请稍后再试',
+      );
+      _snapshot = restoreSnapshot.copyWith(
+        connectionStatus: LanConnectionStatus.approvalUnavailable,
+        message: friendly.message,
       );
       notifyListeners();
-      rethrow;
+      if (error is LanBackupConnectionException) rethrow;
+      throw friendly;
     } finally {
       if (revision == _pairingRevision) {
         _activePairingRequest = null;
         _pairingRestoreSnapshot = null;
       }
     }
+  }
+
+  ({String code, String message}) _decodeEnrollmentError(String body) {
+    try {
+      final Object? decoded = jsonDecode(body);
+      if (decoded is Map) {
+        return (
+          code: '${decoded['errorCode'] ?? ''}'.trim(),
+          message: '${decoded['error'] ?? ''}'.trim(),
+        );
+      }
+    } on FormatException {
+      // 旧主机或代理可能返回纯文本，界面统一使用本地友好提示。
+    }
+    return (code: '', message: '');
   }
 
   Future<LanBackupEndpoint> _readBackupHostIdentity(Uri baseUri) async {

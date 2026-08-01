@@ -67,6 +67,9 @@ extension LanBackupFailureRecovery on LanBackupFailureKind {
 enum LanConnectionStatus {
   disconnected,
   connecting,
+  awaitingApproval,
+  approvalDenied,
+  approvalUnavailable,
   connected,
   offline,
   rePair,

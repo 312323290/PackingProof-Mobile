@@ -52,13 +52,13 @@ extension LanBackupFailureRecovery on LanBackupFailureKind {
   };
 
   String get recoveryLabel => switch (this) {
-    LanBackupFailureKind.credentialInvalid => '重新扫码',
+    LanBackupFailureKind.credentialInvalid => '重新申请',
     LanBackupFailureKind.offlineOrTimeout => '重试连接',
     LanBackupFailureKind.temporaryService => '稍后重试',
     LanBackupFailureKind.uploadExpired => '重新备份',
     LanBackupFailureKind.verificationFailed => '重新校验并备份',
     LanBackupFailureKind.storageUnavailable => '检查电脑后重试',
-    LanBackupFailureKind.notBackupHost => '重新扫码',
+    LanBackupFailureKind.notBackupHost => '重新申请',
     LanBackupFailureKind.incompatibleVersion => '请更新电脑端',
     LanBackupFailureKind.unknown => '重试备份',
   };
@@ -103,16 +103,6 @@ class LanBackupEndpoint {
 
   String get displayAddress =>
       baseUri.hasPort ? '${baseUri.host}:${baseUri.port}' : baseUri.host;
-}
-
-class TemporaryComputerPairing {
-  const TemporaryComputerPairing({
-    required this.pairingLink,
-    required this.expiresAt,
-  });
-
-  final String pairingLink;
-  final DateTime expiresAt;
 }
 
 class LanBackupJob {
@@ -217,6 +207,8 @@ class LanBackupSnapshot {
     this.connectionStatus = LanConnectionStatus.disconnected,
     this.deviceId = '',
     this.deviceName = '',
+    this.preferredHostId = '',
+    this.preferredHostName = '',
     this.mobileAppUpdate,
   });
 
@@ -227,6 +219,8 @@ class LanBackupSnapshot {
   final LanConnectionStatus connectionStatus;
   final String deviceId;
   final String deviceName;
+  final String preferredHostId;
+  final String preferredHostName;
   final MobileAppUpdateNotice? mobileAppUpdate;
 
   bool get connected => endpoint != null;
@@ -270,6 +264,8 @@ class LanBackupSnapshot {
     LanConnectionStatus? connectionStatus,
     String? deviceId,
     String? deviceName,
+    String? preferredHostId,
+    String? preferredHostName,
     MobileAppUpdateNotice? mobileAppUpdate,
     bool clearMobileAppUpdate = false,
   }) {
@@ -281,6 +277,8 @@ class LanBackupSnapshot {
       connectionStatus: connectionStatus ?? this.connectionStatus,
       deviceId: deviceId ?? this.deviceId,
       deviceName: deviceName ?? this.deviceName,
+      preferredHostId: preferredHostId ?? this.preferredHostId,
+      preferredHostName: preferredHostName ?? this.preferredHostName,
       mobileAppUpdate: clearMobileAppUpdate
           ? null
           : mobileAppUpdate ?? this.mobileAppUpdate,
@@ -346,7 +344,7 @@ class RemoteRecording {
       sourceSessionId: '${json['sourceSessionId'] ?? ''}',
       contentSha256: '${json['contentSha256'] ?? ''}',
       playUri: baseUri.resolve(
-        '${json['playUrl'] ?? '/api/videos/${json['id']}/play?compat=0'}',
+        '${json['playUrl'] ?? '/api/mobile-backup/videos/${json['id']}/play?compat=0'}',
       ),
       thumbnailUri: json['thumbnailUrl'] == null
           ? null

@@ -10,21 +10,14 @@ import javax.crypto.spec.SecretKeySpec
 
 internal data class StoredBackupCredential(
     val backupCredential: String,
-    val webAccessKey: String,
     val version: Int,
 )
 
 internal object BackupRequestAuthentication {
-    const val VERSION = 2
+    const val VERSION = 3
 
-    fun parse(value: String): StoredBackupCredential {
-        val parts = value.trim().split(':')
-        return if (parts.size == 3 && parts[0] == "v2") {
-            StoredBackupCredential(parts[1], parts[2], VERSION)
-        } else {
-            StoredBackupCredential(value.trim(), value.trim(), 1)
-        }
-    }
+    fun parse(value: String): StoredBackupCredential =
+        StoredBackupCredential(value.trim(), VERSION)
 
     fun apply(
         connection: java.net.HttpURLConnection,
@@ -34,10 +27,6 @@ internal object BackupRequestAuthentication {
         deviceId: String,
         body: ByteArray,
     ) {
-        if (credential.version < VERSION) {
-            connection.setRequestProperty("X-EPM-Access-Key", credential.webAccessKey)
-            return
-        }
         val timestamp = Instant.now().epochSecond
         val nonce = java.security.SecureRandom().generateSeed(16).hex()
         val contentHash = body.sha256Hex()
@@ -80,7 +69,7 @@ internal object BackupRequestAuthentication {
             response.optLong("recordId") != recordId
         ) return false
         val canonical = listOf(
-            "packingproof-verified-receipt-v2",
+            "packingproof-verified-receipt-v3",
             hostNodeId.trim().lowercase(Locale.ROOT),
             sourceDeviceId.trim().lowercase(Locale.ROOT),
             sourceSessionId.trim(),

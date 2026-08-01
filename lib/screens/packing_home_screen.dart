@@ -16,6 +16,7 @@ import '../models/order_info.dart';
 import '../models/storage_notice.dart';
 import '../models/lan_backup.dart';
 import '../services/preview_cover_transform.dart';
+import '../services/lan_backup_discovery_service.dart';
 import '../services/session_repository.dart';
 import '../services/speech_prompt_service.dart';
 import '../widgets/order_info_sheet.dart';
@@ -190,6 +191,7 @@ class PackingHomeScreen extends StatefulWidget {
 class _PackingHomeScreenState extends State<PackingHomeScreen>
     with WidgetsBindingObserver {
   late final PackingSessionController _controller;
+  late final LanBackupHostDiscoveryService _backupHostDiscovery;
   int _selectedTab = 1;
   String _historySearchQuery = '';
   int _handledPairingSuccessRevision = 0;
@@ -210,6 +212,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       repository: widget.repository,
       speechService: SpeechPromptService(),
     );
+    _backupHostDiscovery = LanBackupHostDiscoveryService();
     _watermarkClock = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _selectedTab == 1) setState(() {});
     });
@@ -235,6 +238,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     WidgetsBinding.instance.removeObserver(this);
     _watermarkClock?.cancel();
     _controller.dispose();
+    _backupHostDiscovery.dispose();
     super.dispose();
   }
 
@@ -571,13 +575,18 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       onDisconnectBackup: _controller.disconnectBackup,
       onRetryConnection: _controller.retryBackupConnection,
       onRetryBackup: _controller.retryBackup,
-      onCreateComputerPairing: _controller.createTemporaryComputerPairing,
       onRefreshHistory: _controller.refreshSessions,
       onLoadRemoteRecordings: _controller.fetchRemoteRecordings,
       onLoadLocalRecordings: _controller.loadLocalRecordings,
       onLoadRemoteRecordingStatuses: _controller.fetchRemoteRecordingStatuses,
       remotePlaybackHeaders: _controller.remotePlaybackHeaders,
       onConnectComputer: _beginComputerPairing,
+      onConnectBackupHost: (host, confirmation) =>
+          _controller.connectBackupHost(
+            host.baseUri,
+            replacementConfirmation: confirmation,
+          ),
+      backupHostDiscovery: _backupHostDiscovery,
       onScanSearch: _beginHistorySearchScan,
       onSpeechPreview: _controller.previewSpeech,
       onSessionUpdated: _controller.updateSession,

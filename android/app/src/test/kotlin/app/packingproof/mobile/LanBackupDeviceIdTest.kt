@@ -9,6 +9,15 @@ import org.junit.Test
 
 class LanBackupDeviceIdTest {
     @Test
+    fun `device backup credentials use v3 token without web access key`() {
+        val credential = BackupRequestAuthentication.parse("device-token-value")
+
+        assertEquals(3, BackupRequestAuthentication.VERSION)
+        assertEquals(3, credential.version)
+        assertEquals("device-token-value", credential.backupCredential)
+    }
+
+    @Test
     fun samePhysicalDeviceProducesStableAnonymousId() {
         val first = LanBackupStateStore.stableDeviceId(
             androidId = "a1b2c3d4e5f60718",

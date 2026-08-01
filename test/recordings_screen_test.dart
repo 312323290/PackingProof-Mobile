@@ -12,6 +12,7 @@ import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/screens/recordings_screen.dart';
 import 'package:packing_proof_mobile/services/recording_database.dart';
 import 'package:packing_proof_mobile/services/order_info_receiver_service.dart';
+import 'package:packing_proof_mobile/services/lan_backup_discovery_service.dart';
 
 void main() {
   testWidgets('历史页标题显示当前录像设备名称', (WidgetTester tester) async {
@@ -321,8 +322,8 @@ void main() {
 
     expect(find.byKey(const Key('computer-backup-settings')), findsOneWidget);
     expect(find.text('电脑备份'), findsOneWidget);
-    expect(find.text('扫码连接录像备份主机'), findsOneWidget);
-    expect(find.text('重新搜索'), findsNothing);
+    expect(find.text('扫码连接'), findsOneWidget);
+    expect(find.text('重新搜索'), findsOneWidget);
     expect(find.text('全部完成'), findsOneWidget);
     expect(find.text('连接电脑后自动备份录像'), findsOneWidget);
     expect(find.text('总占用'), findsOneWidget);
@@ -348,11 +349,11 @@ void main() {
     final Rect backupCardRect = tester.getRect(
       find.byKey(const Key('computer-backup-settings')),
     );
-    expect(connectButtonRect.left, backupCardRect.left + 16);
+    expect(connectButtonRect.left, greaterThan(backupCardRect.left + 16));
     expect(connectButtonRect.right, backupCardRect.right - 16);
     expect(
       tester.widget(find.byKey(const Key('connect-computer-button'))),
-      isA<FilledButton>(),
+      isA<OutlinedButton>(),
     );
     expect(find.byKey(const Key('scan-search-button')), findsOneWidget);
     expect(find.byKey(const Key('paste-search-button')), findsOneWidget);
@@ -370,7 +371,7 @@ void main() {
     expect(find.text('本地'), findsOneWidget);
   });
 
-  testWidgets('电脑备份未连接时不自动搜索且只保留扫码入口', (WidgetTester tester) async {
+  testWidgets('电脑备份未连接时同时提供搜索和扫码入口', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
@@ -392,8 +393,41 @@ void main() {
 
     expect(find.byKey(const Key('backup-host-search-progress')), findsNothing);
     expect(find.text('正在搜索'), findsNothing);
-    expect(find.text('扫码连接录像备份主机'), findsOneWidget);
-    expect(find.text('重新搜索'), findsNothing);
+    expect(find.text('扫码连接'), findsOneWidget);
+    expect(find.text('重新搜索'), findsOneWidget);
+  });
+
+  testWidgets('只找到一台主机时自动申请但仍显示电脑允许提示', (WidgetTester tester) async {
+    final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery();
+    int connectCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          sessions: const <RecordingSession>[],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          backupHostDiscovery: discovery,
+          onConnectBackupHost: (host, confirmation) async {
+            connectCount++;
+            expect(host.nodeId, 'host-1');
+            expect(confirmation, isNull);
+          },
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(discovery.searchCount, 1);
+    expect(connectCount, 1);
+    expect(find.textContaining('电脑上点击允许'), findsOneWidget);
   });
 
   testWidgets('电脑清理本地录像后立即刷新历史统计', (WidgetTester tester) async {
@@ -783,8 +817,8 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 
-  testWidgets('连接密钥失效时只显示重新扫码并保留原电脑', (WidgetTester tester) async {
-    int scanCount = 0;
+  testWidgets('设备令牌失效时只显示重新申请并保留原电脑', (WidgetTester tester) async {
+    int approvalCount = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
@@ -815,13 +849,13 @@ void main() {
                 state: LanBackupJobState.paused,
                 uploadedBytes: 0,
                 totalBytes: 1024,
-                errorMessage: '电脑连接密钥已失效，请重新扫码',
+                errorMessage: '设备连接已失效',
                 failureKind: LanBackupFailureKind.credentialInvalid,
               ),
             ],
             connectionStatus: LanConnectionStatus.rePair,
           ),
-          onConnectComputer: () => scanCount++,
+          onConnectBackupHost: (host, confirmation) async => approvalCount++,
           onAutoBackupChanged: (_) async {},
           onBackupNow: () async {},
           onRetryBackup: (_) async {},
@@ -837,71 +871,18 @@ void main() {
     );
 
     expect(find.text('仓库电脑 · 192.168.1.20:5280'), findsOneWidget);
-    expect(find.text('需扫码'), findsOneWidget);
-    expect(find.text('重新扫码'), findsOneWidget);
+    expect(find.text('需允许'), findsOneWidget);
+    expect(find.text('重新申请'), findsOneWidget);
     expect(find.byKey(const Key('delete-computer-button')), findsOneWidget);
     expect(find.byKey(const Key('backup-now-button')), findsNothing);
     expect(find.byKey(const Key('auto-backup-button')), findsNothing);
     expect(find.text('重试失败任务'), findsNothing);
 
     await tester.tap(find.byKey(const Key('backup-failure-action-button')));
-    expect(scanCount, 1);
+    expect(approvalCount, 1);
   });
 
-  testWidgets('已连接备份主机可生成一次性录制电脑连接码', (WidgetTester tester) async {
-    int createCount = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: RecordingsScreen(
-          sessions: const <RecordingSession>[],
-          workMode: WorkMode.continuousScan,
-          speechEnabled: true,
-          maxVolumeEnabled: true,
-          backupSnapshot: LanBackupSnapshot(
-            endpoint: LanBackupEndpoint(
-              baseUri: Uri.parse('http://192.168.1.20:5280'),
-              accessKey: '',
-              computerId: 'computer-1',
-              computerName: '仓库电脑',
-            ),
-            connectionStatus: LanConnectionStatus.connected,
-          ),
-          onCreateComputerPairing: () async {
-            createCount++;
-            return TemporaryComputerPairing(
-              pairingLink:
-                  'http://192.168.1.20:5280/?pairToken=token&pairSecret=secret',
-              expiresAt: DateTime.now().add(const Duration(minutes: 2)),
-            );
-          },
-          onWorkModeChanged: (_) async {},
-          onSpeechEnabledChanged: (_) async {},
-          onMaxVolumeEnabledChanged: (_) async {},
-          onSpeechPreview: () async {},
-          onSessionUpdated: (_) async {},
-          onDeleteSessions: (_) async {},
-        ),
-      ),
-    );
-
-    final Finder button = find.byKey(
-      const Key('create-computer-pairing-button'),
-    );
-    expect(button, findsOneWidget);
-    await tester.ensureVisible(button);
-    await tester.tap(button);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-
-    expect(createCount, 1);
-    expect(find.text('连接录制电脑'), findsOneWidget);
-    expect(find.textContaining('管理保存主机'), findsOneWidget);
-    expect(find.byKey(const Key('computer-pairing-qr-code')), findsOneWidget);
-    expect(find.textContaining('2 分钟内有效'), findsOneWidget);
-  });
-
-  testWidgets('电脑不是备份主机时只显示重新扫码并覆盖旧版本失败提示', (WidgetTester tester) async {
-    int scanCount = 0;
+  testWidgets('电脑不是备份主机时显示重新申请并覆盖旧版本失败提示', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
@@ -929,7 +910,6 @@ void main() {
             ],
             connectionStatus: LanConnectionStatus.notBackupHost,
           ),
-          onConnectComputer: () => scanCount++,
           onDisconnectBackup: () async {},
           onWorkModeChanged: (_) async {},
           onSpeechEnabledChanged: (_) async {},
@@ -941,15 +921,12 @@ void main() {
       ),
     );
 
-    expect(find.text('需扫码'), findsOneWidget);
-    expect(find.text('重新扫码'), findsOneWidget);
+    expect(find.text('需允许'), findsOneWidget);
+    expect(find.text('重新申请'), findsOneWidget);
     expect(find.textContaining('不是录像备份主机'), findsOneWidget);
     expect(find.text('请更新电脑端'), findsNothing);
     expect(find.byKey(const Key('backup-now-button')), findsNothing);
     expect(find.byKey(const Key('auto-backup-button')), findsNothing);
-
-    await tester.tap(find.byKey(const Key('backup-failure-action-button')));
-    expect(scanCount, 1);
   });
 
   testWidgets('录像卡片不重复显示内部识别标记数量', (WidgetTester tester) async {
@@ -1879,6 +1856,43 @@ void main() {
     expect(deletedIds, <String>{'clip-1'});
     expect(find.text('JT1234567890'), findsNothing);
   });
+}
+
+class _FakeBackupHostDiscovery extends ChangeNotifier
+    implements LanBackupHostDiscovery {
+  int searchCount = 0;
+  LanBackupDiscoverySnapshot _snapshot = const LanBackupDiscoverySnapshot();
+
+  @override
+  LanBackupDiscoverySnapshot get snapshot => _snapshot;
+
+  @override
+  Future<void> search() async {
+    searchCount++;
+    _snapshot = const LanBackupDiscoverySnapshot(
+      searching: true,
+      total: 1,
+      message: '正在搜索 0 / 1',
+    );
+    notifyListeners();
+    await Future<void>.delayed(Duration.zero);
+    _snapshot = const LanBackupDiscoverySnapshot(
+      completed: 1,
+      total: 1,
+      hosts: <LanBackupDiscoveredHost>[
+        LanBackupDiscoveredHost(
+          nodeId: 'host-1',
+          name: '保存主机',
+          address: '192.168.1.10:5280',
+        ),
+      ],
+      message: '找到 1 台录像文件备份主机',
+    );
+    notifyListeners();
+  }
+
+  @override
+  void cancel() {}
 }
 
 RecordingSession _session(

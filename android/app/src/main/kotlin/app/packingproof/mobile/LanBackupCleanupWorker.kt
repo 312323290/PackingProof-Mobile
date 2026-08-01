@@ -226,7 +226,7 @@ internal class LanBackupCleanupWorker(
         if (completedAt != null && job.optInt("verificationVersion") < BackupRequestAuthentication.VERSION) {
             Log.w(CLEANUP_TAG, "Cleanup preserved legacy unsigned backup path=${file.absolutePath}")
             job.put("waitingCleanup", false)
-                .put("errorMessage", "需要重新扫码并由电脑重新确认后才能自动清理")
+                .put("errorMessage", "需要重新申请并由电脑允许连接后才能自动清理")
             store.writeJob(job)
             return@withJobLock Result.success()
         }

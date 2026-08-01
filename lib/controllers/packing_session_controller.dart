@@ -174,8 +174,18 @@ class PackingSessionController extends ChangeNotifier {
   int get pairingReplacementRevision => _pairingReplacementRevision;
   String? get pairingMessage => _pairingMessage;
 
-  Future<TemporaryComputerPairing> createTemporaryComputerPairing() =>
-      _lanBackupService.createTemporaryComputerPairing();
+  Future<void> connectBackupHost(
+    Uri baseUri, {
+    LanBackupPairingConfirmation? replacementConfirmation,
+  }) async {
+    await _lanBackupService.connectToHost(
+      baseUri,
+      replacementConfirmation: replacementConfirmation,
+    );
+    _pairingSuccessRevision++;
+    notifyListeners();
+  }
+
   bool get historyScanActive => _historyScanActive;
   bool get flashAvailable => Platform.isAndroid
       ? _nativeInitialization?.flashAvailable == true

@@ -19,43 +19,8 @@ class LanBackupUnsupportedException implements Exception {
   String toString() => '电脑端版本暂不支持录像备份';
 }
 
-class _StoredBackupCredential {
-  const _StoredBackupCredential({
-    required this.backupCredential,
-    required this.webAccessKey,
-    required this.version,
-  });
-
-  final String backupCredential;
-  final String webAccessKey;
-  final int version;
-}
-
-_StoredBackupCredential _parseStoredCredential(String value) {
-  final String normalized = value.trim();
-  final List<String> parts = normalized.split(':');
-  if (parts.length == 3 && parts[0] == 'v2') {
-    return _StoredBackupCredential(
-      backupCredential: parts[1],
-      webAccessKey: parts[2],
-      version: 2,
-    );
-  }
-  return _StoredBackupCredential(
-    backupCredential: normalized,
-    webAccessKey: normalized,
-    version: 1,
-  );
-}
-
-String _deriveDeviceCredential(String pairingKey, String deviceId) {
-  final String canonical =
-      'packingproof-backup-device-v2\n${deviceId.trim().toLowerCase()}';
-  return Hmac(
-    sha256,
-    _decodeSecret(pairingKey),
-  ).convert(utf8.encode(canonical)).toString();
-}
+const int _backupAuthenticationVersion = 3;
+const String _backupProtocol = 'mobile-backup-v2';
 
 List<int> _decodeSecret(String value) {
   final String normalized = value.trim();
@@ -69,7 +34,7 @@ List<int> _decodeSecret(String value) {
         ),
       );
     } on FormatException {
-      // 非十六进制旧密钥按 UTF-8 参与派生，兼容既有部署。
+      // 非十六进制设备令牌按 UTF-8 参与签名。
     }
   }
   return utf8.encode(normalized);
@@ -140,6 +105,10 @@ abstract interface class LanBackupSink implements Listenable {
     String qrValue, {
     LanBackupPairingConfirmation? replacementConfirmation,
   });
+  Future<void> connectToHost(
+    Uri baseUri, {
+    LanBackupPairingConfirmation? replacementConfirmation,
+  });
   void cancelPairing();
   Future<void> disconnect();
   Future<bool> retryConnection();
@@ -165,7 +134,6 @@ abstract interface class LanBackupSink implements Listenable {
   Future<Map<int, ({RemoteRecordingStatus status, bool exists, String reason})>>
   fetchRemoteRecordingStatuses(Iterable<int> ids);
   Map<String, String> get playbackHeaders;
-  Future<TemporaryComputerPairing> createTemporaryComputerPairing();
   Future<void> dispose();
 }
 
@@ -205,6 +173,11 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
 
   @override
   LanBackupSnapshot get snapshot => _snapshot;
+
+  @visibleForTesting
+  void debugSetSnapshotForTesting(LanBackupSnapshot snapshot) {
+    _snapshot = snapshot;
+  }
 
   @override
   Future<void> initialize({
@@ -259,13 +232,9 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     if (!isPrivateLanAddress(address)) {
       throw const FormatException('只允许连接局域网电脑');
     }
-    final String key = uri.queryParameters['key']?.trim() ?? '';
-    if (key.length < 16) {
-      throw const FormatException('电脑连接密钥无效，请重新生成二维码');
-    }
     return LanBackupEndpoint(
       baseUri: Uri(scheme: 'http', host: uri.host, port: uri.port),
-      accessKey: key,
+      accessKey: '',
       computerId: '',
       computerName: '',
     );
@@ -277,13 +246,55 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     LanBackupPairingConfirmation? replacementConfirmation,
   }) async {
     final LanBackupEndpoint candidate = parsePairingQr(qrValue);
-    final String deviceCredential = _deriveDeviceCredential(
-      candidate.accessKey,
-      _signingDeviceId,
+    await connectToHost(
+      candidate.baseUri,
+      replacementConfirmation: replacementConfirmation,
     );
-    final String storedCredential =
-        'v2:$deviceCredential:${candidate.accessKey}';
+  }
+
+  @override
+  Future<void> connectToHost(
+    Uri baseUri, {
+    LanBackupPairingConfirmation? replacementConfirmation,
+  }) async {
     await _ensureWifiConnected();
+    final LanBackupEndpoint candidateEndpoint;
+    try {
+      candidateEndpoint = await _readBackupHostIdentity(baseUri);
+    } on LanBackupNotHostException {
+      _snapshot = _snapshot.copyWith(
+        connectionStatus: LanConnectionStatus.notBackupHost,
+        message: '这台电脑当前不是录像备份主机，请切换电脑用途或选择另一台主机',
+      );
+      notifyListeners();
+      rethrow;
+    }
+    final Set<String> pendingHostIds = _snapshot.jobs
+        .where((LanBackupJob job) => job.state != LanBackupJobState.completed)
+        .map((LanBackupJob job) => job.destinationComputerId.trim())
+        .where((String id) => id.isNotEmpty)
+        .toSet();
+    final LanBackupEndpoint? currentEndpoint = _snapshot.endpoint;
+    final bool changesCurrentHost =
+        currentEndpoint != null &&
+        !_isSameBackupHost(currentEndpoint, candidateEndpoint);
+    final bool changesPendingHost =
+        pendingHostIds.isNotEmpty &&
+        !pendingHostIds.contains(candidateEndpoint.computerId);
+    if ((changesCurrentHost || changesPendingHost) &&
+        replacementConfirmation?.matches(candidateEndpoint) != true) {
+      throw LanBackupHostMismatchException(
+        currentEndpoint:
+            currentEndpoint ??
+            LanBackupEndpoint(
+              baseUri: baseUri,
+              accessKey: '',
+              computerId: pendingHostIds.first,
+              computerName: '原保存主机',
+            ),
+        candidateEndpoint: candidateEndpoint,
+      );
+    }
     final int revision = ++_pairingRevision;
     final LanBackupSnapshot restoreSnapshot = _snapshot;
     _pairingRestoreSnapshot = restoreSnapshot;
@@ -292,11 +303,18 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     );
     notifyListeners();
     try {
-      final Uri capabilityUri = candidate.baseUri.replace(
-        path: '/api/mobile-backup/capabilities',
+      final Uri enrollmentUri = baseUri.replace(
+        path: '/api/mobile-backup/enroll',
+      );
+      final List<int> enrollmentBody = utf8.encode(
+        jsonEncode(<String, Object?>{
+          'deviceId': _signingDeviceId,
+          'deviceName': _snapshot.deviceName,
+          'deviceKind': 'mobile',
+        }),
       );
       final HttpClientRequest request = await _httpClient
-          .getUrl(capabilityUri)
+          .postUrl(enrollmentUri)
           .timeout(const Duration(seconds: 5));
       if (revision != _pairingRevision) {
         request.abort();
@@ -304,48 +322,51 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       }
       _activePairingRequest = request;
       request.followRedirects = false;
-      _setSignedBackupHeaders(
-        request,
-        deviceCredential,
-        const <int>[],
-        method: 'GET',
-        path: capabilityUri.path,
-      );
+      request.headers.contentType = ContentType.json;
+      request.contentLength = enrollmentBody.length;
+      request.add(enrollmentBody);
       final HttpClientResponse response = await request.close().timeout(
-        const Duration(seconds: 8),
+        const Duration(seconds: 90),
       );
       final String body = await utf8.decoder.bind(response).join();
       if (revision != _pairingRevision) return;
       if (response.statusCode == HttpStatus.notFound) {
-        if (await _probeBackupHost(candidate.baseUri) ==
-            _BackupHostProbe.notBackupHost) {
-          throw const LanBackupNotHostException();
-        }
         throw const LanBackupUnsupportedException();
       }
-      if (response.statusCode == HttpStatus.unauthorized ||
-          response.statusCode == HttpStatus.forbidden) {
-        throw const FormatException('电脑连接密钥已失效，请重新扫码');
+      if (response.statusCode == HttpStatus.forbidden) {
+        throw const LanBackupConnectionException('保存主机未允许连接，请重新申请');
+      }
+      if (response.statusCode == HttpStatus.conflict) {
+        throw const LanBackupNotHostException();
+      }
+      if (response.statusCode == HttpStatus.tooManyRequests) {
+        throw const LanBackupConnectionException('连接申请过于频繁，请稍后重试');
       }
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException('电脑连接失败（${response.statusCode}）');
       }
-      final Map<String, Object?> capabilities = Map<String, Object?>.from(
+      final Map<String, Object?> enrollment = Map<String, Object?>.from(
         jsonDecode(body) as Map<Object?, Object?>,
       );
-      if (capabilities['protocol'] != 'mobile-backup-v1' ||
-          (capabilities['version'] as num?)?.toInt() != 1) {
+      final String deviceToken = '${enrollment['deviceToken'] ?? ''}'.trim();
+      if (enrollment['protocol'] != _backupProtocol ||
+          (enrollment['version'] as num?)?.toInt() != 2 ||
+          (enrollment['authVersion'] as num?)?.toInt() !=
+              _backupAuthenticationVersion ||
+          '${enrollment['deviceId'] ?? ''}'.trim().toLowerCase() !=
+              _signingDeviceId.toLowerCase() ||
+          deviceToken.length < 32) {
         throw const LanBackupUnsupportedException();
       }
       final LanBackupEndpoint connectedEndpoint = LanBackupEndpoint(
-        baseUri: candidate.baseUri,
+        baseUri: baseUri,
         accessKey: '',
-        computerId: '${capabilities['computerId'] ?? ''}',
-        computerName: '${capabilities['computerName'] ?? '已连接电脑'}',
+        computerId: '${enrollment['computerId'] ?? ''}',
+        computerName: '${enrollment['computerName'] ?? '已连接电脑'}',
         lastConnectedAt: DateTime.now(),
       );
       final String assignedDeviceName =
-          '${capabilities['deviceName'] ?? _snapshot.deviceName}'.trim();
+          '${enrollment['deviceName'] ?? _snapshot.deviceName}'.trim();
       if (revision != _pairingRevision) return;
       final LanBackupEndpoint? currentEndpoint = restoreSnapshot.endpoint;
       if (currentEndpoint != null &&
@@ -357,8 +378,8 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         );
       }
       await _channel.invokeMethod<void>('saveConnection', <String, Object?>{
-        'baseUrl': candidate.baseUri.toString(),
-        'accessKey': storedCredential,
+        'baseUrl': baseUri.toString(),
+        'accessKey': deviceToken,
         'computerId': connectedEndpoint.computerId,
         'computerName': connectedEndpoint.computerName,
         'deviceName': assignedDeviceName,
@@ -367,12 +388,12 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         await _restorePersistedConnection(restoreSnapshot);
         return;
       }
-      _accessKey = storedCredential;
+      _accessKey = deviceToken;
       _snapshot = _snapshot.copyWith(
         deviceName: assignedDeviceName,
         endpoint: connectedEndpoint,
         connectionStatus: LanConnectionStatus.connected,
-        message: '电脑连接成功',
+        message: '保存主机已允许连接',
       );
       notifyListeners();
       unawaited(_sendConnectionHeartbeat());
@@ -388,7 +409,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           ? restoreSnapshot
           : _snapshot.copyWith(
               connectionStatus: LanConnectionStatus.notBackupHost,
-              message: '这台电脑当前不是录像备份主机，请先切换电脑用途，再重新扫码',
+              message: '这台电脑当前不是录像备份主机，请切换电脑用途或选择另一台主机',
             );
       notifyListeners();
       rethrow;
@@ -414,7 +435,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         connectionStatus: LanConnectionStatus.offline,
       );
       notifyListeners();
-      throw const LanBackupConnectionException('连接电脑超时，请确认手机和电脑连接了同一个 Wi-Fi');
+      throw const LanBackupConnectionException('等待保存主机允许连接超时，请重新申请');
     } on Object {
       if (revision != _pairingRevision) return;
       _snapshot = _snapshot.copyWith(
@@ -428,6 +449,39 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
         _pairingRestoreSnapshot = null;
       }
     }
+  }
+
+  Future<LanBackupEndpoint> _readBackupHostIdentity(Uri baseUri) async {
+    final HttpClientRequest request = await _httpClient
+        .getUrl(baseUri.replace(path: '/api/node-info'))
+        .timeout(const Duration(seconds: 5));
+    request.followRedirects = false;
+    final HttpClientResponse response = await request.close().timeout(
+      const Duration(seconds: 8),
+    );
+    final String body = await utf8.decoder.bind(response).join();
+    if (response.statusCode != HttpStatus.ok) {
+      throw const LanBackupConnectionException('无法读取保存主机信息');
+    }
+    final Map<String, Object?> node = Map<String, Object?>.from(
+      jsonDecode(body) as Map<Object?, Object?>,
+    );
+    final Set<String> capabilities =
+        ((node['capabilities'] as List<Object?>?) ?? const <Object?>[])
+            .map((Object? value) => '$value'.toLowerCase())
+            .toSet();
+    if (!capabilities.contains('host') ||
+        !capabilities.contains('mobile-backup')) {
+      throw const LanBackupNotHostException();
+    }
+    final String nodeId = '${node['nodeId'] ?? ''}'.trim();
+    if (nodeId.isEmpty) throw const LanBackupUnsupportedException();
+    return LanBackupEndpoint(
+      baseUri: baseUri,
+      accessKey: '',
+      computerId: nodeId,
+      computerName: '${node['nodeName'] ?? '录像文件备份主机'}'.trim(),
+    );
   }
 
   @override
@@ -476,7 +530,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     final LanBackupEndpoint? endpoint = _snapshot.endpoint;
     if (endpoint == null || _accessKey.isEmpty) return false;
     if (_snapshot.connectionStatus == LanConnectionStatus.notBackupHost) {
-      _snapshot = _snapshot.copyWith(message: '电脑用途改变后需要重新扫码，或扫码连接另一台录像备份主机');
+      _snapshot = _snapshot.copyWith(message: '电脑用途改变后需要重新搜索，或扫码选择另一台录像备份主机');
       notifyListeners();
       return false;
     }
@@ -500,22 +554,15 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           )
           .timeout(const Duration(seconds: 5));
       request.followRedirects = false;
-      final _StoredBackupCredential credential = _parseStoredCredential(
+      _setSignedBackupHeaders(
+        request,
         _accessKey,
+        const <int>[],
+        method: 'GET',
+        path: endpoint.baseUri
+            .replace(path: '/api/mobile-backup/capabilities')
+            .path,
       );
-      if (credential.version >= 2) {
-        _setSignedBackupHeaders(
-          request,
-          credential.backupCredential,
-          const <int>[],
-          method: 'GET',
-          path: endpoint.baseUri
-              .replace(path: '/api/mobile-backup/capabilities')
-              .path,
-        );
-      } else {
-        _setDeviceHeaders(request, _accessKey);
-      }
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 8),
       );
@@ -524,7 +571,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           response.statusCode == HttpStatus.forbidden) {
         _snapshot = _snapshot.copyWith(
           connectionStatus: LanConnectionStatus.rePair,
-          message: '电脑连接密钥已失效，请重新扫码',
+          message: '设备连接已失效，请重新申请并在电脑上允许连接',
         );
         notifyListeners();
         return false;
@@ -534,7 +581,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
               _BackupHostProbe.notBackupHost) {
         _snapshot = _snapshot.copyWith(
           connectionStatus: LanConnectionStatus.notBackupHost,
-          message: '连接的电脑当前不是录像备份主机，请切换电脑用途或重新扫码',
+          message: '连接的电脑当前不是录像备份主机，请切换电脑用途或重新搜索',
         );
         notifyListeners();
         return false;
@@ -723,7 +770,13 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       final HttpClientRequest request = await _httpClient
           .getUrl(uri)
           .timeout(const Duration(seconds: 5));
-      _setDeviceHeaders(request, _accessKey);
+      _setSignedBackupHeaders(
+        request,
+        _accessKey,
+        const <int>[],
+        method: 'GET',
+        path: uri.path,
+      );
       final HttpClientResponse response = await request.close().timeout(
         const Duration(seconds: 10),
       );
@@ -787,13 +840,19 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       >{};
     }
     final Uri uri = endpoint.baseUri.replace(
-      path: '/api/videos/status',
+      path: '/api/mobile-backup/videos/status',
       queryParameters: <String, String>{'ids': values.join(',')},
     );
     final HttpClientRequest request = await _httpClient
         .getUrl(uri)
         .timeout(const Duration(seconds: 5));
-    request.headers.set('X-EPM-Access-Key', _accessKey);
+    _setSignedBackupHeaders(
+      request,
+      _accessKey,
+      const <int>[],
+      method: 'GET',
+      path: uri.path,
+    );
     final HttpClientResponse response = await request.close().timeout(
       const Duration(seconds: 10),
     );
@@ -820,58 +879,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   }
 
   @override
-  Map<String, String> get playbackHeaders => _accessKey.isEmpty
-      ? const <String, String>{}
-      : <String, String>{
-          'X-EPM-Access-Key': _parseStoredCredential(_accessKey).webAccessKey,
-        };
-
-  @override
-  Future<TemporaryComputerPairing> createTemporaryComputerPairing() async {
-    final LanBackupEndpoint? endpoint = _snapshot.endpoint;
-    final _StoredBackupCredential credential = _parseStoredCredential(
-      _accessKey,
-    );
-    if (endpoint == null || credential.version < 2) {
-      throw const FormatException('请先重新扫码连接录像备份主机');
-    }
-    final Uri uri = endpoint.baseUri.replace(
-      path: '/api/mobile-backup/pairing-tokens',
-    );
-    final HttpClientRequest request = await _httpClient
-        .postUrl(uri)
-        .timeout(const Duration(seconds: 5));
-    request.followRedirects = false;
-    _setSignedBackupHeaders(
-      request,
-      credential.backupCredential,
-      const <int>[],
-      method: 'POST',
-      path: uri.path,
-    );
-    request.contentLength = 0;
-    final HttpClientResponse response = await request.close().timeout(
-      const Duration(seconds: 8),
-    );
-    final String body = await utf8.decoder.bind(response).join();
-    if (response.statusCode != HttpStatus.ok) {
-      throw const HttpException('暂时无法生成连接码，请确认备份电脑在线');
-    }
-    final Map<String, Object?> payload = Map<String, Object?>.from(
-      jsonDecode(body) as Map<Object?, Object?>,
-    );
-    final String link = '${payload['pairingLink'] ?? ''}'.trim();
-    final DateTime? expiresAt = DateTime.tryParse(
-      '${payload['expiresAt'] ?? ''}',
-    );
-    if (link.isEmpty || expiresAt == null) {
-      throw const FormatException('备份电脑返回的临时连接码无效');
-    }
-    return TemporaryComputerPairing(
-      pairingLink: link,
-      expiresAt: expiresAt.toLocal(),
-    );
-  }
+  Map<String, String> get playbackHeaders => const <String, String>{};
 
   Future<void> _ensureWifiConnected() async {
     if (!await _hasWifiConnection()) {
@@ -887,22 +895,6 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       return (await _channel.invokeMethod<bool>('isWifiConnected')) == true;
     } on PlatformException {
       return false;
-    }
-  }
-
-  void _setDeviceHeaders(HttpClientRequest request, String accessKey) {
-    final _StoredBackupCredential credential = _parseStoredCredential(
-      accessKey,
-    );
-    request.headers.set('X-EPM-Access-Key', credential.webAccessKey);
-    if (_snapshot.deviceId.isNotEmpty) {
-      request.headers.set('X-EPM-Device-Id', _snapshot.deviceId);
-    }
-    if (_snapshot.deviceName.isNotEmpty) {
-      request.headers.set(
-        'X-EPM-Device-Name',
-        Uri.encodeComponent(_snapshot.deviceName),
-      );
     }
   }
 
@@ -936,7 +928,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       sha256,
       _decodeSecret(deviceCredential),
     ).convert(utf8.encode(canonical)).toString();
-    request.headers.set('X-EPM-Auth-Version', '2');
+    request.headers.set('X-EPM-Auth-Version', '$_backupAuthenticationVersion');
     request.headers.set('X-EPM-Timestamp', '$timestamp');
     request.headers.set('X-EPM-Nonce', nonce);
     request.headers.set('X-EPM-Content-SHA256', contentHash);
@@ -973,7 +965,6 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
           .postUrl(endpoint.baseUri.replace(path: '/api/connections/heartbeat'))
           .timeout(const Duration(seconds: 5));
       request.followRedirects = false;
-      _setDeviceHeaders(request, _accessKey);
       request.headers.contentType = ContentType.json;
       request.write(
         jsonEncode(<String, Object?>{
@@ -1024,8 +1015,8 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
       connectionStatus: status,
       message: switch (status) {
         LanConnectionStatus.connected => '电脑已重新连接',
-        LanConnectionStatus.rePair => '电脑连接密钥已失效，请重新扫码',
-        LanConnectionStatus.notBackupHost => '连接的电脑当前不是录像备份主机，请切换电脑用途或重新扫码',
+        LanConnectionStatus.rePair => '设备连接已失效，请重新申请并在电脑上允许连接',
+        LanConnectionStatus.notBackupHost => '连接的电脑当前不是录像备份主机，请切换电脑用途或重新搜索',
         _ => '电脑已离线，正在自动重新连接',
       },
     );
@@ -1113,9 +1104,19 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
               ),
             )
             .toList(growable: false);
+    final Object? migrationValue = values['migrationHost'];
+    final Map<Object?, Object?> migration = migrationValue is Map
+        ? Map<Object?, Object?>.from(migrationValue)
+        : const <Object?, Object?>{};
     _snapshot = LanBackupSnapshot(
       deviceId: '${values['deviceId'] ?? _snapshot.deviceId}',
       deviceName: '${values['deviceName'] ?? _snapshot.deviceName}',
+      preferredHostId: endpoint == null
+          ? '${migration['computerId'] ?? _snapshot.preferredHostId}'
+          : '',
+      preferredHostName: endpoint == null
+          ? '${migration['computerName'] ?? _snapshot.preferredHostName}'
+          : '',
       endpoint: endpoint,
       jobs: jobs,
       autoEnabled: _snapshot.autoEnabled,
@@ -1129,12 +1130,12 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
             (LanBackupJob job) =>
                 job.failureKind == LanBackupFailureKind.credentialInvalid,
           )
-          ? '电脑连接密钥已失效，请重新扫码'
+          ? '设备连接已失效，请重新申请并在电脑上允许连接'
           : jobs.any(
               (LanBackupJob job) =>
                   job.failureKind == LanBackupFailureKind.notBackupHost,
             )
-          ? '连接的电脑当前不是录像备份主机，请切换电脑用途或重新扫码'
+          ? '连接的电脑当前不是录像备份主机，请切换电脑用途或重新搜索'
           : _snapshot.message,
     );
     notifyListeners();
@@ -1202,7 +1203,7 @@ Uri buildRemoteRecordingsUri(
   String keyword = '',
 }) {
   return baseUri.replace(
-    path: '/api/videos',
+    path: '/api/mobile-backup/videos',
     queryParameters: <String, String>{
       'page': '$page',
       'size': '$pageSize',

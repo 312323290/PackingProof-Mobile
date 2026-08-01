@@ -50,7 +50,7 @@ internal class LanBackupWorker(
             return fail(
                 initialJob,
                 generation,
-                "电脑连接密钥已失效，请重新扫码",
+                "设备连接已失效，请重新申请并在电脑上允许连接",
                 LanBackupFailureKind.CREDENTIAL_INVALID,
             )
         }
@@ -241,7 +241,7 @@ internal class LanBackupWorker(
                     job,
                     generation,
                     if (failureKind == LanBackupFailureKind.NOT_BACKUP_HOST) {
-                        "连接的电脑当前不是录像备份主机，请切换电脑用途或重新扫码"
+                        "连接的电脑当前不是录像备份主机，请切换电脑用途或重新搜索"
                     } else {
                         friendlyError(error)
                     },
@@ -470,7 +470,7 @@ internal class LanBackupWorker(
         "invalid_content_range", "invalid_request", "invalid_json" -> "备份数据格式异常，请更新应用后重试"
         "mobile_backup_failed" -> "电脑处理备份失败，请稍后重试"
         else -> when (error.statusCode) {
-            401, 403 -> "电脑连接密钥已失效，请重新扫码"
+            401, 403 -> "设备连接已失效，请重新申请并在电脑上允许连接"
             404 -> "电脑端暂不支持此备份任务"
             in 500..599 -> "电脑暂时无法处理备份"
             else -> "备份失败，请稍后重试"

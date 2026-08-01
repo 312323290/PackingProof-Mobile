@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/backup_retention_policy.dart';
 import '../models/barcode_marker.dart';
@@ -11,6 +10,8 @@ import '../models/lan_backup.dart';
 import '../models/recording_operation_mode.dart';
 import '../models/recording_session.dart';
 import '../services/order_info_receiver_service.dart';
+import '../services/lan_backup_discovery_service.dart';
+import '../services/lan_backup_service.dart';
 import '../models/work_mode.dart';
 import '../widgets/about_settings.dart';
 import '../widgets/two_button_confirm_dialog.dart';
@@ -90,7 +91,6 @@ class RecordingsScreen extends StatefulWidget {
     this.onDisconnectBackup,
     this.onRetryConnection,
     this.onRetryBackup,
-    this.onCreateComputerPairing,
     this.onRefreshHistory,
     this.unbackedRetention = UnbackedRetentionPolicy.days30,
     this.backedRetention = BackedRetentionPolicy.days7,
@@ -104,6 +104,8 @@ class RecordingsScreen extends StatefulWidget {
     this.mode = RecordingsScreenMode.history,
     this.embedded = false,
     this.onConnectComputer,
+    this.onConnectBackupHost,
+    this.backupHostDiscovery,
     this.onScanSearch,
     this.externalSearchQuery = '',
     this.active = true,
@@ -133,7 +135,6 @@ class RecordingsScreen extends StatefulWidget {
   final Future<void> Function()? onDisconnectBackup;
   final Future<void> Function()? onRetryConnection;
   final Future<void> Function(String jobId)? onRetryBackup;
-  final Future<TemporaryComputerPairing> Function()? onCreateComputerPairing;
   final Future<void> Function()? onRefreshHistory;
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
@@ -165,6 +166,12 @@ class RecordingsScreen extends StatefulWidget {
   final RecordingsScreenMode mode;
   final bool embedded;
   final VoidCallback? onConnectComputer;
+  final Future<void> Function(
+    LanBackupDiscoveredHost host,
+    LanBackupPairingConfirmation? replacementConfirmation,
+  )?
+  onConnectBackupHost;
+  final LanBackupHostDiscovery? backupHostDiscovery;
   final VoidCallback? onScanSearch;
   final String externalSearchQuery;
   final bool active;
@@ -187,6 +194,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late int _localRecordingBytes;
   late Set<String> _localRecordingPaths;
   late LanBackupSnapshot _backupSnapshot;
+  late final LanBackupHostDiscovery _backupHostDiscovery;
+  late final bool _ownsBackupHostDiscovery;
+  LanBackupDiscoverySnapshot _backupDiscoverySnapshot =
+      const LanBackupDiscoverySnapshot();
   late UnbackedRetentionPolicy _unbackedRetention;
   late BackedRetentionPolicy _backedRetention;
   final List<RemoteRecording> _remoteRecordings = <RemoteRecording>[];
@@ -217,6 +228,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   int _remoteRequestGeneration = 0;
   int _localRequestGeneration = 0;
   RecordingSourceFilter _sourceFilter = RecordingSourceFilter.all;
+  bool _backupDiscoveryStarted = false;
+  bool _autoConnectStarted = false;
 
   List<RecordingSession> get _filteredSessions {
     final String query = _query.trim().toLowerCase();
@@ -250,6 +263,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _sessions = List<RecordingSession>.of(widget.sessions);
     _refreshLocalRecordingStats();
     _backupSnapshot = widget.backupSnapshot;
+    _ownsBackupHostDiscovery = widget.backupHostDiscovery == null;
+    _backupHostDiscovery =
+        widget.backupHostDiscovery ?? LanBackupHostDiscoveryService();
+    _backupDiscoverySnapshot = _backupHostDiscovery.snapshot;
+    _backupHostDiscovery.addListener(_refreshBackupDiscovery);
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
     _hiddenRemoteIds = Set<int>.of(widget.hiddenRemoteRecordingIds);
@@ -259,6 +277,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(_loadLocal(reset: true, pageNumber: 1, prefetchNext: true));
         unawaited(_loadRemote(reset: true, pageNumber: 1, prefetchNext: true));
+        _startBackupHostDiscoveryIfNeeded();
       });
     }
   }
@@ -327,10 +346,98 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   @override
   void dispose() {
     widget.backupListenable?.removeListener(_refreshBackupSnapshot);
+    _backupHostDiscovery.removeListener(_refreshBackupDiscovery);
+    _backupHostDiscovery.cancel();
+    if (_ownsBackupHostDiscovery &&
+        _backupHostDiscovery is LanBackupHostDiscoveryService) {
+      _backupHostDiscovery.dispose();
+    }
     _remoteSearchTimer?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _refreshBackupDiscovery() {
+    if (!mounted) return;
+    final LanBackupDiscoverySnapshot next = _backupHostDiscovery.snapshot;
+    setState(() => _backupDiscoverySnapshot = next);
+    final String preferredHostId = _backupSnapshot.preferredHostId.trim();
+    final LanBackupDiscoveredHost? preferredHost = preferredHostId.isEmpty
+        ? null
+        : next.hosts.cast<LanBackupDiscoveredHost?>().firstWhere(
+            (LanBackupDiscoveredHost? host) => host?.nodeId == preferredHostId,
+            orElse: () => null,
+          );
+    final LanBackupDiscoveredHost? automaticHost =
+        preferredHost ?? (next.hosts.length == 1 ? next.hosts.single : null);
+    if (!next.searching &&
+        automaticHost != null &&
+        !_autoConnectStarted &&
+        _backupSnapshot.endpoint == null &&
+        widget.onConnectBackupHost != null) {
+      _autoConnectStarted = true;
+      unawaited(_connectDiscoveredHost(automaticHost));
+    }
+  }
+
+  void _startBackupHostDiscoveryIfNeeded() {
+    if (!mounted ||
+        widget.backupHostDiscovery == null ||
+        !widget.active ||
+        widget.mode != RecordingsScreenMode.history ||
+        _backupSnapshot.endpoint != null ||
+        _backupDiscoveryStarted ||
+        _backupDiscoverySnapshot.searching) {
+      return;
+    }
+    _backupDiscoveryStarted = true;
+    unawaited(_backupHostDiscovery.search());
+  }
+
+  Future<void> _connectDiscoveredHost(LanBackupDiscoveredHost host) async {
+    final Future<void> Function(
+      LanBackupDiscoveredHost host,
+      LanBackupPairingConfirmation? replacementConfirmation,
+    )?
+    connect = widget.onConnectBackupHost;
+    if (connect == null) return;
+    try {
+      await connect(host, null);
+    } on LanBackupHostMismatchException catch (error) {
+      if (!mounted) return;
+      final bool replace =
+          await showDialog<bool>(
+            context: context,
+            builder: (BuildContext dialogContext) => AlertDialog(
+              title: const Text('更换备份电脑？'),
+              content: Text(
+                '当前：${error.currentEndpoint.computerName}\n'
+                '新的电脑：${error.candidateEndpoint.computerName}\n\n'
+                '仍有待备份录像，确认后才会向新电脑申请连接',
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('继续连接'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (replace) await connect(host, error.confirmation);
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
   }
 
   void _refreshBackupSnapshot() {
@@ -692,7 +799,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       context: context,
       builder: (BuildContext context) => const TwoButtonConfirmDialog(
         title: '删除这台电脑？',
-        message: '将删除电脑地址和连接密钥，并停止当前备份。手机中的录像不会被删除。',
+        message: '将删除保存主机连接并停止当前备份。手机中的录像不会被删除。',
         confirmLabel: '继续',
       ),
     );
@@ -1091,7 +1198,21 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               onDisconnect: _confirmDeleteComputer,
               onRetryConnection: widget.onRetryConnection,
               onRetry: widget.onRetryBackup,
-              onCreateComputerPairing: widget.onCreateComputerPairing,
+              discovery: _backupDiscoverySnapshot,
+              onSearchHosts: () {
+                _autoConnectStarted = false;
+                return _backupHostDiscovery.search();
+              },
+              onSelectHost: _connectDiscoveredHost,
+              onRequestApproval: _backupSnapshot.endpoint == null
+                  ? null
+                  : () => _connectDiscoveredHost(
+                      LanBackupDiscoveredHost(
+                        nodeId: _backupSnapshot.endpoint!.computerId,
+                        name: _backupSnapshot.endpoint!.computerName,
+                        address: _backupSnapshot.endpoint!.displayAddress,
+                      ),
+                    ),
               unbackedRetention: _unbackedRetention,
               backedRetention: _backedRetention,
               onUnbackedRetentionChanged: _setUnbackedRetention,
@@ -1722,12 +1843,15 @@ class _ComputerBackupSettings extends StatelessWidget {
     this.onDisconnect,
     this.onRetryConnection,
     this.onRetry,
-    this.onCreateComputerPairing,
     required this.unbackedRetention,
     required this.backedRetention,
     required this.onUnbackedRetentionChanged,
     required this.onBackedRetentionChanged,
     this.showRetention = true,
+    this.discovery = const LanBackupDiscoverySnapshot(),
+    this.onSearchHosts,
+    this.onSelectHost,
+    this.onRequestApproval,
   });
 
   final LanBackupSnapshot snapshot;
@@ -1739,12 +1863,15 @@ class _ComputerBackupSettings extends StatelessWidget {
   final Future<void> Function()? onDisconnect;
   final Future<void> Function()? onRetryConnection;
   final Future<void> Function(String jobId)? onRetry;
-  final Future<TemporaryComputerPairing> Function()? onCreateComputerPairing;
   final UnbackedRetentionPolicy unbackedRetention;
   final BackedRetentionPolicy backedRetention;
   final ValueChanged<UnbackedRetentionPolicy> onUnbackedRetentionChanged;
   final ValueChanged<BackedRetentionPolicy> onBackedRetentionChanged;
   final bool showRetention;
+  final LanBackupDiscoverySnapshot discovery;
+  final Future<void> Function()? onSearchHosts;
+  final Future<void> Function(LanBackupDiscoveredHost host)? onSelectHost;
+  final Future<void> Function()? onRequestApproval;
 
   @override
   Widget build(BuildContext context) {
@@ -1814,7 +1941,7 @@ class _ComputerBackupSettings extends StatelessWidget {
         : online
         ? '在线'
         : needsRepair
-        ? '需扫码'
+        ? '需允许'
         : '离线';
     final Color stateForeground = online
         ? colors.primary
@@ -1829,9 +1956,9 @@ class _ComputerBackupSettings extends StatelessWidget {
     final String? status = !snapshot.connected
         ? '扫描电脑二维码后自动备份'
         : failureKind == LanBackupFailureKind.notBackupHost
-        ? '连接的电脑当前不是录像备份主机，请切换电脑用途或重新扫码'
+        ? '连接的电脑当前不是录像备份主机，请切换电脑用途或重新搜索'
         : needsRepair
-        ? '电脑连接密钥已失效，请重新扫码'
+        ? '设备连接已失效，请重新申请并在电脑上允许连接'
         : connecting
         ? '正在重新连接电脑'
         : snapshot.connectionStatus == LanConnectionStatus.offline
@@ -1890,7 +2017,9 @@ class _ComputerBackupSettings extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              '请在录像备份主机打开“连接手机/电脑”，扫描电脑上的二维码完成安全连接',
+              discovery.searching
+                  ? '正在自动查找保存主机。找到后会申请连接，仍需在电脑上点击允许'
+                  : '选择保存主机后，需在电脑上点击允许才会连接',
               style: TextStyle(
                 color: colors.onSurfaceVariant,
                 fontSize: 12,
@@ -1898,14 +2027,66 @@ class _ComputerBackupSettings extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                key: const Key('connect-computer-button'),
-                onPressed: onConnect,
-                icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
-                label: const Text('扫码连接录像备份主机'),
+            if (discovery.searching) ...<Widget>[
+              LinearProgressIndicator(
+                key: const Key('backup-host-search-progress'),
+                value: discovery.progress,
+                minHeight: 4,
+                borderRadius: BorderRadius.circular(99),
               ),
+              const SizedBox(height: 7),
+            ],
+            Text(
+              discovery.message ?? '正在准备搜索同一 Wi-Fi 下的录像文件备份主机',
+              key: const Key('backup-host-search-status'),
+              style: TextStyle(
+                color: colors.onSurfaceVariant,
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
+            if (discovery.hosts.length > 1) ...<Widget>[
+              const SizedBox(height: 10),
+              ...discovery.hosts.map(
+                (LanBackupDiscoveredHost host) => Padding(
+                  padding: const EdgeInsets.only(bottom: 7),
+                  child: OutlinedButton.icon(
+                    key: ValueKey<String>(
+                      'discovered-backup-host-${host.nodeId}',
+                    ),
+                    onPressed: discovery.searching || onSelectHost == null
+                        ? null
+                        : () => onSelectHost!(host),
+                    icon: const Icon(Icons.dns_rounded),
+                    label: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('${host.name} · ${host.address}'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: FilledButton.icon(
+                    key: const Key('search-backup-host-button'),
+                    onPressed: discovery.searching ? null : onSearchHosts,
+                    icon: const Icon(Icons.wifi_find_rounded, size: 18),
+                    label: Text(discovery.searching ? '正在搜索' : '重新搜索'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('connect-computer-button'),
+                    onPressed: discovery.searching ? null : onConnect,
+                    icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                    label: const Text('扫码连接'),
+                  ),
+                ),
+              ],
             ),
           ] else ...<Widget>[
             Row(
@@ -2020,7 +2201,7 @@ class _ComputerBackupSettings extends StatelessWidget {
               child: OutlinedButton.icon(
                 key: const Key('backup-failure-action-button'),
                 onPressed: switch (failureKind.recoveryAction) {
-                  LanBackupRecoveryAction.rescan => onConnect,
+                  LanBackupRecoveryAction.rescan => onRequestApproval,
                   LanBackupRecoveryAction.retryConnection => onRetryConnection,
                   LanBackupRecoveryAction.updateComputer => null,
                   LanBackupRecoveryAction.retryBackup =>
@@ -2031,7 +2212,7 @@ class _ComputerBackupSettings extends StatelessWidget {
                 icon: Icon(
                   failureKind == LanBackupFailureKind.credentialInvalid ||
                           failureKind == LanBackupFailureKind.notBackupHost
-                      ? Icons.qr_code_scanner_rounded
+                      ? Icons.admin_panel_settings_rounded
                       : failureKind == LanBackupFailureKind.incompatibleVersion
                       ? Icons.system_update_rounded
                       : failureKind == LanBackupFailureKind.offlineOrTimeout
@@ -2091,12 +2272,6 @@ class _ComputerBackupSettings extends StatelessWidget {
                 ),
               ],
             ),
-            if (online && onCreateComputerPairing != null) ...<Widget>[
-              const SizedBox(height: 8),
-              _TemporaryComputerPairingButton(
-                onCreate: onCreateComputerPairing!,
-              ),
-            ],
             if (failed != null) ...<Widget>[
               const SizedBox(height: 4),
               SizedBox(
@@ -2115,111 +2290,6 @@ class _ComputerBackupSettings extends StatelessWidget {
       ),
     );
   }
-}
-
-class _TemporaryComputerPairingButton extends StatefulWidget {
-  const _TemporaryComputerPairingButton({required this.onCreate});
-
-  final Future<TemporaryComputerPairing> Function() onCreate;
-
-  @override
-  State<_TemporaryComputerPairingButton> createState() =>
-      _TemporaryComputerPairingButtonState();
-}
-
-class _TemporaryComputerPairingButtonState
-    extends State<_TemporaryComputerPairingButton> {
-  bool _busy = false;
-
-  Future<void> _open() async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      final TemporaryComputerPairing pairing = await widget.onCreate();
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (BuildContext context) => Dialog(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 360),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '连接录制电脑',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('在录制电脑选择“管理保存主机”，再用电脑摄像头扫描此二维码'),
-                  const SizedBox(height: 16),
-                  SizedBox.square(
-                    dimension: 240,
-                    child: Semantics(
-                      key: const Key('computer-pairing-qr-code'),
-                      label: '录制电脑临时连接二维码',
-                      image: true,
-                      child: QrImageView(
-                        data: pairing.pairingLink,
-                        backgroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    '连接码约 2 分钟内有效，使用一次后自动失效',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 12,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('完成'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    } on Object catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error'.replaceFirst('Exception: ', ''))),
-      );
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: double.infinity,
-    child: OutlinedButton.icon(
-      key: const Key('create-computer-pairing-button'),
-      onPressed: _busy ? null : _open,
-      icon: _busy
-          ? const SizedBox.square(
-              dimension: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Icon(Icons.qr_code_2_rounded),
-      label: Text(_busy ? '正在生成' : '连接录制电脑'),
-    ),
-  );
 }
 
 class _WorkModeSettings extends StatelessWidget {

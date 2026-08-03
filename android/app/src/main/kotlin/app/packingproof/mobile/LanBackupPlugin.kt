@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.lifecycle.Observer
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -19,6 +20,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 internal class LanBackupPlugin(
     private val activity: Activity,
@@ -211,6 +213,7 @@ internal class LanBackupPlugin(
         if (store.connection() == null || credentials.load().isNullOrBlank()) return
         val request = OneTimeWorkRequestBuilder<LanBackupWorker>()
             .setInputData(workDataOf("jobId" to id))
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
             .setConstraints(
                 Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
             )

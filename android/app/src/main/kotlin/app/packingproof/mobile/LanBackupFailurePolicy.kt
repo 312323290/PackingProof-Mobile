@@ -13,6 +13,12 @@ internal enum class LanBackupFailureKind(val wireValue: String) {
 }
 
 internal object LanBackupFailurePolicy {
+    fun shouldAutoRetry(failureKind: LanBackupFailureKind): Boolean = failureKind in setOf(
+        LanBackupFailureKind.OFFLINE_OR_TIMEOUT,
+        LanBackupFailureKind.TEMPORARY_SERVICE,
+        LanBackupFailureKind.STORAGE_UNAVAILABLE,
+    )
+
     fun classifyHttp(statusCode: Int, errorCode: String): LanBackupFailureKind = when {
         statusCode == 401 || statusCode == 403 -> LanBackupFailureKind.CREDENTIAL_INVALID
         errorCode == "upload_not_found" -> LanBackupFailureKind.UPLOAD_EXPIRED

@@ -117,6 +117,7 @@ internal class LanBackupWorker(
                             generation,
                             "备份已暂停",
                             LanBackupFailureKind.OFFLINE_OR_TIMEOUT,
+                            autoRetry = true,
                         )
                     }
                     val size = min(chunkSize.toLong(), file.length() - offset).toInt()
@@ -248,7 +249,13 @@ internal class LanBackupWorker(
                     failureKind,
                 )
             } else {
-                pause(job, generation, friendlyError(error), failureKind)
+                pause(
+                    job,
+                    generation,
+                    friendlyError(error),
+                    failureKind,
+                    autoRetry = LanBackupFailurePolicy.shouldAutoRetry(failureKind),
+                )
             }
         } catch (error: IOException) {
             Log.w(TAG, "Backup network failure id=${id.take(8)}", error)
@@ -257,6 +264,7 @@ internal class LanBackupWorker(
                 generation,
                 "电脑离线或连接超时，备份已暂停",
                 LanBackupFailureKind.OFFLINE_OR_TIMEOUT,
+                autoRetry = true,
             )
         } catch (error: Throwable) {
             Log.e(TAG, "Backup failed id=${id.take(8)}", error)
@@ -374,6 +382,7 @@ internal class LanBackupWorker(
         generation: String,
         message: String,
         failureKind: LanBackupFailureKind,
+        autoRetry: Boolean = false,
     ): Result {
         store.updateJob(job.getString("id"), generation) { value ->
             value.put("state", "paused")
@@ -382,7 +391,7 @@ internal class LanBackupWorker(
             true
         }
         clearBackupNotification(job)
-        return Result.success()
+        return if (autoRetry) Result.retry() else Result.success()
     }
 
     private fun updateUploadedBytes(

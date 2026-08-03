@@ -1,6 +1,8 @@
 package app.packingproof.mobile
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LanBackupFailurePolicyTest {
@@ -30,6 +32,25 @@ class LanBackupFailurePolicyTest {
 
         cases.forEach { (input, expected) ->
             assertEquals(expected, LanBackupFailurePolicy.classifyHttp(input.first, input.second))
+        }
+    }
+
+    @Test
+    fun `only transient backup failures are automatically retried`() {
+        assertTrue(LanBackupFailurePolicy.shouldAutoRetry(LanBackupFailureKind.OFFLINE_OR_TIMEOUT))
+        assertTrue(LanBackupFailurePolicy.shouldAutoRetry(LanBackupFailureKind.TEMPORARY_SERVICE))
+        assertTrue(LanBackupFailurePolicy.shouldAutoRetry(LanBackupFailureKind.STORAGE_UNAVAILABLE))
+
+        val permanentFailures = listOf(
+            LanBackupFailureKind.CREDENTIAL_INVALID,
+            LanBackupFailureKind.UPLOAD_EXPIRED,
+            LanBackupFailureKind.VERIFICATION_FAILED,
+            LanBackupFailureKind.NOT_BACKUP_HOST,
+            LanBackupFailureKind.INCOMPATIBLE_VERSION,
+            LanBackupFailureKind.UNKNOWN,
+        )
+        permanentFailures.forEach { failureKind ->
+            assertFalse(LanBackupFailurePolicy.shouldAutoRetry(failureKind))
         }
     }
 }

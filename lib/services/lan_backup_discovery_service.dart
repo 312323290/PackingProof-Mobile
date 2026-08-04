@@ -64,6 +64,7 @@ abstract interface class LanBackupHostDiscovery implements Listenable {
   LanBackupDiscoverySnapshot get snapshot;
   Future<void> search();
   void cancel();
+  Future<void> forgetHost({required String nodeId, required String address});
 }
 
 abstract interface class LanBackupHostCache {
@@ -241,7 +242,7 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
         if (revision != _revision) return;
         if (host != null) {
           final int existingIndex = hosts.indexWhere(
-            (LanBackupDiscoveredHost item) => item.nodeId == host.nodeId,
+            (LanBackupDiscoveredHost item) => _isSameDiscoveredHost(item, host),
           );
           if (existingIndex >= 0) {
             hosts[existingIndex] = host;
@@ -307,17 +308,58 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
     List<LanBackupDiscoveredHost> current,
     List<LanBackupDiscoveredHost> cached,
   ) {
-    final Map<String, LanBackupDiscoveredHost> merged =
-        <String, LanBackupDiscoveredHost>{};
-    for (final LanBackupDiscoveredHost host in cached) {
-      merged[host.nodeId] = host.copyWith(reachable: false);
-    }
+    final List<LanBackupDiscoveredHost> merged = <LanBackupDiscoveredHost>[
+      for (final LanBackupDiscoveredHost host in cached)
+        host.copyWith(reachable: false),
+    ];
     for (final LanBackupDiscoveredHost host in current) {
-      merged[host.nodeId] = host;
+      final int index = merged.indexWhere(
+        (LanBackupDiscoveredHost item) => _isSameDiscoveredHost(item, host),
+      );
+      if (index >= 0) {
+        merged[index] = host;
+      } else {
+        merged.add(host);
+      }
     }
-    final List<LanBackupDiscoveredHost> result = merged.values.toList();
-    result.sort((a, b) => a.name.compareTo(b.name));
-    return result;
+    merged.sort((a, b) => a.name.compareTo(b.name));
+    return merged;
+  }
+
+  @override
+  Future<void> forgetHost({
+    required String nodeId,
+    required String address,
+  }) async {
+    _revision++;
+    final LanBackupDiscoveredHost forgotten = LanBackupDiscoveredHost(
+      nodeId: nodeId,
+      name: '',
+      address: address,
+    );
+    final List<LanBackupDiscoveredHost> remaining = _snapshot.hosts
+        .where(
+          (LanBackupDiscoveredHost host) =>
+              !_isSameDiscoveredHost(host, forgotten),
+        )
+        .toList(growable: false);
+    _snapshot = LanBackupDiscoverySnapshot(
+      completed: _snapshot.completed,
+      total: _snapshot.total,
+      hosts: List<LanBackupDiscoveredHost>.unmodifiable(remaining),
+      message: '已删除电脑，可重新搜索或扫码连接',
+    );
+    notifyListeners();
+    final LanBackupHostCache? hostCache = cache;
+    if (hostCache != null) {
+      try {
+        await hostCache.save(
+          List<LanBackupDiscoveredHost>.unmodifiable(remaining),
+        );
+      } on Object {
+        // 清理缓存失败不影响删除结果，下次搜索会重新写入。
+      }
+    }
   }
 
   Future<LanBackupDiscoveredHost?> _probe(Uri uri) async {
@@ -400,4 +442,27 @@ class LanBackupHostDiscoveryService extends ChangeNotifier
         (parts[0] == 192 && parts[1] == 168);
     return isPrivate ? parts : null;
   }
+}
+
+bool _isSameDiscoveredHost(
+  LanBackupDiscoveredHost left,
+  LanBackupDiscoveredHost right,
+) {
+  final String leftId = left.nodeId.trim();
+  final String rightId = right.nodeId.trim();
+  if (leftId.isNotEmpty && rightId.isNotEmpty && leftId == rightId) {
+    return true;
+  }
+  return _normalizedDiscoveredAddress(left.address) ==
+      _normalizedDiscoveredAddress(right.address);
+}
+
+String _normalizedDiscoveredAddress(String value) {
+  final Uri? uri = Uri.tryParse(
+    value.contains('://') ? value : 'http://$value',
+  );
+  if (uri == null || uri.host.isEmpty) {
+    return value.trim().toLowerCase();
+  }
+  return '${uri.host.toLowerCase()}:${uri.hasPort ? uri.port : 5280}';
 }

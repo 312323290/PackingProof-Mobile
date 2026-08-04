@@ -732,10 +732,62 @@ void main() {
     expect(service.snapshot.message, isNot(contains('426')));
   });
 
-  test('存在待备份录像时更换主机要先确认且确认前不申请令牌', () async {
+  test('当前主机存在时更换主机要先确认且确认前不申请令牌', () async {
     final LanBackupService service = LanBackupService(
       httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
         _nodeInfo('computer-2', '新电脑'),
+      ]),
+      wifiConnected: () async => true,
+    );
+    addTearDown(service.dispose);
+    service.debugSetSnapshotForTesting(
+      LanBackupSnapshot(
+        endpoint: LanBackupEndpoint(
+          baseUri: Uri.parse('http://192.168.1.20:5280'),
+          accessKey: '',
+          computerId: 'computer-1',
+          computerName: '原电脑',
+        ),
+        jobs: <LanBackupJob>[
+          LanBackupJob(
+            id: 'pending',
+            filePath: 'pending.mp4',
+            state: LanBackupJobState.pending,
+            uploadedBytes: 0,
+            totalBytes: 10,
+            destinationComputerId: 'computer-1',
+          ),
+        ],
+      ),
+    );
+
+    final LanBackupHostMismatchException mismatch = await _expectHostMismatch(
+      service.connectToHost(Uri.parse('http://192.168.1.30:5280')),
+    );
+    expect(mismatch.candidateEndpoint.computerId, 'computer-2');
+  });
+
+  test('删除电脑后连接新主机不再要求更换确认并直接申请令牌', () async {
+    final MethodChannel channel = const MethodChannel(
+      'app.packingproof.mobile/lan_backup_forgot_host_test',
+    );
+    Map<Object?, Object?>? saved;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          if (call.method == 'saveConnection') {
+            saved = Map<Object?, Object?>.from(call.arguments! as Map);
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    final LanBackupService service = LanBackupService(
+      channel: channel,
+      httpClient: _SequenceHttpClient(<_StreamHttpResponse>[
+        _nodeInfo('computer-2', '新电脑'),
+        _enrollment('computer-2', '新电脑', 'a' * 64),
       ]),
       wifiConnected: () async => true,
     );
@@ -755,10 +807,10 @@ void main() {
       ),
     );
 
-    final LanBackupHostMismatchException mismatch = await _expectHostMismatch(
-      service.connectToHost(Uri.parse('http://192.168.1.30:5280')),
-    );
-    expect(mismatch.candidateEndpoint.computerId, 'computer-2');
+    await service.connectToHost(Uri.parse('http://192.168.1.30:5280'));
+
+    expect(saved?['computerId'], 'computer-2');
+    expect(service.snapshot.message, '保存主机已允许连接');
   });
 }
 

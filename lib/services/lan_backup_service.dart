@@ -323,20 +323,16 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
     final bool changesCurrentHost =
         currentEndpoint != null &&
         !_isSameBackupHost(currentEndpoint, candidateEndpoint);
+    // 没有当前保存主机（例如用户已删除电脑）时视为全新配对：待备份任务随后会由
+    // saveConnection/retargetJobs 自动转到新电脑，不再要求“更换备份电脑”确认。
     final bool changesPendingHost =
+        currentEndpoint != null &&
         pendingHostIds.isNotEmpty &&
         !pendingHostIds.contains(candidateEndpoint.computerId);
     if ((changesCurrentHost || changesPendingHost) &&
         replacementConfirmation?.matches(candidateEndpoint) != true) {
       throw LanBackupHostMismatchException(
-        currentEndpoint:
-            currentEndpoint ??
-            LanBackupEndpoint(
-              baseUri: baseUri,
-              accessKey: '',
-              computerId: pendingHostIds.first,
-              computerName: '原保存主机',
-            ),
+        currentEndpoint: currentEndpoint,
         candidateEndpoint: candidateEndpoint,
       );
     }

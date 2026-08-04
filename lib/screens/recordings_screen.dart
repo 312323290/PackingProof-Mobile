@@ -880,6 +880,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     if (confirmed != true || !mounted) return;
     await widget.onDisconnectBackup!();
     if (!mounted) return;
+    await _backupHostDiscovery.forgetHost(
+      nodeId: endpoint.computerId,
+      address: endpoint.displayAddress,
+    );
+    if (!mounted) return;
     setState(() {
       _remoteRequestGeneration++;
       _loadingRemote = false;

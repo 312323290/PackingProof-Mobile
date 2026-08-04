@@ -184,6 +184,97 @@ void main() {
     expect(reader.snapshot.hosts.single.reachable, isFalse);
     expect(reader.snapshot.message, contains('已保留'));
   });
+
+  test('删除主机后从快照与缓存中移除', () async {
+    final _MemoryBackupHostCache cache = _MemoryBackupHostCache(
+      const <LanBackupDiscoveredHost>[],
+    );
+    final LanBackupHostDiscoveryService service = LanBackupHostDiscoveryService(
+      cache: cache,
+      candidateProvider: () async => <Uri>[
+        Uri.parse('http://192.168.1.30:5280'),
+      ],
+      probe: (Uri uri) async => const LanBackupDiscoveredHost(
+        nodeId: 'host-1',
+        name: '电脑1',
+        address: '192.168.1.30:5280',
+      ),
+    );
+    addTearDown(service.dispose);
+
+    await service.search();
+    expect(service.snapshot.hosts.single.nodeId, 'host-1');
+    expect(cache.saved.single.nodeId, 'host-1');
+
+    await service.forgetHost(nodeId: 'host-1', address: '192.168.1.30:5280');
+    expect(service.snapshot.hosts, isEmpty);
+    expect(cache.saved, isEmpty);
+    expect(service.snapshot.message, contains('已删除电脑'));
+  });
+
+  test('删除主机取消进行中的搜索避免旧条目被重新加回', () async {
+    final _MemoryBackupHostCache cache = _MemoryBackupHostCache(
+      const <LanBackupDiscoveredHost>[],
+    );
+    final Completer<void> allowProbe = Completer<void>();
+    final LanBackupHostDiscoveryService service = LanBackupHostDiscoveryService(
+      cache: cache,
+      candidateProvider: () async => <Uri>[
+        Uri.parse('http://192.168.1.30:5280'),
+      ],
+      probe: (Uri uri) async {
+        await allowProbe.future;
+        return const LanBackupDiscoveredHost(
+          nodeId: 'host-1',
+          name: '电脑1',
+          address: '192.168.1.30:5280',
+        );
+      },
+    );
+    addTearDown(service.dispose);
+
+    final Future<void> search = service.search();
+    await Future<void>.delayed(Duration.zero);
+    expect(service.snapshot.searching, isTrue);
+
+    await service.forgetHost(nodeId: 'host-1', address: '192.168.1.30:5280');
+    allowProbe.complete();
+    await search;
+
+    expect(service.snapshot.hosts, isEmpty);
+    expect(cache.saved, isEmpty);
+  });
+
+  test('同一地址出现新电脑标识时替换旧条目而不是显示两台', () async {
+    final _MemoryBackupHostCache cache =
+        _MemoryBackupHostCache(const <LanBackupDiscoveredHost>[
+          LanBackupDiscoveredHost(
+            nodeId: 'host-1',
+            name: '电脑1',
+            address: '192.168.1.30:5280',
+            reachable: false,
+          ),
+        ]);
+    final LanBackupHostDiscoveryService service = LanBackupHostDiscoveryService(
+      cache: cache,
+      candidateProvider: () async => <Uri>[
+        Uri.parse('http://192.168.1.30:5280'),
+      ],
+      probe: (Uri uri) async => const LanBackupDiscoveredHost(
+        nodeId: 'host-2',
+        name: '电脑1',
+        address: '192.168.1.30:5280',
+      ),
+    );
+    addTearDown(service.dispose);
+
+    await service.search();
+
+    expect(service.snapshot.hosts, hasLength(1));
+    expect(service.snapshot.hosts.single.nodeId, 'host-2');
+    expect(service.snapshot.hosts.single.reachable, isTrue);
+    expect(cache.saved.single.nodeId, 'host-2');
+  });
 }
 
 class _MemoryBackupHostCache implements LanBackupHostCache {

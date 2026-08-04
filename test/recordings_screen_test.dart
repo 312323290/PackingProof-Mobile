@@ -1085,6 +1085,7 @@ void main() {
 
   testWidgets('删除电脑需要两次确认并显示名称与地址', (WidgetTester tester) async {
     int deleteCount = 0;
+    final _FakeBackupHostDiscovery discovery = _FakeBackupHostDiscovery();
     await tester.pumpWidget(
       MaterialApp(
         home: RecordingsScreen(
@@ -1092,6 +1093,7 @@ void main() {
           workMode: WorkMode.continuousScan,
           speechEnabled: true,
           maxVolumeEnabled: true,
+          backupHostDiscovery: discovery,
           backupSnapshot: LanBackupSnapshot(
             endpoint: LanBackupEndpoint(
               baseUri: Uri.parse('http://192.168.1.20:5280'),
@@ -1124,6 +1126,9 @@ void main() {
     await tester.tap(find.text('确认删除'));
     await tester.pumpAndSettle();
     expect(deleteCount, 1);
+    expect(discovery.forgetCount, 1);
+    expect(discovery.forgottenNodeId, 'computer-1');
+    expect(discovery.forgottenAddress, '192.168.1.20:5280');
   });
 
   testWidgets('等待续传不会误显示为正在备份', (WidgetTester tester) async {
@@ -2219,10 +2224,14 @@ class _FakeBackupHostDiscovery extends ChangeNotifier
         address: '192.168.1.10:5280',
       ),
     ],
-  });
+  }) : _currentHosts = List<LanBackupDiscoveredHost>.of(hosts);
 
   final List<LanBackupDiscoveredHost> hosts;
+  final List<LanBackupDiscoveredHost> _currentHosts;
   int searchCount = 0;
+  int forgetCount = 0;
+  String? forgottenNodeId;
+  String? forgottenAddress;
   LanBackupDiscoverySnapshot _snapshot = const LanBackupDiscoverySnapshot();
 
   @override
@@ -2241,14 +2250,39 @@ class _FakeBackupHostDiscovery extends ChangeNotifier
     _snapshot = LanBackupDiscoverySnapshot(
       completed: 1,
       total: 1,
-      hosts: hosts,
-      message: '找到 ${hosts.length} 台录像文件备份主机',
+      hosts: List<LanBackupDiscoveredHost>.unmodifiable(_currentHosts),
+      message: '找到 ${_currentHosts.length} 台录像文件备份主机',
     );
     notifyListeners();
   }
 
   @override
   void cancel() {}
+
+  @override
+  Future<void> forgetHost({
+    required String nodeId,
+    required String address,
+  }) async {
+    forgetCount++;
+    forgottenNodeId = nodeId;
+    forgottenAddress = address;
+    _currentHosts.removeWhere((LanBackupDiscoveredHost host) {
+      final bool sameNodeId =
+          nodeId.trim().isNotEmpty && host.nodeId.trim() == nodeId.trim();
+      final bool sameAddress = host.address == address;
+      return sameNodeId || sameAddress;
+    });
+    if (_snapshot.hosts.isNotEmpty) {
+      _snapshot = LanBackupDiscoverySnapshot(
+        completed: _snapshot.completed,
+        total: _snapshot.total,
+        hosts: List<LanBackupDiscoveredHost>.unmodifiable(_currentHosts),
+        message: _snapshot.message,
+      );
+      notifyListeners();
+    }
+  }
 }
 
 RecordingSession _session(

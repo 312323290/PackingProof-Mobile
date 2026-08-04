@@ -22,6 +22,7 @@ class VideoPlaybackScreen extends StatefulWidget {
     this.remoteVideoId,
     this.remoteHeaders = const <String, String>{},
     this.remoteClipService,
+    this.backedUpOffline = false,
     super.key,
   });
 
@@ -32,6 +33,7 @@ class VideoPlaybackScreen extends StatefulWidget {
   final int? remoteVideoId;
   final Map<String, String> remoteHeaders;
   final RemoteVideoClipSink? remoteClipService;
+  final bool backedUpOffline;
 
   @override
   State<VideoPlaybackScreen> createState() => _VideoPlaybackScreenState();
@@ -349,7 +351,10 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
             return Center(
               child: Text(
                 widget.remoteUri == null
-                    ? '录像无法播放，请检查文件是否仍在本机'
+                    ? localPlaybackErrorMessage(
+                        fileExists: File(_session.filePath).existsSync(),
+                        backedUpOffline: widget.backedUpOffline,
+                      )
                     : '电脑录像暂时无法播放，请检查局域网连接',
               ),
             );
@@ -530,4 +535,15 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
       ),
     );
   }
+}
+
+@visibleForTesting
+String localPlaybackErrorMessage({
+  required bool fileExists,
+  required bool backedUpOffline,
+}) {
+  if (backedUpOffline) {
+    return '录像已备份到电脑，电脑离线时暂时无法播放，请连接电脑后重试';
+  }
+  return fileExists ? '录像文件不完整或已损坏，无法播放（可能是异常退出导致）' : '录像文件不在本机，可能已被清理，无法播放';
 }

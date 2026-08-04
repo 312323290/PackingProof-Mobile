@@ -10,6 +10,23 @@ import 'package:packing_proof_mobile/services/session_repository.dart';
 
 import 'test_repository.dart';
 
+List<int> _mp4Box(String type, {int extra = 0}) {
+  final int size = 8 + extra;
+  return <int>[
+    (size >> 24) & 0xff,
+    (size >> 16) & 0xff,
+    (size >> 8) & 0xff,
+    size & 0xff,
+    ...type.codeUnits,
+    ...List<int>.filled(extra, 0),
+  ];
+}
+
+List<int> playableMp4Bytes() => <int>[
+  ..._mp4Box('ftyp', extra: 16),
+  ..._mp4Box('moov'),
+];
+
 void main() {
   test('录像记录可持久化并读取', () async {
     final Directory root = await Directory.systemTemp.createTemp(
@@ -360,15 +377,16 @@ void main() {
     );
   });
 
-  test('启动时保全非空 pending 录像并保留零字节残留', () async {
+  test('启动时保全完整 pending 录像并隔离残缺与零字节录像', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'packing_proof_mobile_pending_recovery_test',
     );
     addTearDown(() => root.delete(recursive: true));
     final Directory pending = Directory('${root.path}/recordings/.pending');
     await pending.create(recursive: true);
+    final List<int> videoBytes = playableMp4Bytes();
     final File recoverable = File('${pending.path}/20260723_121314_123.mp4')
-      ..writeAsBytesSync(<int>[1, 2, 3, 4]);
+      ..writeAsBytesSync(videoBytes);
     final File empty = File('${pending.path}/20260723_121315_456.mp4')
       ..writeAsBytesSync(const <int>[]);
 
@@ -380,9 +398,18 @@ void main() {
     expect(sessions.single.startedAt, DateTime(2026, 7, 23, 12, 13, 14, 123));
     expect(sessions.single.displayCode, '未识别面单');
     expect(sessions.single.filePath, contains('异常恢复'));
-    expect(File(sessions.single.filePath).readAsBytesSync(), <int>[1, 2, 3, 4]);
+    expect(File(sessions.single.filePath).readAsBytesSync(), videoBytes);
     expect(recoverable.existsSync(), isFalse);
-    expect(empty.existsSync(), isTrue);
+    expect(empty.existsSync(), isFalse);
+    final List<FileSystemEntity> corrupt = Directory(
+      '${root.path}/recordings/损坏录像',
+    ).listSync(recursive: true);
+    expect(
+      corrupt.whereType<File>().where(
+        (File file) => file.path.endsWith('.mp4'),
+      ),
+      hasLength(1),
+    );
   });
 
   test('清理水印旧源前重新核对是否仍被录像记录引用', () async {

@@ -1408,7 +1408,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                     .firstOrNull;
                 final LanBackupJob? backupJob =
                     completedBackupJob ?? matchingBackupJobs.firstOrNull;
-                final bool unavailable = !localAvailable && !remoteAvailable;
+                final bool unavailable =
+                    !localAvailable &&
+                    !remoteAvailable &&
+                    completedBackupJob == null;
                 return Padding(
                   padding: EdgeInsets.only(
                     bottom: index == pageItems.length - 1 ? 0 : 10,
@@ -1466,6 +1469,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                                         ? item.remote?.id
                                         : null,
                                     remoteHeaders: widget.remotePlaybackHeaders,
+                                    backedUpOffline: completedBackupJob != null,
                                     remoteClipService: localAvailable
                                         ? null
                                         : item.remote == null

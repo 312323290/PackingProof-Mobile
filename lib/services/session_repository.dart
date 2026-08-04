@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -64,13 +64,6 @@ class SessionRepository {
         continue;
       }
       try {
-        if (await entry.length() <= 0) {
-          developer.log(
-            '发现零字节异常录像，已保留待诊断：${entry.path}',
-            name: 'PackingProof.VideoRecovery',
-          );
-          continue;
-        }
         final FileStat stat = await entry.stat();
         final DateTime startedAt =
             _startedAtFromPendingName(p.basenameWithoutExtension(entry.path)) ??
@@ -78,6 +71,11 @@ class SessionRepository {
         final DateTime endedAt = stat.modified.isAfter(startedAt)
             ? stat.modified
             : startedAt.add(const Duration(seconds: 1));
+        if (await entry.length() <= 0 ||
+            !await hasPlayableMp4Structure(entry)) {
+          await _preserveCorruptPendingRecording(entry, startedAt);
+          continue;
+        }
         final Directory recoveryDirectory = Directory(
           p.join(
             _recordingsDirectory.path,
@@ -135,6 +133,71 @@ class SessionRepository {
           error: error,
         );
       }
+    }
+  }
+
+  Future<void> _preserveCorruptPendingRecording(
+    File entry,
+    DateTime startedAt,
+  ) async {
+    final Directory corruptDirectory = Directory(
+      p.join(_recordingsDirectory.path, '损坏录像', _dateDirectoryName(startedAt)),
+    );
+    await corruptDirectory.create(recursive: true);
+    final String sourceStem = _sanitizeFileName(
+      p.basenameWithoutExtension(entry.path),
+    );
+    String preservedPath = p.join(
+      corruptDirectory.path,
+      '未识别面单_${_timestamp(startedAt)}_异常退出_损坏_$sourceStem.mp4',
+    );
+    var collisionIndex = 1;
+    while (await File(preservedPath).exists()) {
+      preservedPath = p.join(
+        corruptDirectory.path,
+        '未识别面单_${_timestamp(startedAt)}_异常退出_损坏_'
+        '${sourceStem}_$collisionIndex.mp4',
+      );
+      collisionIndex++;
+    }
+    final File preserved = await entry.rename(preservedPath);
+    developer.log(
+      '发现无法播放的异常录像，已隔离保留：${preserved.path}',
+      name: 'PackingProof.VideoRecovery',
+    );
+  }
+
+  @visibleForTesting
+  static Future<bool> hasPlayableMp4Structure(File file) async {
+    final int length = await file.length();
+    final RandomAccessFile raf = await file.open();
+    try {
+      var offset = 0;
+      var sawFtyp = false;
+      final Uint8List header = Uint8List(16);
+      while (true) {
+        if (offset >= length) return false;
+        await raf.setPosition(offset);
+        final int read = await raf.readInto(header, 0, 8);
+        if (read < 8) return false;
+        final ByteData data = header.buffer.asByteData(0);
+        final int size32 = data.getUint32(0);
+        final String type = String.fromCharCodes(header.sublist(4, 8));
+        if (offset == 0 && type == 'ftyp') sawFtyp = true;
+        if (type == 'moov') return sawFtyp;
+        int boxSize = size32;
+        if (size32 == 1) {
+          final int read64 = await raf.readInto(header, 8, 8);
+          if (read64 < 8) return false;
+          boxSize = data.getUint64(8);
+        } else if (size32 == 0) {
+          return false;
+        }
+        if (boxSize < 8 || offset > length - boxSize) return false;
+        offset += boxSize;
+      }
+    } finally {
+      await raf.close();
     }
   }
 

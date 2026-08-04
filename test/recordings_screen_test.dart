@@ -1768,7 +1768,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('电脑'), findsOneWidget);
+    expect(find.text('仓库电脑'), findsOneWidget);
     expect(find.text('手机2'), findsOneWidget);
     expect(find.text('手机3'), findsOneWidget);
     final DecoratedBox phone2Chip = tester.widget<DecoratedBox>(

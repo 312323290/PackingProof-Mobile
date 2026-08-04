@@ -1608,7 +1608,14 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   String _recordingSourceLabel(_RecordingListItem item) {
     final RemoteRecording? remote = item.remote;
     if (remote != null) {
-      if (remote.sourceType.toLowerCase() != 'external') return '电脑';
+      if (remote.sourceType.toLowerCase() != 'external') {
+        final String computerName = remote.sourceDeviceName.trim();
+        if (computerName.isNotEmpty) return computerName;
+        final String pairedComputerName =
+            _backupSnapshot.endpoint?.computerName.trim() ?? '';
+        if (pairedComputerName.isNotEmpty) return pairedComputerName;
+        return '电脑';
+      }
       final String remoteName = remote.sourceDeviceName.trim();
       if (remoteName.isNotEmpty) return remoteName;
     }

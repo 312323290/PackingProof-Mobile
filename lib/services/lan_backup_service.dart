@@ -259,7 +259,7 @@ class LanBackupService extends ChangeNotifier implements LanBackupSink {
   static LanBackupEndpoint parsePairingQr(String value) {
     final Uri uri = Uri.parse(value.trim());
     if (uri.scheme != 'http' || uri.host.isEmpty || !uri.hasPort) {
-      throw const FormatException('这不是有效的电脑备份二维码');
+      throw const FormatException('扫错了？注意是左边的二维码哦');
     }
     final InternetAddress address;
     try {

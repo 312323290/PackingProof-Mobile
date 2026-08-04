@@ -413,8 +413,8 @@ void main() {
     final Map<String, Object?> enrollmentRequest = Map<String, Object?>.from(
       jsonDecode(utf8.decode(httpClient.postBodies.single)) as Map,
     );
-    expect(enrollmentRequest['clientVersion'], '0.5.10');
-    expect(enrollmentRequest['clientBuildNumber'], 11010);
+    expect(enrollmentRequest['clientVersion'], '0.5.11');
+    expect(enrollmentRequest['clientBuildNumber'], 11011);
     expect(enrollmentRequest['backupProtocol'], 'mobile-backup-v2');
     expect(enrollmentRequest['enrollmentVersion'], 2);
     expect(enrollmentRequest['authVersion'], 3);

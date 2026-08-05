@@ -24,4 +24,4 @@ jobs:
       - run: flutter test
       - name: Android unit tests
         working-directory: android
-        run: .\gradlew.bat :app:testDebugUnitTest
+        run: .\gradlew.bat :app:testDebugUnitTest --no-daemon

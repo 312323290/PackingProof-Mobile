@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/models/backup_retention_policy.dart';
+import 'package:packing_proof_mobile/models/app_settings.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/services/session_repository.dart';
 
@@ -62,6 +63,23 @@ void main() {
     expect(settings.unbackedRetention, UnbackedRetentionPolicy.days90);
     expect(settings.backedRetention, BackedRetentionPolicy.immediately);
     expect(settings.speechEnabled, isFalse);
+  });
+
+  test('录制声音默认开启且可关闭并持久化', () async {
+    final SessionRepository repository = testRepository(root);
+
+    final AppSettings defaults = await repository.loadSettings();
+    expect(defaults.recordAudioEnabled, isTrue);
+
+    await repository.saveRecordAudioEnabled(false);
+    final AppSettings updated = await repository.loadSettings();
+    expect(updated.recordAudioEnabled, isFalse);
+
+    final Map<String, Object?> persisted = Map<String, Object?>.from(
+      jsonDecode(await File('${root.path}/settings.json').readAsString())
+          as Map<Object?, Object?>,
+    );
+    expect(persisted['recordAudioEnabled'], isFalse);
   });
 
   test('首次说明版本在两个编译版本间共享且保留其他设置', () async {

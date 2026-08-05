@@ -88,11 +88,13 @@ class RecordingsScreen extends StatefulWidget {
     this.orderSpeechEnabled = true,
     this.orderReceiverSnapshot = const OrderInfoReceiverSnapshot(),
     required this.maxVolumeEnabled,
+    this.recordAudioEnabled = true,
     required this.onWorkModeChanged,
     required this.onSpeechEnabledChanged,
     this.onOrderSpeechEnabledChanged,
     this.onRetryOrderReceiver,
     required this.onMaxVolumeEnabledChanged,
+    this.onRecordAudioEnabledChanged,
     required this.onSpeechPreview,
     required this.onSessionUpdated,
     required this.onDeleteSessions,
@@ -134,11 +136,13 @@ class RecordingsScreen extends StatefulWidget {
   final bool orderSpeechEnabled;
   final OrderInfoReceiverSnapshot orderReceiverSnapshot;
   final bool maxVolumeEnabled;
+  final bool recordAudioEnabled;
   final Future<void> Function(WorkMode mode) onWorkModeChanged;
   final Future<void> Function(bool enabled) onSpeechEnabledChanged;
   final Future<void> Function(bool enabled)? onOrderSpeechEnabledChanged;
   final Future<void> Function()? onRetryOrderReceiver;
   final Future<void> Function(bool enabled) onMaxVolumeEnabledChanged;
+  final Future<void> Function(bool enabled)? onRecordAudioEnabledChanged;
   final Future<void> Function() onSpeechPreview;
   final Future<void> Function(RecordingSession session) onSessionUpdated;
   final Future<void> Function(Set<String> sessionIds) onDeleteSessions;
@@ -207,6 +211,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late bool _speechEnabled;
   late bool _orderSpeechEnabled;
   late bool _maxVolumeEnabled;
+  late bool _recordAudioEnabled;
   late List<RecordingSession> _sessions;
   late int _localRecordingBytes;
   late Set<String> _localRecordingPaths;
@@ -279,6 +284,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _speechEnabled = widget.speechEnabled;
     _orderSpeechEnabled = widget.orderSpeechEnabled;
     _maxVolumeEnabled = widget.maxVolumeEnabled;
+    _recordAudioEnabled = widget.recordAudioEnabled;
     _sessions = List<RecordingSession>.of(widget.sessions);
     _refreshLocalRecordingStats();
     _backupSnapshot = widget.backupSnapshot;
@@ -322,6 +328,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _speechEnabled = widget.speechEnabled;
     _orderSpeechEnabled = widget.orderSpeechEnabled;
     _maxVolumeEnabled = widget.maxVolumeEnabled;
+    _recordAudioEnabled = widget.recordAudioEnabled;
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
     _hiddenRemoteIds.addAll(widget.hiddenRemoteRecordingIds);
@@ -940,6 +947,14 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     await widget.onMaxVolumeEnabledChanged(enabled);
   }
 
+  Future<void> _setRecordAudioEnabled(bool enabled) async {
+    if (_recordAudioEnabled == enabled) {
+      return;
+    }
+    setState(() => _recordAudioEnabled = enabled);
+    await widget.onRecordAudioEnabledChanged?.call(enabled);
+  }
+
   Future<void> _setUnbackedRetention(UnbackedRetentionPolicy value) async {
     setState(() => _unbackedRetention = value);
     await widget.onBackupRetentionChanged?.call(
@@ -1218,6 +1233,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               backedRetention: _backedRetention,
               onUnbackedRetentionChanged: _setUnbackedRetention,
               onBackedRetentionChanged: _setBackedRetention,
+            ),
+            const SizedBox(height: 12),
+            _RecordAudioSettings(
+              enabled: _recordAudioEnabled,
+              onChanged: _setRecordAudioEnabled,
             ),
             const SizedBox(height: 12),
             _SpeechPromptSettings(
@@ -2551,6 +2571,55 @@ class _WorkModeSettings extends StatelessWidget {
               fontSize: 13,
               height: 1.5,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecordAudioSettings extends StatelessWidget {
+  const _RecordAudioSettings({required this.enabled, required this.onChanged});
+
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('record-audio-settings'),
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainer,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  '录制声音',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '关闭后录像不带声音',
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            key: const Key('record-audio-enabled-switch'),
+            value: enabled,
+            onChanged: onChanged,
           ),
         ],
       ),

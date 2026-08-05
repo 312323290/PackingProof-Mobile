@@ -143,10 +143,14 @@ class ContinuousCameraService {
     return ContinuousCameraInitialization.fromMap(values);
   }
 
-  Future<NativeRecordingStart> startWork(String path) async {
+  Future<NativeRecordingStart> startWork(
+    String path, {
+    required bool recordAudio,
+  }) async {
     final Map<Object?, Object?> values = (await _channel
         .invokeMethod<Map<Object?, Object?>>('startWork', <String, Object>{
           'path': path,
+          'recordAudio': recordAudio,
         }))!;
     return NativeRecordingStart.fromMap(values);
   }

@@ -49,4 +49,35 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
   });
+
+  test('开始录像时传递录制声音开关', () async {
+    const MethodChannel channel = MethodChannel(
+      'app.packingproof.mobile/continuous_camera',
+    );
+    final List<MethodCall> calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          calls.add(call);
+          return <Object?, Object?>{
+            'path': call.arguments is Map
+                ? (call.arguments! as Map)['path']
+                : '',
+            'startedAtMs': 0,
+          };
+        });
+    final ContinuousCameraService service = ContinuousCameraService();
+    addTearDown(() async {
+      await service.dispose();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    await service.startWork('/tmp/video.mp4', recordAudio: false);
+
+    expect(calls.single.method, 'startWork');
+    expect(
+      calls.single.arguments,
+      <String, Object>{'path': '/tmp/video.mp4', 'recordAudio': false},
+    );
+  });
 }

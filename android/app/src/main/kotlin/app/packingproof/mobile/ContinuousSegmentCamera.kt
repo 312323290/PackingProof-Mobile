@@ -141,6 +141,7 @@ class ContinuousSegmentCamera(
     private var torchEnabled = false
     private var lastAnalysisElapsedMs = 0L
     private var previewActive = true
+    private var recordAudio = true
     private var motionSensorRegistered = false
     private val motionSensorListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -185,7 +186,7 @@ class ContinuousSegmentCamera(
         }
     }
 
-    fun startWork(path: String, result: MethodChannel.Result) {
+    fun startWork(path: String, recordAudio: Boolean, result: MethodChannel.Result) {
         val handler = muxHandler
         if (!initialized || handler == null) {
             result.error("camera_not_ready", "摄像头尚未准备完成", null)
@@ -200,6 +201,7 @@ class ContinuousSegmentCamera(
                 replyError(result, "storage_low", "存储空间不足 2GB，无法开始录像")
                 return@post
             }
+            this@ContinuousSegmentCamera.recordAudio = recordAudio
             ensureParent(path)
             storageFailureReported = false
             recordingRequested = true
@@ -210,7 +212,9 @@ class ContinuousSegmentCamera(
             audioToVideoPtsOffsetUs = null
             pendingAudio.clear()
             setVideoSuspended(false)
-            startAudioPipeline()
+            if (recordAudio) {
+                startAudioPipeline()
+            }
             requestSyncFrame()
             handler.postDelayed({
                 if (startResult === result) {
@@ -789,7 +793,7 @@ class ContinuousSegmentCamera(
     }
 
     private fun startAudioPipeline() {
-        if (audioThread != null) return
+        if (audioThread != null || !recordAudio) return
         audioRunning.set(true)
         val thread = Thread({ runAudioPipeline() }, "parcel-audio")
         audioThread = thread
@@ -991,7 +995,8 @@ class ContinuousSegmentCamera(
         }
     }
 
-    private fun formatsReady(): Boolean = videoOutputFormat != null && audioOutputFormat != null
+    private fun formatsReady(): Boolean =
+        videoOutputFormat != null && (!recordAudio || audioOutputFormat != null)
 
     private fun openMuxer(path: String, basePtsUs: Long, startedAtMs: Long) {
         val outputFile = File(path)
@@ -1002,7 +1007,11 @@ class ContinuousSegmentCamera(
         val newMuxer = MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         newMuxer.setOrientationHint(sensorOrientation)
         videoTrack = newMuxer.addTrack(videoOutputFormat!!)
-        audioTrack = newMuxer.addTrack(audioOutputFormat!!)
+        audioTrack = if (recordAudio && audioOutputFormat != null) {
+            newMuxer.addTrack(audioOutputFormat!!)
+        } else {
+            -1
+        }
         newMuxer.start()
         muxer = newMuxer
         currentPath = path

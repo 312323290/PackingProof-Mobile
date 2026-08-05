@@ -109,6 +109,7 @@ class PackingSessionController extends ChangeNotifier {
   bool _speechEnabled = true;
   bool _orderSpeechEnabled = true;
   bool _maxVolumeEnabled = true;
+  bool _recordAudioEnabled = true;
   UnbackedRetentionPolicy _unbackedRetention = UnbackedRetentionPolicy.days30;
   BackedRetentionPolicy _backedRetention = BackedRetentionPolicy.days7;
   bool _appIsActive = true;
@@ -168,6 +169,7 @@ class PackingSessionController extends ChangeNotifier {
   bool get maxVolumeEnabled => _maxVolumeEnabled;
   UnbackedRetentionPolicy get unbackedRetention => _unbackedRetention;
   BackedRetentionPolicy get backedRetention => _backedRetention;
+  bool get recordAudioEnabled => _recordAudioEnabled;
   LanBackupSnapshot get backupSnapshot => _lanBackupService.snapshot;
   bool get pairingScanActive => _pairingScanActive;
   int get pairingSuccessRevision => _pairingSuccessRevision;
@@ -252,6 +254,7 @@ class PackingSessionController extends ChangeNotifier {
       _maxVolumeEnabled = settings.maxVolumeEnabled;
       _unbackedRetention = settings.unbackedRetention;
       _backedRetention = settings.backedRetention;
+      _recordAudioEnabled = settings.recordAudioEnabled;
       _hiddenRemoteRecordingIds = Set<int>.of(
         settings.hiddenRemoteRecordingIds,
       );
@@ -325,7 +328,7 @@ class PackingSessionController extends ChangeNotifier {
       final CameraController controller = CameraController(
         selected,
         ResolutionPreset.veryHigh,
-        enableAudio: true,
+        enableAudio: _recordAudioEnabled,
         fps: recordingFps,
         imageFormatGroup: Platform.isAndroid
             ? ImageFormatGroup.nv21
@@ -715,6 +718,15 @@ class PackingSessionController extends ChangeNotifier {
     await _repository.saveMaxVolumeEnabled(enabled);
   }
 
+  Future<void> setRecordAudioEnabled(bool enabled) async {
+    if (_recordAudioEnabled == enabled) {
+      return;
+    }
+    _recordAudioEnabled = enabled;
+    notifyListeners();
+    await _repository.saveRecordAudioEnabled(enabled);
+  }
+
   Future<void> setLanBackupAutoEnabled(bool enabled) async {
     await _lanBackupService.setAutoEnabled(enabled);
     await _repository.saveLanBackupAutoEnabled(enabled);
@@ -864,7 +876,10 @@ class PackingSessionController extends ChangeNotifier {
     await WidgetsBinding.instance.endOfFrame;
     final String recordingId = _sessionId(DateTime.now());
     final String path = await _repository.recordingPath(recordingId);
-    final NativeRecordingStart started = await camera.startWork(path);
+    final NativeRecordingStart started = await camera.startWork(
+      path,
+      recordAudio: _recordAudioEnabled,
+    );
     _recordingId = recordingId;
     _activeSegmentId = recordingId;
     _segmentIndex = 1;

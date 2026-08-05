@@ -8,6 +8,7 @@ class AppSettings {
     this.speechEnabled = true,
     this.orderSpeechEnabled = true,
     this.maxVolumeEnabled = true,
+    this.recordAudioEnabled = true,
     this.startupNoticeVersion = 0,
     this.mobileUpdatePromptDate = '',
     this.mobileUpdatePromptCount = 0,
@@ -50,6 +51,9 @@ class AppSettings {
       maxVolumeEnabled: json['maxVolumeEnabled'] is bool
           ? json['maxVolumeEnabled']! as bool
           : true,
+      recordAudioEnabled: json['recordAudioEnabled'] is bool
+          ? json['recordAudioEnabled']! as bool
+          : true,
       startupNoticeVersion: json['startupNoticeVersion'] is num
           ? (json['startupNoticeVersion']! as num).toInt()
           : 0,
@@ -78,6 +82,7 @@ class AppSettings {
   final bool speechEnabled;
   final bool orderSpeechEnabled;
   final bool maxVolumeEnabled;
+  final bool recordAudioEnabled;
   final int startupNoticeVersion;
   final String mobileUpdatePromptDate;
   final int mobileUpdatePromptCount;
@@ -93,6 +98,7 @@ class AppSettings {
     bool? speechEnabled,
     bool? orderSpeechEnabled,
     bool? maxVolumeEnabled,
+    bool? recordAudioEnabled,
     int? startupNoticeVersion,
     String? mobileUpdatePromptDate,
     int? mobileUpdatePromptCount,
@@ -107,6 +113,7 @@ class AppSettings {
       speechEnabled: speechEnabled ?? this.speechEnabled,
       orderSpeechEnabled: orderSpeechEnabled ?? this.orderSpeechEnabled,
       maxVolumeEnabled: maxVolumeEnabled ?? this.maxVolumeEnabled,
+      recordAudioEnabled: recordAudioEnabled ?? this.recordAudioEnabled,
       startupNoticeVersion: startupNoticeVersion ?? this.startupNoticeVersion,
       mobileUpdatePromptDate:
           mobileUpdatePromptDate ?? this.mobileUpdatePromptDate,
@@ -128,6 +135,7 @@ class AppSettings {
     'speechEnabled': speechEnabled,
     'orderSpeechEnabled': orderSpeechEnabled,
     'maxVolumeEnabled': maxVolumeEnabled,
+    'recordAudioEnabled': recordAudioEnabled,
     'startupNoticeVersion': startupNoticeVersion,
     'mobileUpdatePromptDate': mobileUpdatePromptDate,
     'mobileUpdatePromptCount': mobileUpdatePromptCount,

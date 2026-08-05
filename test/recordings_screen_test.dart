@@ -153,6 +153,9 @@ void main() {
         .getTopLeft(find.byKey(const Key('work-mode-settings')))
         .dy;
     final double retentionY = tester.getTopLeft(find.text('录像清理')).dy;
+    final double recordAudioY = tester
+        .getTopLeft(find.byKey(const Key('record-audio-settings')))
+        .dy;
     final double speechY = tester
         .getTopLeft(find.byKey(const Key('speech-prompt-settings')))
         .dy;
@@ -165,6 +168,8 @@ void main() {
 
     expect(workModeY, lessThan(retentionY));
     expect(retentionY, lessThan(speechY));
+    expect(retentionY, lessThan(recordAudioY));
+    expect(recordAudioY, lessThan(speechY));
     expect(speechY, lessThan(maxVolumeY));
     expect(maxVolumeY, lessThan(orderSpeechY));
     expect(find.textContaining('不会自动删除未备份录像'), findsNothing);
@@ -281,6 +286,41 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('max-volume-enabled-switch')));
+    await tester.pump();
+    expect(enabled, isFalse);
+  });
+
+  testWidgets('录制声音默认开启且可关闭', (WidgetTester tester) async {
+    bool enabled = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          mode: RecordingsScreenMode.settings,
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          recordAudioEnabled: enabled,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onRecordAudioEnabledChanged: (bool value) async {
+            enabled = value;
+          },
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.text('录制声音'), findsOneWidget);
+    expect(find.text('关闭后录像不带声音'), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const Key('record-audio-enabled-switch')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('record-audio-enabled-switch')));
     await tester.pump();
     expect(enabled, isFalse);
   });

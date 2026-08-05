@@ -34,10 +34,11 @@ class ContinuousCameraPlugin(
             "initialize" -> initialize(result)
             "startWork" -> {
                 val path = call.argument<String>("path")
+                val recordAudio = call.argument<Boolean>("recordAudio") ?: true
                 if (path.isNullOrBlank()) {
                     result.error("invalid_path", "录像文件路径不能为空", null)
                 } else {
-                    engine.startWork(path, result)
+                    engine.startWork(path, recordAudio, result)
                 }
             }
             "split" -> {

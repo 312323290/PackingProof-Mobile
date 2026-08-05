@@ -539,6 +539,10 @@ class SessionRepository {
     (AppSettings value) => value.copyWith(maxVolumeEnabled: enabled),
   );
 
+  Future<void> saveRecordAudioEnabled(bool enabled) => _updateSettings(
+    (AppSettings value) => value.copyWith(recordAudioEnabled: enabled),
+  );
+
   Future<List<RecordingSession>> pruneMissingSessions({
     Set<String> retainedMissingPaths = const <String>{},
   }) => _serializeSessionMutation(() async {

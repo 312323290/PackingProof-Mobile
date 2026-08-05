@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
@@ -9,7 +10,7 @@ import 'package:packing_proof_mobile/services/continuous_camera_service.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('原生录像不停相机即可生成两个独立分片', (WidgetTester tester) async {
+  testWidgets('原生录像分片与关闭声音体积对比', (WidgetTester tester) async {
     if (!Platform.isAndroid) {
       return;
     }
@@ -18,7 +19,9 @@ void main() {
     await output.create(recursive: true);
     final File first = File(p.join(output.path, 'segment-1.mp4'));
     final File second = File(p.join(output.path, 'segment-2.mp4'));
-    for (final File file in <File>[first, second]) {
+    final File withAudio = File(p.join(output.path, 'with-audio.mp4'));
+    final File withoutAudio = File(p.join(output.path, 'without-audio.mp4'));
+    for (final File file in <File>[first, second, withAudio, withoutAudio]) {
       if (await file.exists()) {
         await file.delete();
       }
@@ -31,7 +34,10 @@ void main() {
     expect(initialization.textureId, greaterThanOrEqualTo(0));
     expect(initialization.fps, 30);
 
-    final NativeRecordingStart started = await camera.startWork(first.path);
+    final NativeRecordingStart started = await camera.startWork(
+      first.path,
+      recordAudio: true,
+    );
     expect(started.path, first.path);
     await Future<void>.delayed(const Duration(seconds: 4));
 
@@ -45,5 +51,30 @@ void main() {
     expect(stopped.path, second.path);
     expect(await first.length(), greaterThan(100000));
     expect(await second.length(), greaterThan(100000));
+
+    final NativeRecordingStart audioStart = await camera.startWork(
+      withAudio.path,
+      recordAudio: true,
+    );
+    expect(audioStart.path, withAudio.path);
+    await Future<void>.delayed(const Duration(seconds: 5));
+    await camera.stopWork();
+
+    final NativeRecordingStart silentStart = await camera.startWork(
+      withoutAudio.path,
+      recordAudio: false,
+    );
+    expect(silentStart.path, withoutAudio.path);
+    await Future<void>.delayed(const Duration(seconds: 5));
+    await camera.stopWork();
+
+    final int withAudioBytes = await withAudio.length();
+    final int withoutAudioBytes = await withoutAudio.length();
+    debugPrint('音频开视频大小: $withAudioBytes bytes');
+    debugPrint('音频关视频大小: $withoutAudioBytes bytes');
+    debugPrint('差值: ${withAudioBytes - withoutAudioBytes} bytes');
+    expect(withAudioBytes, greaterThan(100000));
+    expect(withoutAudioBytes, greaterThan(100000));
+    expect(withoutAudioBytes, lessThan(withAudioBytes));
   });
 }

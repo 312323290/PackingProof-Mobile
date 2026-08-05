@@ -10,7 +10,7 @@ import '../app/packing_proof_mobile_app.dart';
 const String packingProofRepositoryUrl =
     'https://github.com/PackingProof/PackingProof-Mobile';
 const String packingProofReleasesUrl =
-    'https://gitee.com/PackingProof/PackingProof-Mobile/releases';
+    'https://gitee.com/PackingProof/PackingProof-Mobile/releases/latest';
 
 typedef PackageInfoLoader = Future<PackageInfo> Function();
 typedef ExternalUriLauncher = Future<bool> Function(Uri uri);

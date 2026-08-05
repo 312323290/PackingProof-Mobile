@@ -113,7 +113,7 @@ Future<bool> showComputerReplacementDialog(
 }
 
 const String mobileAppDownloadUrl =
-    'https://gitee.com/PackingProof/PackingProof-Mobile/releases';
+    'https://gitee.com/PackingProof/PackingProof-Mobile/releases/latest';
 
 @visibleForTesting
 Future<void> showMobileAppUpdateNotice(

@@ -134,7 +134,7 @@ void main() {
     expect(find.text('打开下载页面'), findsOneWidget);
     expect(
       mobileAppDownloadUrl,
-      'https://gitee.com/PackingProof/PackingProof-Mobile/releases',
+      'https://gitee.com/PackingProof/PackingProof-Mobile/releases/latest',
     );
   });
 }

@@ -7,8 +7,6 @@ on:
 
 jobs:
   release:
-    # 未配置签名 Secrets 时跳过，避免本地发布流程被干扰。
-    if: ${{ secrets.SIGNING_KEYSTORE_BASE64 != '' && secrets.SIGNING_CREDENTIALS_TXT != '' }}
     runs-on: windows-latest
     permissions:
       contents: read
@@ -31,6 +29,11 @@ jobs:
           SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
           SIGNING_CREDENTIALS_TXT: ${{ secrets.SIGNING_CREDENTIALS_TXT }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_KEYSTORE_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:SIGNING_CREDENTIALS_TXT)) {
+            Write-Output "未配置签名 Secrets（SIGNING_KEYSTORE_BASE64 / SIGNING_CREDENTIALS_TXT），本次跳过发布构建"
+            exit 0
+          }
           $dir = Join-Path $env:RUNNER_TEMP 'signing'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           [IO.File]::WriteAllBytes(
@@ -43,9 +46,11 @@ jobs:
             [Text.UTF8Encoding]::new($false))
           "SIGNING_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: 正式签名发布构建
+        if: env.SIGNING_DIR != ''
         shell: pwsh
         run: pwsh -NoProfile -File Tools\Publish-Android.ps1 -SigningDirectory "$env:SIGNING_DIR"
       - uses: actions/upload-artifact@v4
+        if: env.SIGNING_DIR != ''
         with:
           name: packingproof-android-release
           path: dist/android/*

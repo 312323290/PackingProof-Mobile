@@ -103,6 +103,7 @@ class ContinuousSegmentCamera(
     private var initialized = false
     private var disposed = false
     private var initializeResult: MethodChannel.Result? = null
+    private var openCameraAttempts = 0
 
     private var videoEncoder: MediaCodec? = null
     private var videoInputSurface: Surface? = null
@@ -173,6 +174,7 @@ class ContinuousSegmentCamera(
             return
         }
         initializeResult = result
+        openCameraAttempts = 0
         startThreads()
         textureEntry = textures.createSurfaceTexture()
         muxHandler!!.post {
@@ -477,35 +479,75 @@ class ContinuousSegmentCamera(
             val characteristics = selectedCameraCharacteristics
                 ?: throw IllegalStateException("无法读取摄像头能力")
 
-            val surfaceTexture = textureEntry!!.surfaceTexture()
-            surfaceTexture.setDefaultBufferSize(videoSize.width, videoSize.height)
-            previewSurface = Surface(surfaceTexture)
-            analysisReader = ImageReader.newInstance(
-                analysisSize.width,
-                analysisSize.height,
-                ImageFormat.YUV_420_888,
-                2,
-            ).also { reader -> reader.setOnImageAvailableListener({ analyzeImage(it) }, cameraHandler) }
+            if (previewSurface == null || analysisReader == null) {
+                val surfaceTexture = textureEntry!!.surfaceTexture()
+                surfaceTexture.setDefaultBufferSize(videoSize.width, videoSize.height)
+                previewSurface = Surface(surfaceTexture)
+                analysisReader = ImageReader.newInstance(
+                    analysisSize.width,
+                    analysisSize.height,
+                    ImageFormat.YUV_420_888,
+                    2,
+                ).also { reader -> reader.setOnImageAvailableListener({ analyzeImage(it) }, cameraHandler) }
+            }
 
             cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     cameraDevice = camera
+                    openCameraAttempts = 0
                     createCaptureSession(characteristics)
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
-                    camera.close()
-                    notifyNativeError("摄像头连接已断开", null)
+                    closeCameraSafely(camera)
+                    if (initializeResult != null &&
+                        openCameraAttempts < CameraOpenRetryPolicy.MAX_ATTEMPTS
+                    ) {
+                        retryCameraOpen()
+                    } else {
+                        failInitialization("camera_disconnected", "摄像头连接已断开", null)
+                    }
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
-                    camera.close()
-                    failInitialization("camera_error", "摄像头打开失败（$error）", null)
+                    closeCameraSafely(camera)
+                    if (initializeResult != null &&
+                        CameraOpenRetryPolicy.isTransientStateError(error) &&
+                        openCameraAttempts < CameraOpenRetryPolicy.MAX_ATTEMPTS
+                    ) {
+                        retryCameraOpen()
+                    } else {
+                        failInitialization("camera_error", "摄像头打开失败（$error）", null)
+                    }
                 }
             }, cameraHandler)
         } catch (error: Throwable) {
-            failInitialization("camera_open", "摄像头打开失败", error)
+            if (openCameraAttempts < CameraOpenRetryPolicy.MAX_ATTEMPTS &&
+                (error is CameraAccessException || error is SecurityException)
+            ) {
+                retryCameraOpen()
+            } else {
+                failInitialization("camera_open", "摄像头打开失败", error)
+            }
         }
+    }
+
+    private fun closeCameraSafely(camera: CameraDevice) {
+        cameraDevice = null
+        try {
+            camera.close()
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun retryCameraOpen() {
+        val handler = cameraHandler ?: return
+        if (disposed) return
+        openCameraAttempts++
+        handler.postDelayed(
+            { openCamera() },
+            CameraOpenRetryPolicy.RETRY_DELAY_MS,
+        )
     }
 
     private fun selectCameraConfiguration() {

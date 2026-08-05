@@ -24,6 +24,7 @@ class ContinuousCameraPlugin(
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
     private var engine = createEngine()
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var pendingPermissionRecordAudio = false
 
     init {
         channel.setMethodCallHandler(this)
@@ -32,6 +33,10 @@ class ContinuousCameraPlugin(
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "initialize" -> initialize(result)
+            "ensurePermissions" -> ensurePermissions(
+                call.argument<Boolean>("recordAudio") == true,
+                result,
+            )
             "startWork" -> {
                 val path = call.argument<String>("path")
                 val recordAudio = call.argument<Boolean>("recordAudio") ?: true
@@ -80,6 +85,9 @@ class ContinuousCameraPlugin(
                 }
             }
             "dispose" -> {
+                pendingPermissionResult?.error("disposed", "页面已关闭", null)
+                pendingPermissionResult = null
+                pendingPermissionRecordAudio = false
                 engine.dispose()
                 engine = createEngine()
                 result.success(null)
@@ -89,18 +97,33 @@ class ContinuousCameraPlugin(
     }
 
     private fun initialize(result: MethodChannel.Result) {
-        if (hasPermissions()) {
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
             engine.initialize(result)
             return
         }
+        result.error("permission_denied", "需要摄像头权限才能工作", null)
+    }
+
+    private fun ensurePermissions(recordAudio: Boolean, result: MethodChannel.Result) {
+        if (hasPermissions(requireAudio = recordAudio)) {
+            result.success(true)
+            return
+        }
         if (pendingPermissionResult != null) {
-            result.error("permission_pending", "正在等待摄像头权限", null)
+            result.error("permission_pending", "正在等待权限", null)
             return
         }
         pendingPermissionResult = result
+        pendingPermissionRecordAudio = recordAudio
+        val permissions = mutableListOf(Manifest.permission.CAMERA)
+        if (recordAudio) {
+            permissions += Manifest.permission.RECORD_AUDIO
+        }
         ActivityCompat.requestPermissions(
             activity,
-            arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO),
+            permissions.toTypedArray(),
             PERMISSION_REQUEST,
         )
     }
@@ -111,25 +134,34 @@ class ContinuousCameraPlugin(
         }
         val result = pendingPermissionResult
         pendingPermissionResult = null
+        val recordAudio = pendingPermissionRecordAudio
+        pendingPermissionRecordAudio = false
         if (result == null) {
             return true
         }
-        if (grantResults.size >= 2 && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-            engine.initialize(result)
+        if (grantResults.size >= 1 && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+            result.success(true)
         } else {
-            result.error("permission_denied", "需要摄像头和麦克风权限才能工作", null)
+            result.error(
+                "permission_denied",
+                if (recordAudio) "需要摄像头和麦克风权限才能工作" else "需要摄像头权限才能工作",
+                null,
+            )
         }
         return true
     }
 
-    private fun hasPermissions(): Boolean =
+    private fun hasPermissions(requireAudio: Boolean): Boolean =
         ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-            ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            (!requireAudio ||
+                ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED)
 
     fun dispose() {
         channel.setMethodCallHandler(null)
         pendingPermissionResult?.error("disposed", "页面已关闭", null)
         pendingPermissionResult = null
+        pendingPermissionRecordAudio = false
         engine.dispose()
     }
 

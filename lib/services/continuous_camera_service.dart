@@ -143,6 +143,15 @@ class ContinuousCameraService {
     return ContinuousCameraInitialization.fromMap(values);
   }
 
+  /// 请求运行所需权限；[recordAudio] 为 false 时只要求摄像头权限。
+  Future<bool> ensurePermissions({required bool recordAudio}) async {
+    return (await _channel.invokeMethod<bool>(
+          'ensurePermissions',
+          <String, Object>{'recordAudio': recordAudio},
+        )) ??
+        false;
+  }
+
   Future<NativeRecordingStart> startWork(
     String path, {
     required bool recordAudio,

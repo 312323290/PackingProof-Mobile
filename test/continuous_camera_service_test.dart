@@ -80,4 +80,52 @@ void main() {
       <String, Object>{'path': '/tmp/video.mp4', 'recordAudio': false},
     );
   });
+
+  test('关闭录制声音时只申请摄像头权限', () async {
+    const MethodChannel channel = MethodChannel(
+      'app.packingproof.mobile/continuous_camera',
+    );
+    final List<MethodCall> calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          calls.add(call);
+          return true;
+        });
+    final ContinuousCameraService service = ContinuousCameraService();
+    addTearDown(() async {
+      await service.dispose();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    final bool granted = await service.ensurePermissions(recordAudio: false);
+
+    expect(granted, isTrue);
+    expect(calls.single.method, 'ensurePermissions');
+    expect(calls.single.arguments, <String, Object>{'recordAudio': false});
+  });
+
+  test('开启录制声音时申请摄像头和麦克风权限', () async {
+    const MethodChannel channel = MethodChannel(
+      'app.packingproof.mobile/continuous_camera',
+    );
+    final List<MethodCall> calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          calls.add(call);
+          return true;
+        });
+    final ContinuousCameraService service = ContinuousCameraService();
+    addTearDown(() async {
+      await service.dispose();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    final bool granted = await service.ensurePermissions(recordAudio: true);
+
+    expect(granted, isTrue);
+    expect(calls.single.method, 'ensurePermissions');
+    expect(calls.single.arguments, <String, Object>{'recordAudio': true});
+  });
 }

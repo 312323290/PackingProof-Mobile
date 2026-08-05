@@ -309,6 +309,7 @@ class PackingSessionController extends ChangeNotifier {
           unawaited(_handleNativeStorageCritical());
         };
         _nativeCamera = nativeCamera;
+        await nativeCamera.ensurePermissions(recordAudio: _recordAudioEnabled);
         _nativeInitialization = await nativeCamera.initialize().timeout(
           const Duration(seconds: 15),
           onTimeout: () => throw TimeoutException('摄像头初始化超过 15 秒'),
@@ -348,6 +349,11 @@ class PackingSessionController extends ChangeNotifier {
       }
       _setPhase(PackingSessionPhase.ready);
       _speechService.resetIncidents();
+    } on PlatformException catch (error) {
+      _errorMessage = error.code == 'permission_denied'
+          ? '需要摄像头${_recordAudioEnabled ? '和麦克风' : ''}权限才能工作\n请允许权限后重试'
+          : '摄像头初始化失败，请重试\n${error.message ?? error.code}';
+      _setPhase(PackingSessionPhase.error);
     } on CameraException catch (error) {
       _setCameraError(error);
     } on Object catch (error) {
@@ -725,7 +731,18 @@ class PackingSessionController extends ChangeNotifier {
     }
     _recordAudioEnabled = enabled;
     notifyListeners();
+    if (enabled) {
+      unawaited(_requestRecordingAudioPermission());
+    }
     await _repository.saveRecordAudioEnabled(enabled);
+  }
+
+  Future<void> _requestRecordingAudioPermission() async {
+    try {
+      await _nativeCamera?.ensurePermissions(recordAudio: true);
+    } on Object {
+      // 未授权麦克风时，开始录像阶段会给出明确提示。
+    }
   }
 
   Future<void> setLanBackupAutoEnabled(bool enabled) async {

@@ -3,9 +3,14 @@ enum SpeechPromptPriority { normal, warning }
 enum SpeechPromptCue { none, remark, warning, industrial }
 
 enum SpeechPrompt {
-  ready(
-    text: '准备就绪',
-    assetName: 'ready.mp3',
+  shippingMode(
+    text: '发货模式',
+    assetName: 'shipping_mode.mp3',
+    priority: SpeechPromptPriority.normal,
+  ),
+  returnMode(
+    text: '退货模式',
+    assetName: 'return_mode.mp3',
     priority: SpeechPromptPriority.normal,
   ),
   recordingStarted(

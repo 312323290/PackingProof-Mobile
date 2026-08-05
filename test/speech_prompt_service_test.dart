@@ -134,11 +134,11 @@ void main() {
     await service.dispose();
   });
 
-  test('开始录制会打断仍在播放的准备就绪', () async {
+  test('开始录制会打断仍在播放的模式播报', () async {
     final _InterruptibleSpeechOutput output = _InterruptibleSpeechOutput();
     final SpeechPromptService service = SpeechPromptService(output: output);
 
-    service.enqueue(SpeechPrompt.ready);
+    service.enqueue(SpeechPrompt.shippingMode);
     while (output.assetPaths.isEmpty) {
       await Future<void>.delayed(Duration.zero);
     }
@@ -146,7 +146,7 @@ void main() {
     await service.waitUntilIdle();
 
     expect(output.assetPaths, <String>[
-      'audio/tts/ready.mp3',
+      'audio/tts/shipping_mode.mp3',
       'audio/tts/recording_started.mp3',
     ]);
     expect(output.stopCount, greaterThanOrEqualTo(1));
@@ -198,18 +198,20 @@ class _FakeSpeechOutput implements SpeechOutput {
 }
 
 class _InterruptibleSpeechOutput extends _FakeSpeechOutput {
-  final Completer<void> _readyPlayback = Completer<void>();
+  final Completer<void> _modePlayback = Completer<void>();
   int stopCount = 0;
 
   @override
   Future<void> playAsset(String assetPath) async {
     await super.playAsset(assetPath);
-    if (assetPath == 'audio/tts/ready.mp3') await _readyPlayback.future;
+    if (assetPath == 'audio/tts/shipping_mode.mp3') {
+      await _modePlayback.future;
+    }
   }
 
   @override
   Future<void> stop() async {
     stopCount++;
-    if (!_readyPlayback.isCompleted) _readyPlayback.complete();
+    if (!_modePlayback.isCompleted) _modePlayback.complete();
   }
 }

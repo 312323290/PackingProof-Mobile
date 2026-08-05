@@ -1,22 +1,27 @@
+import '../models/recording_operation_mode.dart';
 import '../models/speech_prompt.dart';
 
 class InitialRecordingPromptPolicy {
   bool _active = false;
-  bool _readyAnnounced = false;
+  bool _modeAnnounced = false;
   bool _recordingStartedAnnounced = false;
+  RecordingOperationMode _mode = RecordingOperationMode.shipping;
 
-  void beginWork() {
+  void beginWork(RecordingOperationMode mode) {
     _active = true;
-    _readyAnnounced = false;
+    _mode = mode;
+    _modeAnnounced = false;
     _recordingStartedAnnounced = false;
   }
 
-  SpeechPrompt? onReadyDelayElapsed() {
-    if (!_active || _readyAnnounced || _recordingStartedAnnounced) {
+  SpeechPrompt? onModeAnnouncementElapsed() {
+    if (!_active || _modeAnnounced || _recordingStartedAnnounced) {
       return null;
     }
-    _readyAnnounced = true;
-    return SpeechPrompt.ready;
+    _modeAnnounced = true;
+    return _mode == RecordingOperationMode.returnGoods
+        ? SpeechPrompt.returnMode
+        : SpeechPrompt.shippingMode;
   }
 
   SpeechPrompt? onFirstLabelRecognized() {

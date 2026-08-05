@@ -74,7 +74,8 @@ class PackingSessionController extends ChangeNotifier {
 
   static const Duration analysisInterval = Duration(milliseconds: 200);
   static const Duration transitionSettleDelay = Duration(milliseconds: 120);
-  static const Duration initialReadyPromptDelay = Duration(milliseconds: 250);
+  static const Duration initialModeAnnouncementDelay =
+      Duration(milliseconds: 250);
   static const int recordingFps = 30;
 
   final SessionRepository _repository;
@@ -440,7 +441,7 @@ class PackingSessionController extends ChangeNotifier {
       await _orderInfoReceiver.setBackgroundKeepAlive(false);
       _elapsed = Duration.zero;
       _setPhase(PackingSessionPhase.waitingForBarcode);
-      _scheduleInitialReadyPrompt();
+      _scheduleInitialModeAnnouncement();
     } on CameraException catch (error) {
       await _setNativeWorkScanEnabled(false);
       _cancelInitialPromptFlow();
@@ -1847,17 +1848,18 @@ class PackingSessionController extends ChangeNotifier {
   void _beginInitialPromptFlow() {
     _initialPromptTimer?.cancel();
     _initialPromptTimer = null;
-    _initialPromptPolicy.beginWork();
+    _initialPromptPolicy.beginWork(_operationMode);
   }
 
-  void _scheduleInitialReadyPrompt() {
+  void _scheduleInitialModeAnnouncement() {
     _initialPromptTimer?.cancel();
-    _initialPromptTimer = Timer(initialReadyPromptDelay, () {
+    _initialPromptTimer = Timer(initialModeAnnouncementDelay, () {
       _initialPromptTimer = null;
       if (_disposed || !isWorking || isRecording) {
         return;
       }
-      final SpeechPrompt? prompt = _initialPromptPolicy.onReadyDelayElapsed();
+      final SpeechPrompt? prompt =
+          _initialPromptPolicy.onModeAnnouncementElapsed();
       if (prompt != null) {
         _speechService.enqueue(prompt);
       }

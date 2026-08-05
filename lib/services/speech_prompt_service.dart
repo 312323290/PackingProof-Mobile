@@ -8,6 +8,10 @@ import 'package:flutter_tts/flutter_tts.dart';
 
 import '../models/speech_prompt.dart';
 
+bool _isModeAnnouncement(SpeechPrompt? prompt) =>
+    prompt == SpeechPrompt.shippingMode ||
+    prompt == SpeechPrompt.returnMode;
+
 abstract interface class SpeechPromptSink {
   bool get enabled;
 
@@ -123,18 +127,18 @@ class SpeechPromptService implements SpeechPromptSink, DynamicSpeechPromptSink {
       unawaited(_output.stop());
     } else if (prompt == SpeechPrompt.recordingStarted) {
       _queue.removeWhere(
-        (_QueuedSpeechPrompt queued) => queued.prompt == SpeechPrompt.ready,
+        (_QueuedSpeechPrompt queued) => _isModeAnnouncement(queued.prompt),
       );
-      if (_activePrompt?.prompt == SpeechPrompt.ready) {
+      if (_isModeAnnouncement(_activePrompt?.prompt)) {
         unawaited(_output.stop());
       }
     } else if (prompt == SpeechPrompt.recordingStopped) {
       _queue.removeWhere(
         (_QueuedSpeechPrompt queued) =>
-            queued.prompt == SpeechPrompt.ready ||
+            _isModeAnnouncement(queued.prompt) ||
             queued.prompt == SpeechPrompt.recordingStarted,
       );
-      if (_activePrompt?.prompt == SpeechPrompt.ready ||
+      if (_isModeAnnouncement(_activePrompt?.prompt) ||
           _activePrompt?.prompt == SpeechPrompt.recordingStarted) {
         unawaited(_output.stop());
       }

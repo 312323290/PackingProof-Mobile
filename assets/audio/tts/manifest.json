@@ -3,14 +3,24 @@
   "format": "audio-24khz-48kbitrate-mono-mp3",
   "prompts": [
     {
-      "id": "ready",
-      "text": "准备就绪",
+      "id": "shippingMode",
+      "text": "发货模式",
       "priority": "normal",
       "voice": "zh-CN-XiaoxiaoNeural",
-      "file": "ready.mp3",
-      "bytes": 10172,
-      "sha256": "60eba40f7d0b70f7e681efba18d5db8997a624702ace1183be4ae550efe3ce77",
-      "cacheKey": "eb8b20fa546143dd6d81d712d6f3ea0c6f8756b9c63edb22f15e6a79a01ee1f2"
+      "file": "shipping_mode.mp3",
+      "bytes": 10656,
+      "sha256": "08371332a13db626bc801dbe389487060db57a32265c04b604542b4a3093bd8f",
+      "cacheKey": "3a1b56b80e4567161e6922b319d603008a4ee409dd3f7eef6e39d0c035558e7b"
+    },
+    {
+      "id": "returnMode",
+      "text": "退货模式",
+      "priority": "normal",
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "file": "return_mode.mp3",
+      "bytes": 10656,
+      "sha256": "a098ef671e784ae2028e6370e6199cb26058129e84bff19d98e4352e7aa1b166",
+      "cacheKey": "5cf02ca8b153156b377e8f2814b165966e132e3dce74dd36741dade42873baeb"
     },
     {
       "id": "recordingStarted",

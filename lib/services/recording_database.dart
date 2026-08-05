@@ -422,6 +422,7 @@ class RecordingDatabase {
 
   Future<void> refreshMissingState({
     Set<String> retainedMissingPaths = const <String>{},
+    Map<String, String> resolvedPaths = const <String, String>{},
   }) async {
     final Database db = await _db;
     final List<Map<String, Object?>> rows = await db.query(
@@ -433,20 +434,39 @@ class RecordingDatabase {
     final Batch batch = db.batch();
     for (final Map<String, Object?> row in rows) {
       final String filePath = row['file_path']! as String;
-      final bool missing = !File(filePath).existsSync();
-      final bool retained = retainedMissingPaths.contains(filePath);
+      final String workingPath = resolvedPaths[row['id']] ?? filePath;
+      final bool missing = !File(workingPath).existsSync();
+      final bool retained =
+          retainedMissingPaths.contains(workingPath) ||
+          retainedMissingPaths.contains(filePath);
       final Object? current = row['missing_at'];
+      final bool pathChanged = workingPath != filePath;
       if (missing && current == null) {
         batch.update(
           'recording_sessions',
-          <String, Object?>{'missing_at': now, 'updated_at': now},
+          <String, Object?>{
+            if (pathChanged) 'file_path': workingPath,
+            'missing_at': now,
+            'updated_at': now,
+          },
           where: 'id = ?',
           whereArgs: <Object?>[row['id']],
         );
       } else if (!missing && current != null) {
         batch.update(
           'recording_sessions',
-          <String, Object?>{'missing_at': null, 'updated_at': now},
+          <String, Object?>{
+            if (pathChanged) 'file_path': workingPath,
+            'missing_at': null,
+            'updated_at': now,
+          },
+          where: 'id = ?',
+          whereArgs: <Object?>[row['id']],
+        );
+      } else if (pathChanged) {
+        batch.update(
+          'recording_sessions',
+          <String, Object?>{'file_path': workingPath, 'updated_at': now},
           where: 'id = ?',
           whereArgs: <Object?>[row['id']],
         );
@@ -455,6 +475,26 @@ class RecordingDatabase {
         // playback is unavailable without discarding the audit trail.
       }
     }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> repairFilePaths(Map<String, String> resolvedPaths) async {
+    if (resolvedPaths.isEmpty) return;
+    final Database db = await _db;
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    final Batch batch = db.batch();
+    resolvedPaths.forEach((String id, String path) {
+      batch.update(
+        'recording_sessions',
+        <String, Object?>{
+          'file_path': path,
+          'missing_at': null,
+          'updated_at': now,
+        },
+        where: 'id = ? AND file_path != ?',
+        whereArgs: <Object?>[id, path],
+      );
+    });
     await batch.commit(noResult: true);
   }
 

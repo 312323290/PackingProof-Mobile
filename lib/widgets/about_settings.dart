@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app/app_build_config.dart';
 import '../app/packing_proof_mobile_app.dart';
+import '../services/recording_path_diagnostics.dart';
 
 const String packingProofRepositoryUrl =
     'https://github.com/PackingProof/PackingProof-Mobile';
@@ -14,18 +16,24 @@ const String packingProofReleasesUrl =
 
 typedef PackageInfoLoader = Future<PackageInfo> Function();
 typedef ExternalUriLauncher = Future<bool> Function(Uri uri);
+typedef DiagnosticsTextLoader = Future<String?> Function();
+typedef DiagnosticsShareHandler = Future<void> Function(String text);
 
 class AboutSettings extends StatelessWidget {
   const AboutSettings({
     this.packageInfoLoader,
     this.uriLauncher,
     this.buildConfig = AppBuildConfig.environment,
+    this.diagnosticsLoader,
+    this.shareText,
     super.key,
   });
 
   final PackageInfoLoader? packageInfoLoader;
   final ExternalUriLauncher? uriLauncher;
   final AppBuildConfig buildConfig;
+  final DiagnosticsTextLoader? diagnosticsLoader;
+  final DiagnosticsShareHandler? shareText;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +59,8 @@ class AboutSettings extends StatelessWidget {
               packageInfoLoader: packageInfoLoader,
               uriLauncher: uriLauncher,
               buildConfig: buildConfig,
+              diagnosticsLoader: diagnosticsLoader,
+              shareText: shareText,
             ),
           ),
         ),
@@ -64,12 +74,16 @@ class AboutScreen extends StatefulWidget {
     this.packageInfoLoader,
     this.uriLauncher,
     this.buildConfig = AppBuildConfig.environment,
+    this.diagnosticsLoader,
+    this.shareText,
     super.key,
   });
 
   final PackageInfoLoader? packageInfoLoader;
   final ExternalUriLauncher? uriLauncher;
   final AppBuildConfig buildConfig;
+  final DiagnosticsTextLoader? diagnosticsLoader;
+  final DiagnosticsShareHandler? shareText;
 
   @override
   State<AboutScreen> createState() => _AboutScreenState();
@@ -112,6 +126,26 @@ class _AboutScreenState extends State<AboutScreen> {
         context,
       ).showSnackBar(const SnackBar(content: Text('无法打开链接，请稍后重试')));
     }
+  }
+
+  Future<void> _exportDiagnostics() async {
+    final DiagnosticsTextLoader loader =
+        widget.diagnosticsLoader ?? RecordingPathDiagnostics().exportText;
+    final String? text = await loader();
+    if (text == null || text.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('暂无诊断记录')));
+      return;
+    }
+    await (widget.shareText ?? _shareDiagnostics)(text);
+  }
+
+  Future<void> _shareDiagnostics(String text) async {
+    await SharePlus.instance.share(
+      ShareParams(text: text, subject: 'PackingProof 路径诊断日志'),
+    );
   }
 
   Future<void> _showStartupNotice() => Navigator.of(context).push<void>(
@@ -186,6 +220,13 @@ class _AboutScreenState extends State<AboutScreen> {
                     title: '版本发布',
                     subtitle: packingProofReleasesUrl,
                     onTap: () => unawaited(_open(packingProofReleasesUrl)),
+                  ),
+                  const SizedBox(height: 8),
+                  _InfoRow(
+                    icon: Icons.bug_report_outlined,
+                    title: '导出诊断日志',
+                    subtitle: '录像路径异常记录（如有）',
+                    onTap: () => unawaited(_exportDiagnostics()),
                   ),
                   const SizedBox(height: 14),
                   const Text(

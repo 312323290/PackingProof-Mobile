@@ -33,6 +33,18 @@ class RecordingSession {
 
   String get displayCode => markers.isEmpty ? '未识别面单' : markers.first.code;
 
+  RecordingSession copyWith({String? filePath}) => RecordingSession(
+    id: id,
+    filePath: filePath ?? this.filePath,
+    startedAt: startedAt,
+    endedAt: endedAt,
+    markers: markers,
+    mediaStart: mediaStart,
+    mediaEnd: mediaEnd,
+    orderInfo: orderInfo,
+    operationMode: operationMode,
+  );
+
   RecordingSession trimmed({
     required Duration startOffset,
     required Duration endOffset,

@@ -92,4 +92,58 @@ void main() {
     expect(find.text('关闭'), findsOneWidget);
     expect(find.text('开始使用'), findsNothing);
   });
+
+  testWidgets('导出诊断日志在无记录时给出提示', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AboutSettings(
+            packageInfoLoader: () async => PackageInfo(
+              appName: '包裹留证',
+              packageName: 'app.packingproof.mobile',
+              version: '0.5.12',
+              buildNumber: '11012',
+            ),
+            diagnosticsLoader: () async => null,
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('about-settings-open')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('导出诊断日志'));
+    await tester.pump();
+
+    expect(find.text('暂无诊断记录'), findsOneWidget);
+  });
+
+  testWidgets('导出诊断日志会分享诊断文本', (WidgetTester tester) async {
+    String? shared;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AboutSettings(
+            packageInfoLoader: () async => PackageInfo(
+              appName: '包裹留证',
+              packageName: 'app.packingproof.mobile',
+              version: '0.5.12',
+              buildNumber: '11012',
+            ),
+            diagnosticsLoader: () async => 'line1\nline2',
+            shareText: (String text) async {
+              shared = text;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('about-settings-open')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('导出诊断日志'));
+    await tester.pumpAndSettle();
+
+    expect(shared, 'line1\nline2');
+  });
 }

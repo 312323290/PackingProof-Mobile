@@ -13,6 +13,8 @@ import '../models/recording_operation_mode.dart';
 import '../models/work_mode.dart';
 import '../models/storage_notice.dart';
 import 'recording_database.dart';
+import 'recording_path_diagnostics.dart';
+import 'recording_path_resolver.dart';
 
 class SessionRepository {
   SessionRepository({Directory? rootDirectory}) : this._(rootDirectory);
@@ -25,6 +27,8 @@ class SessionRepository {
   late File _indexFile;
   late File _settingsFile;
   late RecordingDatabase _recordingDatabase;
+  late RecordingPathResolver _pathResolver;
+  late RecordingPathDiagnostics _pathDiagnostics;
   bool _initialized = false;
   Future<void> _sessionMutationTail = Future<void>.value();
   Future<void> _settingsMutationTail = Future<void>.value();
@@ -48,6 +52,10 @@ class SessionRepository {
       path: p.join(_rootDirectory!.path, 'recordings.db'),
     );
     await _recordingDatabase.initialize();
+    _pathResolver = RecordingPathResolver(_recordingsDirectory.path);
+    _pathDiagnostics = RecordingPathDiagnostics(
+      rootProvider: () async => _rootDirectory!,
+    );
     await _recordingDatabase.migrateLegacyIndex(_indexFile);
     _initialized = true;
     await _recoverPendingRecordings();
@@ -233,8 +241,9 @@ class SessionRepository {
     await initialize();
     final List<RecordingSession> sessions = await _recordingDatabase
         .loadActiveSessions();
-    if (includeMissingFiles) return sessions;
-    return sessions
+    final List<RecordingSession> resolved = await _resolveAndRepair(sessions);
+    if (includeMissingFiles) return resolved;
+    return resolved
         .where(
           (RecordingSession session) => File(session.filePath).existsSync(),
         )
@@ -247,10 +256,16 @@ class SessionRepository {
     String keyword = '',
   }) async {
     await initialize();
-    return _recordingDatabase.queryActiveSessions(
-      page: page,
-      pageSize: pageSize,
-      keyword: keyword,
+    final LocalRecordingPage result = await _recordingDatabase
+        .queryActiveSessions(page: page, pageSize: pageSize, keyword: keyword);
+    final List<RecordingSession> resolved = await _resolveAndRepair(
+      result.data,
+    );
+    return LocalRecordingPage(
+      data: resolved,
+      page: result.page,
+      pageSize: result.pageSize,
+      total: result.total,
     );
   }
 
@@ -286,7 +301,9 @@ class SessionRepository {
     int pageSize = 100,
   }) async {
     await initialize();
-    return _recordingDatabase.queryBackupBatch(page: page, pageSize: pageSize);
+    final List<RecordingSession> sessions = await _recordingDatabase
+        .queryBackupBatch(page: page, pageSize: pageSize);
+    return _resolveAndRepair(sessions);
   }
 
   Future<List<RecordingSession>> _loadRecentSessionsUnlocked() async =>
@@ -547,11 +564,67 @@ class SessionRepository {
     Set<String> retainedMissingPaths = const <String>{},
   }) => _serializeSessionMutation(() async {
     await initialize();
+    final List<RecordingSession> sessions = await _recordingDatabase
+        .loadActiveSessions();
+    final List<RecordingSession> resolved = await _resolveAndRepair(sessions);
+    final Map<String, String> repairs = <String, String>{
+      for (int index = 0; index < sessions.length; index++)
+        if (resolved[index].filePath != sessions[index].filePath)
+          sessions[index].id: resolved[index].filePath,
+    };
     await _recordingDatabase.refreshMissingState(
       retainedMissingPaths: retainedMissingPaths.map(p.normalize).toSet(),
+      resolvedPaths: repairs,
     );
-    return _loadRecentSessionsUnlocked();
+    return resolved.take(50).toList(growable: false);
   });
+
+  /// 解析录像文件的实际路径；找不到时返回 null，并记录诊断信息。
+  Future<String?> resolveRecordingPath(String storedPath) async {
+    await initialize();
+    final RecordingPathResolution resolution = await _pathResolver.resolve(
+      storedPath,
+    );
+    final String? resolved = resolution.resolvedPath;
+    if (resolution.repaired) {
+      developer.log(
+        '录像路径自动修复：$storedPath -> $resolved',
+        name: 'PackingProof.PathFix',
+      );
+    } else if (resolved == null) {
+      await _pathDiagnostics.recordMissing(
+        storedPath: storedPath,
+        recordingsRoot: _recordingsDirectory.path,
+        attemptedPaths: resolution.attemptedPaths,
+      );
+    }
+    return resolved;
+  }
+
+  Future<RecordingSession> _resolveSession(RecordingSession session) async {
+    final String? resolved = await resolveRecordingPath(session.filePath);
+    if (resolved == null || resolved == session.filePath) return session;
+    return session.copyWith(filePath: resolved);
+  }
+
+  Future<List<RecordingSession>> _resolveAndRepair(
+    List<RecordingSession> sessions,
+  ) async {
+    if (sessions.isEmpty) return sessions;
+    final List<RecordingSession> resolved = <RecordingSession>[];
+    final Map<String, String> repairs = <String, String>{};
+    for (final RecordingSession session in sessions) {
+      final RecordingSession sessionWithPath = await _resolveSession(session);
+      resolved.add(sessionWithPath);
+      if (sessionWithPath.filePath != session.filePath) {
+        repairs[session.id] = sessionWithPath.filePath;
+      }
+    }
+    if (repairs.isNotEmpty) {
+      await _recordingDatabase.repairFilePaths(repairs);
+    }
+    return resolved;
+  }
 
   Future<void> saveStartupNoticeVersion(int version) => _updateSettings(
     (AppSettings value) => value.copyWith(startupNoticeVersion: version),

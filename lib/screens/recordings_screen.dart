@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../models/backup_retention_policy.dart';
 import '../models/barcode_marker.dart';
 import '../models/lan_backup.dart';
+import '../models/recording_video_codec.dart';
 import '../models/recording_operation_mode.dart';
 import '../models/recording_session.dart';
 import '../services/order_info_receiver_service.dart';
@@ -89,12 +90,14 @@ class RecordingsScreen extends StatefulWidget {
     this.orderReceiverSnapshot = const OrderInfoReceiverSnapshot(),
     required this.maxVolumeEnabled,
     this.recordAudioEnabled = true,
+    this.preferredVideoCodec = RecordingVideoCodec.hevc,
     required this.onWorkModeChanged,
     required this.onSpeechEnabledChanged,
     this.onOrderSpeechEnabledChanged,
     this.onRetryOrderReceiver,
     required this.onMaxVolumeEnabledChanged,
     this.onRecordAudioEnabledChanged,
+    this.onPreferredVideoCodecChanged,
     required this.onSpeechPreview,
     required this.onSessionUpdated,
     required this.onDeleteSessions,
@@ -137,12 +140,15 @@ class RecordingsScreen extends StatefulWidget {
   final OrderInfoReceiverSnapshot orderReceiverSnapshot;
   final bool maxVolumeEnabled;
   final bool recordAudioEnabled;
+  final RecordingVideoCodec preferredVideoCodec;
   final Future<void> Function(WorkMode mode) onWorkModeChanged;
   final Future<void> Function(bool enabled) onSpeechEnabledChanged;
   final Future<void> Function(bool enabled)? onOrderSpeechEnabledChanged;
   final Future<void> Function()? onRetryOrderReceiver;
   final Future<void> Function(bool enabled) onMaxVolumeEnabledChanged;
   final Future<void> Function(bool enabled)? onRecordAudioEnabledChanged;
+  final Future<void> Function(RecordingVideoCodec codec)?
+  onPreferredVideoCodecChanged;
   final Future<void> Function() onSpeechPreview;
   final Future<void> Function(RecordingSession session) onSessionUpdated;
   final Future<void> Function(Set<String> sessionIds) onDeleteSessions;
@@ -212,6 +218,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late bool _orderSpeechEnabled;
   late bool _maxVolumeEnabled;
   late bool _recordAudioEnabled;
+  late RecordingVideoCodec _preferredVideoCodec;
   late List<RecordingSession> _sessions;
   late int _localRecordingBytes;
   late Set<String> _localRecordingPaths;
@@ -285,6 +292,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _orderSpeechEnabled = widget.orderSpeechEnabled;
     _maxVolumeEnabled = widget.maxVolumeEnabled;
     _recordAudioEnabled = widget.recordAudioEnabled;
+    _preferredVideoCodec = widget.preferredVideoCodec;
     _sessions = List<RecordingSession>.of(widget.sessions);
     _refreshLocalRecordingStats();
     _backupSnapshot = widget.backupSnapshot;
@@ -329,6 +337,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _orderSpeechEnabled = widget.orderSpeechEnabled;
     _maxVolumeEnabled = widget.maxVolumeEnabled;
     _recordAudioEnabled = widget.recordAudioEnabled;
+    _preferredVideoCodec = widget.preferredVideoCodec;
     _unbackedRetention = widget.unbackedRetention;
     _backedRetention = widget.backedRetention;
     _hiddenRemoteIds.addAll(widget.hiddenRemoteRecordingIds);
@@ -955,6 +964,19 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     await widget.onRecordAudioEnabledChanged?.call(enabled);
   }
 
+  Future<void> _setPreferredVideoCodec(RecordingVideoCodec codec) async {
+    if (_preferredVideoCodec == codec) {
+      return;
+    }
+    setState(() => _preferredVideoCodec = codec);
+    await widget.onPreferredVideoCodecChanged?.call(codec);
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('录像编码已切换，新录像将使用所选编码')));
+    }
+  }
+
   Future<void> _setUnbackedRetention(UnbackedRetentionPolicy value) async {
     setState(() => _unbackedRetention = value);
     await widget.onBackupRetentionChanged?.call(
@@ -1233,6 +1255,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               backedRetention: _backedRetention,
               onUnbackedRetentionChanged: _setUnbackedRetention,
               onBackedRetentionChanged: _setBackedRetention,
+            ),
+            const SizedBox(height: 12),
+            _VideoCodecSettings(
+              codec: _preferredVideoCodec,
+              onChanged: _setPreferredVideoCodec,
             ),
             const SizedBox(height: 12),
             _RecordAudioSettings(
@@ -2566,6 +2593,64 @@ class _WorkModeSettings extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             workMode.description,
+            style: TextStyle(
+              color: colors.onSurfaceVariant,
+              fontSize: 13,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VideoCodecSettings extends StatelessWidget {
+  const _VideoCodecSettings({required this.codec, required this.onChanged});
+
+  final RecordingVideoCodec codec;
+  final ValueChanged<RecordingVideoCodec> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('video-codec-settings'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainer,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            '录像编码',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<RecordingVideoCodec>(
+              showSelectedIcon: false,
+              segments: RecordingVideoCodec.values
+                  .map(
+                    (RecordingVideoCodec value) =>
+                        ButtonSegment<RecordingVideoCodec>(
+                          value: value,
+                          label: Text(value.label),
+                        ),
+                  )
+                  .toList(growable: false),
+              selected: <RecordingVideoCodec>{codec},
+              onSelectionChanged: (Set<RecordingVideoCodec> values) {
+                onChanged(values.single);
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            codec.description,
             style: TextStyle(
               color: colors.onSurfaceVariant,
               fontSize: 13,

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packing_proof_mobile/models/backup_retention_policy.dart';
 import 'package:packing_proof_mobile/models/app_settings.dart';
+import 'package:packing_proof_mobile/models/recording_video_codec.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/services/session_repository.dart';
 
@@ -80,6 +81,23 @@ void main() {
           as Map<Object?, Object?>,
     );
     expect(persisted['recordAudioEnabled'], isFalse);
+  });
+
+  test('录像编码默认 H.265 且可切换持久化', () async {
+    final SessionRepository repository = testRepository(root);
+
+    final AppSettings defaults = await repository.loadSettings();
+    expect(defaults.preferredVideoCodec, RecordingVideoCodec.hevc);
+
+    await repository.savePreferredVideoCodec(RecordingVideoCodec.h264);
+    final AppSettings updated = await repository.loadSettings();
+    expect(updated.preferredVideoCodec, RecordingVideoCodec.h264);
+
+    final Map<String, Object?> persisted = Map<String, Object?>.from(
+      jsonDecode(await File('${root.path}/settings.json').readAsString())
+          as Map<Object?, Object?>,
+    );
+    expect(persisted['preferredVideoCodec'], 'h264');
   });
 
   test('首次说明版本在两个编译版本间共享且保留其他设置', () async {

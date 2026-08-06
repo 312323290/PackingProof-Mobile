@@ -10,6 +10,7 @@ import '../models/app_settings.dart';
 import '../models/backup_retention_policy.dart';
 import '../models/recording_session.dart';
 import '../models/recording_operation_mode.dart';
+import '../models/recording_video_codec.dart';
 import '../models/work_mode.dart';
 import '../models/storage_notice.dart';
 import 'recording_database.dart';
@@ -559,6 +560,11 @@ class SessionRepository {
   Future<void> saveRecordAudioEnabled(bool enabled) => _updateSettings(
     (AppSettings value) => value.copyWith(recordAudioEnabled: enabled),
   );
+
+  Future<void> savePreferredVideoCodec(RecordingVideoCodec codec) =>
+      _updateSettings(
+        (AppSettings value) => value.copyWith(preferredVideoCodec: codec),
+      );
 
   Future<List<RecordingSession>> pruneMissingSessions({
     Set<String> retainedMissingPaths = const <String>{},

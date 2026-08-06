@@ -3,11 +3,14 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import '../models/recording_video_codec.dart';
+
 abstract interface class VideoWatermarkSink {
   Future<String> apply({
     required String inputPath,
     required DateTime startedAt,
     required String trackingNumber,
+    RecordingVideoCodec videoCodec = RecordingVideoCodec.hevc,
   });
 }
 
@@ -27,6 +30,7 @@ class VideoWatermarkService implements VideoWatermarkSink {
     required String inputPath,
     required DateTime startedAt,
     required String trackingNumber,
+    RecordingVideoCodec videoCodec = RecordingVideoCodec.hevc,
   }) {
     final Completer<String> result = Completer<String>();
     _tail = _tail.catchError((Object _) {}).then((_) async {
@@ -36,6 +40,7 @@ class VideoWatermarkService implements VideoWatermarkSink {
             inputPath: inputPath,
             startedAt: startedAt,
             trackingNumber: trackingNumber,
+            videoCodec: videoCodec,
           ),
         );
       } on Object catch (error, stackTrace) {
@@ -49,6 +54,7 @@ class VideoWatermarkService implements VideoWatermarkSink {
     required String inputPath,
     required DateTime startedAt,
     required String trackingNumber,
+    required RecordingVideoCodec videoCodec,
   }) async {
     if (!_isAndroid) return inputPath;
     final int dot = inputPath.lastIndexOf('.');
@@ -60,6 +66,7 @@ class VideoWatermarkService implements VideoWatermarkSink {
       'outputPath': outputPath,
       'startedAtMs': startedAt.millisecondsSinceEpoch,
       'trackingNumber': trackingNumber,
+      'videoCodec': videoCodec.storageValue,
     });
     if (result == null || result.isEmpty || !await File(result).exists()) {
       throw StateError('水印视频生成失败');

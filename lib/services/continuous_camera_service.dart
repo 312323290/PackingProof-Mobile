@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../models/recording_video_codec.dart';
+
 class ContinuousCameraInitialization {
   const ContinuousCameraInitialization({
     required this.textureId,
@@ -137,9 +139,13 @@ class ContinuousCameraService {
   void Function(String message)? onError;
   void Function()? onStorageCritical;
 
-  Future<ContinuousCameraInitialization> initialize() async {
+  Future<ContinuousCameraInitialization> initialize({
+    RecordingVideoCodec videoCodec = RecordingVideoCodec.hevc,
+  }) async {
     final Map<Object?, Object?> values = (await _channel
-        .invokeMethod<Map<Object?, Object?>>('initialize'))!;
+        .invokeMethod<Map<Object?, Object?>>('initialize', <String, Object>{
+          'videoCodec': videoCodec.storageValue,
+        }))!;
     return ContinuousCameraInitialization.fromMap(values);
   }
 

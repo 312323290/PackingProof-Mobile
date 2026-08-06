@@ -59,8 +59,6 @@ class ContinuousSegmentCamera(
     private val emit: (String, Any?) -> Unit,
 ) {
     companion object {
-        private const val PREFERRED_VIDEO_MIME = MediaFormat.MIMETYPE_VIDEO_HEVC
-        private const val FALLBACK_VIDEO_MIME = MediaFormat.MIMETYPE_VIDEO_AVC
         private const val VIDEO_WIDTH = 1920
         private const val VIDEO_HEIGHT = 1080
         private const val VIDEO_FPS = 30
@@ -104,11 +102,12 @@ class ContinuousSegmentCamera(
     private var disposed = false
     private var initializeResult: MethodChannel.Result? = null
     private var openCameraAttempts = 0
+    private var preferredVideoMime = MediaFormat.MIMETYPE_VIDEO_HEVC
 
     private var videoEncoder: MediaCodec? = null
     private var videoInputSurface: Surface? = null
     private var videoOutputFormat: MediaFormat? = null
-    private var selectedVideoMime = PREFERRED_VIDEO_MIME
+    private var selectedVideoMime = MediaFormat.MIMETYPE_VIDEO_HEVC
     private var audioOutputFormat: MediaFormat? = null
 
     private val audioRunning = AtomicBoolean(false)
@@ -160,7 +159,7 @@ class ContinuousSegmentCamera(
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
     }
 
-    fun initialize(result: MethodChannel.Result) {
+    fun initialize(result: MethodChannel.Result, videoCodec: String? = null) {
         if (disposed) {
             result.error("disposed", "摄像头已经关闭", null)
             return
@@ -175,6 +174,11 @@ class ContinuousSegmentCamera(
         }
         initializeResult = result
         openCameraAttempts = 0
+        preferredVideoMime = if (videoCodec == "h264") {
+            MediaFormat.MIMETYPE_VIDEO_AVC
+        } else {
+            MediaFormat.MIMETYPE_VIDEO_HEVC
+        }
         startThreads()
         textureEntry = textures.createSurfaceTexture()
         muxHandler!!.post {
@@ -397,14 +401,24 @@ class ContinuousSegmentCamera(
 
     private fun prepareVideoEncoder() {
         var lastError: Throwable? = null
-        for (mime in listOf(PREFERRED_VIDEO_MIME, FALLBACK_VIDEO_MIME)) {
+        val preferred = if (preferredVideoMime == MediaFormat.MIMETYPE_VIDEO_AVC) {
+            MediaFormat.MIMETYPE_VIDEO_AVC
+        } else {
+            MediaFormat.MIMETYPE_VIDEO_HEVC
+        }
+        val fallback = if (preferred == MediaFormat.MIMETYPE_VIDEO_AVC) {
+            MediaFormat.MIMETYPE_VIDEO_HEVC
+        } else {
+            MediaFormat.MIMETYPE_VIDEO_AVC
+        }
+        for (mime in listOf(preferred, fallback)) {
             var codec: MediaCodec? = null
             try {
                 val format = MediaFormat.createVideoFormat(mime, videoSize.width, videoSize.height).apply {
                     setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
                     setInteger(
                         MediaFormat.KEY_BIT_RATE,
-                        if (mime == PREFERRED_VIDEO_MIME) HEVC_VIDEO_BIT_RATE else AVC_VIDEO_BIT_RATE,
+                        if (mime == MediaFormat.MIMETYPE_VIDEO_HEVC) HEVC_VIDEO_BIT_RATE else AVC_VIDEO_BIT_RATE,
                     )
                     setInteger(MediaFormat.KEY_FRAME_RATE, VIDEO_FPS)
                     setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)

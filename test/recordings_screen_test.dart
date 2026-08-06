@@ -8,6 +8,7 @@ import 'package:packing_proof_mobile/models/barcode_marker.dart';
 import 'package:packing_proof_mobile/models/lan_backup.dart';
 import 'package:packing_proof_mobile/models/recording_session.dart';
 import 'package:packing_proof_mobile/models/recording_operation_mode.dart';
+import 'package:packing_proof_mobile/models/recording_video_codec.dart';
 import 'package:packing_proof_mobile/models/work_mode.dart';
 import 'package:packing_proof_mobile/screens/recordings_screen.dart';
 import 'package:packing_proof_mobile/services/recording_database.dart';
@@ -240,6 +241,12 @@ void main() {
       ),
     );
 
+    await tester.dragUntilVisible(
+      find.byKey(const Key('speech-prompt-settings')),
+      find.byType(ListView).first,
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('speech-prompt-settings')), findsOneWidget);
     expect(find.text('离线自动使用系统语音'), findsOneWidget);
     await tester.tap(find.text('试听'));
@@ -279,6 +286,12 @@ void main() {
       ),
     );
 
+    await tester.dragUntilVisible(
+      find.byKey(const Key('max-volume-enabled-switch')),
+      find.byType(ListView).first,
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('最大音量'), findsOneWidget);
     expect(find.text('工作时自动提高媒体音量'), findsOneWidget);
     await tester.ensureVisible(
@@ -323,6 +336,42 @@ void main() {
     await tester.tap(find.byKey(const Key('record-audio-enabled-switch')));
     await tester.pump();
     expect(enabled, isFalse);
+  });
+
+  testWidgets('切换录像编码会回调并提示已生效', (WidgetTester tester) async {
+    RecordingVideoCodec? changed;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RecordingsScreen(
+          mode: RecordingsScreenMode.settings,
+          sessions: const [],
+          workMode: WorkMode.continuousScan,
+          speechEnabled: true,
+          maxVolumeEnabled: true,
+          onWorkModeChanged: (_) async {},
+          onSpeechEnabledChanged: (_) async {},
+          onMaxVolumeEnabledChanged: (_) async {},
+          onPreferredVideoCodecChanged: (RecordingVideoCodec codec) async {
+            changed = codec;
+          },
+          onSpeechPreview: () async {},
+          onSessionUpdated: (_) async {},
+          onDeleteSessions: (_) async {},
+        ),
+      ),
+    );
+
+    await tester.dragUntilVisible(
+      find.text('H.264 兼容优先'),
+      find.byType(ListView).first,
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('H.264 兼容优先'));
+    await tester.pumpAndSettle();
+
+    expect(changed, RecordingVideoCodec.h264);
+    expect(find.text('录像编码已切换，新录像将使用所选编码'), findsOneWidget);
   });
 
   testWidgets('电脑备份未连接时提供扫码入口', (WidgetTester tester) async {

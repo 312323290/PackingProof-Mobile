@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:packing_proof_mobile/models/recording_video_codec.dart';
 import 'package:packing_proof_mobile/services/video_watermark_service.dart';
 
 void main() {
@@ -15,8 +16,10 @@ void main() {
     const MethodChannel channel = MethodChannel(
       'app.packingproof.mobile/video_watermark_test',
     );
+    final List<MethodCall> calls = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (MethodCall call) async {
+          calls.add(call);
           final Map<Object?, Object?> arguments =
               call.arguments! as Map<Object?, Object?>;
           final File output = File(arguments['outputPath']! as String);
@@ -35,10 +38,12 @@ void main() {
           inputPath: input.path,
           startedAt: DateTime(2026, 7, 22, 10),
           trackingNumber: 'DEMO',
+          videoCodec: RecordingVideoCodec.h264,
         );
 
     expect(File(outputPath).existsSync(), isTrue);
     expect(input.existsSync(), isTrue);
     expect(await input.readAsBytes(), <int>[1, 2, 3]);
+    expect(calls.single.arguments, containsPair('videoCodec', 'h264'));
   });
 }

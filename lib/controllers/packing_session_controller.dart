@@ -14,6 +14,7 @@ import '../models/lan_backup.dart';
 import '../models/recording_session.dart';
 import '../models/order_info.dart';
 import '../models/recording_operation_mode.dart';
+import '../models/recording_video_codec.dart';
 import '../models/speech_prompt.dart';
 import '../models/storage_notice.dart';
 import '../models/work_mode.dart';
@@ -89,6 +90,7 @@ class PackingSessionController extends ChangeNotifier {
   final RecordingTimeline _timeline = RecordingTimeline();
   final InitialRecordingPromptPolicy _initialPromptPolicy =
       InitialRecordingPromptPolicy();
+  Future<void> _cameraInitializeTail = Future<void>.value();
 
   CameraController? _cameraController;
   ContinuousCameraService? _nativeCamera;
@@ -111,6 +113,7 @@ class PackingSessionController extends ChangeNotifier {
   bool _orderSpeechEnabled = true;
   bool _maxVolumeEnabled = true;
   bool _recordAudioEnabled = true;
+  RecordingVideoCodec _preferredVideoCodec = RecordingVideoCodec.hevc;
   UnbackedRetentionPolicy _unbackedRetention = UnbackedRetentionPolicy.days30;
   BackedRetentionPolicy _backedRetention = BackedRetentionPolicy.days7;
   bool _appIsActive = true;
@@ -171,6 +174,7 @@ class PackingSessionController extends ChangeNotifier {
   UnbackedRetentionPolicy get unbackedRetention => _unbackedRetention;
   BackedRetentionPolicy get backedRetention => _backedRetention;
   bool get recordAudioEnabled => _recordAudioEnabled;
+  RecordingVideoCodec get preferredVideoCodec => _preferredVideoCodec;
   LanBackupSnapshot get backupSnapshot => _lanBackupService.snapshot;
   bool get pairingScanActive => _pairingScanActive;
   int get pairingSuccessRevision => _pairingSuccessRevision;
@@ -238,8 +242,16 @@ class PackingSessionController extends ChangeNotifier {
   Future<bool> reserveMobileUpdatePrompt() =>
       _repository.tryReserveMobileUpdatePrompt(DateTime.now());
 
-  Future<void> initialize() async {
-    if (_disposed || isCameraReady) {
+  Future<void> initialize({bool force = false}) {
+    final Future<void> next = _cameraInitializeTail.then(
+      (_) => _initializeCamera(force: force),
+    );
+    _cameraInitializeTail = next.catchError((Object _) {});
+    return next;
+  }
+
+  Future<void> _initializeCamera({required bool force}) async {
+    if (_disposed || (!force && isCameraReady)) {
       return;
     }
     _setPhase(PackingSessionPhase.initializing);
@@ -256,6 +268,7 @@ class PackingSessionController extends ChangeNotifier {
       _unbackedRetention = settings.unbackedRetention;
       _backedRetention = settings.backedRetention;
       _recordAudioEnabled = settings.recordAudioEnabled;
+      _preferredVideoCodec = settings.preferredVideoCodec;
       _hiddenRemoteRecordingIds = Set<int>.of(
         settings.hiddenRemoteRecordingIds,
       );
@@ -310,10 +323,12 @@ class PackingSessionController extends ChangeNotifier {
         };
         _nativeCamera = nativeCamera;
         await nativeCamera.ensurePermissions(recordAudio: _recordAudioEnabled);
-        _nativeInitialization = await nativeCamera.initialize().timeout(
-          const Duration(seconds: 15),
-          onTimeout: () => throw TimeoutException('摄像头初始化超过 15 秒'),
-        );
+        _nativeInitialization = await nativeCamera
+            .initialize(videoCodec: _preferredVideoCodec)
+            .timeout(
+              const Duration(seconds: 15),
+              onTimeout: () => throw TimeoutException('摄像头初始化超过 15 秒'),
+            );
         _speechService.resetIncidents();
         _setPhase(PackingSessionPhase.ready);
         return;
@@ -364,7 +379,7 @@ class PackingSessionController extends ChangeNotifier {
 
   Future<void> retryInitialize() async {
     await _disposeCamera();
-    await initialize();
+    await initialize(force: true);
   }
 
   Future<void> toggleTorch() async {
@@ -737,6 +752,23 @@ class PackingSessionController extends ChangeNotifier {
     await _repository.saveRecordAudioEnabled(enabled);
   }
 
+  Future<void> setPreferredVideoCodec(RecordingVideoCodec codec) async {
+    if (_preferredVideoCodec == codec) {
+      return;
+    }
+    _preferredVideoCodec = codec;
+    notifyListeners();
+    await _repository.savePreferredVideoCodec(codec);
+    if (Platform.isAndroid && _phase != PackingSessionPhase.saving) {
+      // 编码器在相机初始化时创建，切换后必须重建相机才会生效；
+      // 若正在工作，先安全结束当前工作（正在录的片段会正常保存）。
+      if (isWorking) {
+        await stopWork();
+      }
+      await retryInitialize();
+    }
+  }
+
   Future<void> _requestRecordingAudioPermission() async {
     try {
       await _nativeCamera?.ensurePermissions(recordAudio: true);
@@ -984,6 +1016,7 @@ class PackingSessionController extends ChangeNotifier {
         inputPath: savedPath,
         startedAt: session.startedAt,
         trackingNumber: trackingNumber,
+        videoCodec: _preferredVideoCodec,
       );
       final String finalPath = await _repository.finalizeVideo(
         sourcePath: watermarkedPath,

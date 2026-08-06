@@ -32,7 +32,7 @@ class ContinuousCameraPlugin(
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "initialize" -> initialize(result)
+            "initialize" -> initialize(result, call.argument<String>("videoCodec"))
             "ensurePermissions" -> ensurePermissions(
                 call.argument<Boolean>("recordAudio") == true,
                 result,
@@ -96,11 +96,11 @@ class ContinuousCameraPlugin(
         }
     }
 
-    private fun initialize(result: MethodChannel.Result) {
+    private fun initialize(result: MethodChannel.Result, videoCodec: String?) {
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
         ) {
-            engine.initialize(result)
+            engine.initialize(result, videoCodec)
             return
         }
         result.error("permission_denied", "需要摄像头权限才能工作", null)

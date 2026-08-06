@@ -58,6 +58,11 @@ class VideoWatermarkPlugin(
         val outputPath = arguments?.get("outputPath") as? String
         val startedAtMs = (arguments?.get("startedAtMs") as? Number)?.toLong()
         val trackingNumber = arguments?.get("trackingNumber") as? String ?: ""
+        val videoMime = if (arguments?.get("videoCodec") == "h264") {
+            MimeTypes.VIDEO_H264
+        } else {
+            MimeTypes.VIDEO_H265
+        }
         if (inputPath.isNullOrBlank() || outputPath.isNullOrBlank() || startedAtMs == null) {
             result.error("invalid_watermark", "录像水印参数无效", null)
             return
@@ -157,7 +162,7 @@ class VideoWatermarkPlugin(
         pendingResult = result
         pendingOutput = output
         transformer = Transformer.Builder(applicationContext)
-            .setVideoMimeType(MimeTypes.VIDEO_H265)
+            .setVideoMimeType(videoMime)
             .addListener(
                 object : Transformer.Listener {
                     override fun onCompleted(

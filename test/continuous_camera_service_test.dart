@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:packing_proof_mobile/models/recording_video_codec.dart';
 import 'package:packing_proof_mobile/services/continuous_camera_service.dart';
 
 void main() {
@@ -75,10 +76,43 @@ void main() {
     await service.startWork('/tmp/video.mp4', recordAudio: false);
 
     expect(calls.single.method, 'startWork');
-    expect(
-      calls.single.arguments,
-      <String, Object>{'path': '/tmp/video.mp4', 'recordAudio': false},
+    expect(calls.single.arguments, <String, Object>{
+      'path': '/tmp/video.mp4',
+      'recordAudio': false,
+    });
+  });
+
+  test('初始化时传递录像编码偏好', () async {
+    const MethodChannel channel = MethodChannel(
+      'app.packingproof.mobile/continuous_camera',
     );
+    final List<MethodCall> calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall call) async {
+          calls.add(call);
+          return <Object?, Object?>{
+            'textureId': 1,
+            'previewWidth': 1920,
+            'previewHeight': 1080,
+            'sensorOrientation': 90,
+            'fps': 30,
+            'videoMime': 'video/avc',
+            'flashAvailable': false,
+            'lensDirection': 'back',
+            'canSwitchCamera': false,
+          };
+        });
+    final ContinuousCameraService service = ContinuousCameraService();
+    addTearDown(() async {
+      await service.dispose();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    await service.initialize(videoCodec: RecordingVideoCodec.h264);
+
+    expect(calls.single.method, 'initialize');
+    expect(calls.single.arguments, <String, Object>{'videoCodec': 'h264'});
   });
 
   test('关闭录制声音时只申请摄像头权限', () async {

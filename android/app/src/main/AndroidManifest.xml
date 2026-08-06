@@ -18,6 +18,11 @@
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
             android:value="false" />
+        <provider
+            android:name=".SystemVideoPlayerProvider"
+            android:authorities="${applicationId}.system_player_provider"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <meta-data android:name="app.packingproof.mobile.BUILD_REVISION" android:value="${buildRevision}" />
         <meta-data android:name="app.packingproof.mobile.BUILD_TIMESTAMP" android:value="${buildTimestamp}" />
         <activity

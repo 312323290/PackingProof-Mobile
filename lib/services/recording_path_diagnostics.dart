@@ -30,6 +30,40 @@ class RecordingPathDiagnostics {
     required List<String> attemptedPaths,
   }) async {
     developer.log('录像路径解析失败：$storedPath', name: 'PackingProof.PathFix');
+    await _appendEntry(<String, Object?>{
+      'kind': 'path',
+      'storedPath': storedPath,
+      'recordingsRoot': recordingsRoot,
+      'attemptedPaths': attemptedPaths,
+    });
+  }
+
+  Future<void> recordPlaybackFailure({
+    required String source,
+    required String sessionId,
+    required String pathOrUri,
+    int? fileSizeBytes,
+    String? videoMime,
+    required String errorCode,
+    required String errorMessage,
+  }) async {
+    developer.log(
+      '录像播放失败：$errorCode $errorMessage',
+      name: 'PackingProof.Playback',
+    );
+    await _appendEntry(<String, Object?>{
+      'kind': 'playback',
+      'source': source,
+      'sessionId': sessionId,
+      'pathOrUri': pathOrUri,
+      'fileSizeBytes': ?fileSizeBytes,
+      'videoMime': ?videoMime,
+      'errorCode': errorCode,
+      'errorMessage': errorMessage,
+    });
+  }
+
+  Future<void> _appendEntry(Map<String, Object?> entry) async {
     try {
       final File file = await logFile();
       final List<String> lines = await file.exists()
@@ -38,9 +72,7 @@ class RecordingPathDiagnostics {
       lines.add(
         jsonEncode(<String, Object?>{
           'ts': DateTime.now().toIso8601String(),
-          'storedPath': storedPath,
-          'recordingsRoot': recordingsRoot,
-          'attemptedPaths': attemptedPaths,
+          ...entry,
         }),
       );
       final List<String> bounded = lines.length > maximumEntries

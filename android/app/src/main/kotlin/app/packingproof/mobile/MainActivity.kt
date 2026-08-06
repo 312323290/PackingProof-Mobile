@@ -9,6 +9,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var continuousCameraPlugin: ContinuousCameraPlugin? = null
     private var maxVolumeController: MaxVolumeController? = null
+    private var systemVideoPlayerPlugin: SystemVideoPlayerPlugin? = null
     private var maxVolumeChannel: MethodChannel? = null
     private var lanBackupPlugin: LanBackupPlugin? = null
     private var videoExportPlugin: VideoExportPlugin? = null
@@ -49,6 +50,10 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
         )
         maxVolumeController = MaxVolumeController(this)
+        systemVideoPlayerPlugin = SystemVideoPlayerPlugin(
+            this,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
         maxVolumeChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "app.packingproof.mobile/system_volume",
@@ -95,6 +100,8 @@ class MainActivity : FlutterActivity() {
         maxVolumeChannel = null
         maxVolumeController?.dispose()
         maxVolumeController = null
+        systemVideoPlayerPlugin?.dispose()
+        systemVideoPlayerPlugin = null
         lanBackupPlugin?.dispose()
         lanBackupPlugin = null
         videoExportPlugin?.dispose()

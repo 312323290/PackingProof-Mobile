@@ -2,14 +2,18 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/recording_session.dart';
+import '../services/recording_path_diagnostics.dart';
+import '../services/system_video_player_service.dart';
 import '../services/video_share_service.dart';
 import '../services/remote_video_clip_service.dart';
 import '../widgets/two_button_confirm_dialog.dart';
 import '../widgets/order_info_sheet.dart';
+import '../widgets/playback_error_panel.dart';
 import 'video_trim_screen.dart';
 import 'remote_video_trim_screen.dart';
 
@@ -55,6 +59,8 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   bool _sharing = false;
   double _shareProgress = 0;
   String _shareMessage = '';
+  String? _playbackErrorDetail;
+  bool _fallbackBusy = false;
 
   @override
   void initState() {
@@ -68,7 +74,12 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
             widget.remoteUri!,
             httpHeaders: widget.remoteHeaders,
           );
-    _initialized = _video.initialize().then((_) async {
+    _initialized = _initializePlayback();
+  }
+
+  Future<void> _initializePlayback() async {
+    try {
+      await _video.initialize();
       await _video.setVolume(1);
       final Duration sourceDuration = _video.value.duration;
       if (_playbackStart > sourceDuration) {
@@ -83,7 +94,50 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
       if (mounted) {
         setState(() {});
       }
-    });
+    } catch (error) {
+      _playbackErrorDetail = _playbackErrorSummary(error);
+      unawaited(_recordPlaybackFailure(error));
+      rethrow;
+    }
+  }
+
+  String _playbackErrorSummary(Object error) {
+    if (error is PlatformException) {
+      final String message = error.message?.isNotEmpty == true
+          ? error.message!
+          : '';
+      return message.isEmpty ? error.code : '${error.code}：$message';
+    }
+    return '$error';
+  }
+
+  Future<void> _recordPlaybackFailure(Object error) async {
+    final bool remote = widget.remoteUri != null;
+    final String pathOrUri = remote
+        ? widget.remoteUri.toString()
+        : _session.filePath;
+    String? videoMime;
+    int? fileSizeBytes;
+    if (!remote) {
+      final File file = File(_session.filePath);
+      if (file.existsSync()) {
+        fileSizeBytes = file.lengthSync();
+      }
+      videoMime = await SystemVideoPlayerService().getVideoTrackMime(
+        _session.filePath,
+      );
+    }
+    await RecordingPathDiagnostics().recordPlaybackFailure(
+      source: remote ? 'remote' : 'local',
+      sessionId: _session.id,
+      pathOrUri: pathOrUri,
+      fileSizeBytes: fileSizeBytes,
+      videoMime: videoMime,
+      errorCode: error is PlatformException
+          ? error.code
+          : error.runtimeType.toString(),
+      errorMessage: _playbackErrorSummary(error),
+    );
   }
 
   @override
@@ -319,6 +373,94 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
     }
   }
 
+  Future<void> _openWithSystemPlayer() async {
+    setState(() => _fallbackBusy = true);
+    try {
+      await SystemVideoPlayerService().openWithSystemPlayer(_session.filePath);
+    } on PlatformException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('无法打开系统播放器：${error.message ?? error.code}')),
+        );
+      }
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('无法打开系统播放器，请稍后重试')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _fallbackBusy = false);
+      }
+    }
+  }
+
+  Future<void> _shareRawFile() async {
+    final File file = File(_session.filePath);
+    if (!await file.exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('录像文件不存在，无法分享')));
+      }
+      return;
+    }
+    await SharePlus.instance.share(
+      ShareParams(
+        title: _session.displayCode,
+        files: <XFile>[XFile(file.path, mimeType: 'video/mp4')],
+      ),
+    );
+  }
+
+  Future<void> _downloadAndPlayRemote() async {
+    final RemoteVideoClipSink? service = widget.remoteClipService;
+    final Uri? remote = widget.remoteUri;
+    if (service == null || remote == null) return;
+    setState(() => _fallbackBusy = true);
+    try {
+      final File file = await service.download(remote);
+      await SystemVideoPlayerService().openWithSystemPlayer(file.path);
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('下载或打开失败，请稍后重试')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _fallbackBusy = false);
+      }
+    }
+  }
+
+  Future<void> _downloadAndShareRemote() async {
+    final RemoteVideoClipSink? service = widget.remoteClipService;
+    final Uri? remote = widget.remoteUri;
+    if (service == null || remote == null) return;
+    setState(() => _fallbackBusy = true);
+    try {
+      final File file = await service.download(remote);
+      await SharePlus.instance.share(
+        ShareParams(
+          title: _session.displayCode,
+          files: <XFile>[XFile(file.path, mimeType: 'video/mp4')],
+        ),
+      );
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('下载或分享失败，请稍后重试')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _fallbackBusy = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -348,16 +490,36 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                widget.remoteUri == null
-                    ? localPlaybackErrorMessage(
-                        fileExists: File(_session.filePath).existsSync(),
-                        backedUpOffline: widget.backedUpOffline,
-                      )
-                    : '电脑录像暂时无法播放，请检查局域网连接',
-              ),
-            );
+            return widget.remoteUri == null
+                ? PlaybackErrorPanel(
+                    message: localPlaybackErrorMessage(
+                      fileExists: File(_session.filePath).existsSync(),
+                      backedUpOffline: widget.backedUpOffline,
+                    ),
+                    errorDetail: _playbackErrorDetail,
+                    primaryAction: _openWithSystemPlayer,
+                    primaryActionLabel: '用系统播放器打开',
+                    secondaryAction: _shareRawFile,
+                    secondaryActionLabel: '分享原文件',
+                    destructiveAction: widget.onDelete == null
+                        ? null
+                        : _deleteLocalRecording,
+                    destructiveActionLabel: '删除本机录像',
+                    busy: _fallbackBusy,
+                  )
+                : PlaybackErrorPanel(
+                    message: '电脑录像暂时无法播放，请检查局域网连接',
+                    errorDetail: _playbackErrorDetail,
+                    primaryAction: widget.remoteClipService == null
+                        ? null
+                        : _downloadAndPlayRemote,
+                    primaryActionLabel: '下载后播放',
+                    secondaryAction: widget.remoteClipService == null
+                        ? null
+                        : _downloadAndShareRemote,
+                    secondaryActionLabel: '下载并分享原文件',
+                    busy: _fallbackBusy,
+                  );
           }
           return ValueListenableBuilder<VideoPlayerValue>(
             valueListenable: _video,

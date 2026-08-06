@@ -36,4 +36,14 @@ void main() {
     expect(diagnosticScript, contains(r'[switch]$ForceClean'));
     expect(diagnosticScript, contains(r'-ForceClean:$ForceClean'));
   });
+
+  test('Android 清单配置系统播放器内容提供者', () {
+    final manifest = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+
+    expect(manifest, contains('.SystemVideoPlayerProvider'));
+    expect(manifest, contains(r'${applicationId}.system_player_provider'));
+    expect(manifest, contains('grantUriPermissions'));
+  });
 }

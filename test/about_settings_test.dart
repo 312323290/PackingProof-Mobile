@@ -118,8 +118,8 @@ void main() {
     expect(find.text('暂无诊断记录'), findsOneWidget);
   });
 
-  testWidgets('导出诊断日志会分享诊断文本', (WidgetTester tester) async {
-    String? shared;
+  testWidgets('导出诊断日志会打开邮箱并预填收件人与正文', (WidgetTester tester) async {
+    Uri? opened;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -127,12 +127,13 @@ void main() {
             packageInfoLoader: () async => PackageInfo(
               appName: '包裹留证',
               packageName: 'app.packingproof.mobile',
-              version: '0.5.12',
-              buildNumber: '11012',
+              version: '0.5.13',
+              buildNumber: '11013',
             ),
             diagnosticsLoader: () async => 'line1\nline2',
-            shareText: (String text) async {
-              shared = text;
+            uriLauncher: (Uri uri) async {
+              opened = uri;
+              return true;
             },
           ),
         ),
@@ -144,6 +145,10 @@ void main() {
     await tester.tap(find.text('导出诊断日志'));
     await tester.pumpAndSettle();
 
-    expect(shared, 'line1\nline2');
+    expect(opened, isNotNull);
+    expect(opened!.scheme, 'mailto');
+    expect(opened!.path, packingProofSupportEmail);
+    expect(opened!.queryParameters['subject'], 'PackingProof 诊断日志');
+    expect(opened!.queryParameters['body'], 'line1\nline2');
   });
 }

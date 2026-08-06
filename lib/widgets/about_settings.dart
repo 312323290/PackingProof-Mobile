@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app/app_build_config.dart';
@@ -13,11 +12,11 @@ const String packingProofRepositoryUrl =
     'https://github.com/PackingProof/PackingProof-Mobile';
 const String packingProofReleasesUrl =
     'https://gitee.com/PackingProof/PackingProof-Mobile/releases/latest';
+const String packingProofSupportEmail = 'PackingProof@outlook.com';
 
 typedef PackageInfoLoader = Future<PackageInfo> Function();
 typedef ExternalUriLauncher = Future<bool> Function(Uri uri);
 typedef DiagnosticsTextLoader = Future<String?> Function();
-typedef DiagnosticsShareHandler = Future<void> Function(String text);
 
 class AboutSettings extends StatelessWidget {
   const AboutSettings({
@@ -25,7 +24,6 @@ class AboutSettings extends StatelessWidget {
     this.uriLauncher,
     this.buildConfig = AppBuildConfig.environment,
     this.diagnosticsLoader,
-    this.shareText,
     super.key,
   });
 
@@ -33,7 +31,6 @@ class AboutSettings extends StatelessWidget {
   final ExternalUriLauncher? uriLauncher;
   final AppBuildConfig buildConfig;
   final DiagnosticsTextLoader? diagnosticsLoader;
-  final DiagnosticsShareHandler? shareText;
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +57,6 @@ class AboutSettings extends StatelessWidget {
               uriLauncher: uriLauncher,
               buildConfig: buildConfig,
               diagnosticsLoader: diagnosticsLoader,
-              shareText: shareText,
             ),
           ),
         ),
@@ -75,7 +71,6 @@ class AboutScreen extends StatefulWidget {
     this.uriLauncher,
     this.buildConfig = AppBuildConfig.environment,
     this.diagnosticsLoader,
-    this.shareText,
     super.key,
   });
 
@@ -83,7 +78,6 @@ class AboutScreen extends StatefulWidget {
   final ExternalUriLauncher? uriLauncher;
   final AppBuildConfig buildConfig;
   final DiagnosticsTextLoader? diagnosticsLoader;
-  final DiagnosticsShareHandler? shareText;
 
   @override
   State<AboutScreen> createState() => _AboutScreenState();
@@ -139,13 +133,23 @@ class _AboutScreenState extends State<AboutScreen> {
       ).showSnackBar(const SnackBar(content: Text('暂无诊断记录')));
       return;
     }
-    await (widget.shareText ?? _shareDiagnostics)(text);
-  }
-
-  Future<void> _shareDiagnostics(String text) async {
-    await SharePlus.instance.share(
-      ShareParams(text: text, subject: 'PackingProof 路径诊断日志'),
+    final Uri uri = Uri(
+      scheme: 'mailto',
+      path: packingProofSupportEmail,
+      queryParameters: <String, String>{
+        'subject': 'PackingProof 诊断日志',
+        'body': text,
+      },
     );
+    final ExternalUriLauncher launcher =
+        widget.uriLauncher ??
+        (Uri value) => launchUrl(value, mode: LaunchMode.externalApplication);
+    final bool opened = await launcher(uri);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('无法打开邮箱，请手动发送到 PackingProof@outlook.com')),
+      );
+    }
   }
 
   Future<void> _showStartupNotice() => Navigator.of(context).push<void>(
@@ -225,7 +229,7 @@ class _AboutScreenState extends State<AboutScreen> {
                   _InfoRow(
                     icon: Icons.bug_report_outlined,
                     title: '导出诊断日志',
-                    subtitle: '录像路径异常记录（如有）',
+                    subtitle: '发送到 PackingProof@outlook.com',
                     onTap: () => unawaited(_exportDiagnostics()),
                   ),
                   const SizedBox(height: 14),

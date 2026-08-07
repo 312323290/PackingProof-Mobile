@@ -72,12 +72,12 @@ pwsh -NoProfile -File Tools\Build-Android.ps1
 Build a formally signed APK:
 
 ```powershell
-git tag v0.5.10+11010
+git tag v0.5.15+11015
 pwsh -NoProfile -File Tools\Publish-Android.ps1 `
   -SigningDirectory <external-signing-directory>
 ```
 
-The formal release script requires a clean worktree and an exact version tag on the current commit. Use tags in the form `v<versionName>+<increasing-versionCode>`; for example, `v0.5.10+11010` produces version name `0.5.10` and version code `11010`. The external signing directory must contain the keystore and a UTF-8 file named `签名凭据.txt` with the following format:
+The formal release script requires a clean worktree and an exact version tag on the current commit. Use tags in the form `v<versionName>+<increasing-versionCode>`; for example, `v0.5.15+11015` produces version name `0.5.15` and version code `11015`. The external signing directory must contain the keystore and a UTF-8 file named `签名凭据.txt` with the following format:
 
 ```text
 密钥文件: app-release.jks

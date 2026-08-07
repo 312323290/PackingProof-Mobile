@@ -18,4 +18,27 @@ void main() {
     expect(recordingVideoCodecFromStorage('h264'), RecordingVideoCodec.h264);
     expect(recordingVideoCodecFromStorage('avc'), RecordingVideoCodec.h264);
   });
+
+  test('按实际视频轨道 MIME 反推编码', () {
+    expect(recordingVideoCodecFromMime('video/avc'), RecordingVideoCodec.h264);
+    expect(recordingVideoCodecFromMime('video/hevc'), RecordingVideoCodec.hevc);
+    expect(recordingVideoCodecFromMime('video/avc1'), RecordingVideoCodec.h264);
+    expect(recordingVideoCodecFromMime('video/hvc1'), RecordingVideoCodec.hevc);
+  });
+
+  test('无法识别或缺失 MIME 时回退到指定编码', () {
+    expect(recordingVideoCodecFromMime(null), RecordingVideoCodec.hevc);
+    expect(recordingVideoCodecFromMime('video/mp4'), RecordingVideoCodec.hevc);
+    expect(
+      recordingVideoCodecFromMime(null, fallback: RecordingVideoCodec.h264),
+      RecordingVideoCodec.h264,
+    );
+    expect(
+      recordingVideoCodecFromMime(
+        'video/mp4',
+        fallback: RecordingVideoCodec.h264,
+      ),
+      RecordingVideoCodec.h264,
+    );
+  });
 }

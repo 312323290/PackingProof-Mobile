@@ -24,3 +24,24 @@ RecordingVideoCodec recordingVideoCodecFromStorage(Object? value) {
     _ => RecordingVideoCodec.hevc,
   };
 }
+
+/// 根据相机实际输出的视频轨道 MIME 反推编码，供水印转码使用。
+///
+/// 相机在偏好编码不可用时会回退到另一编码，因此水印必须跟随实际落盘的
+/// 编码（如 video/avc、video/hevc），不能直接使用设置偏好。
+RecordingVideoCodec recordingVideoCodecFromMime(
+  String? videoMime, {
+  RecordingVideoCodec fallback = RecordingVideoCodec.hevc,
+}) {
+  final String normalized = '$videoMime'.trim().toLowerCase();
+  if (normalized.contains('avc') || normalized.contains('h264')) {
+    return RecordingVideoCodec.h264;
+  }
+  if (normalized.contains('hevc') ||
+      normalized.contains('h265') ||
+      normalized.contains('hvc1') ||
+      normalized.contains('hev1')) {
+    return RecordingVideoCodec.hevc;
+  }
+  return fallback;
+}

@@ -1016,7 +1016,11 @@ class PackingSessionController extends ChangeNotifier {
         inputPath: savedPath,
         startedAt: session.startedAt,
         trackingNumber: trackingNumber,
-        videoCodec: _preferredVideoCodec,
+        // 相机可能因设备不支持偏好编码而回退，水印必须跟随实际录制的编码。
+        videoCodec: recordingVideoCodecFromMime(
+          _nativeInitialization?.videoMime,
+          fallback: _preferredVideoCodec,
+        ),
       );
       final String finalPath = await _repository.finalizeVideo(
         sourcePath: watermarkedPath,

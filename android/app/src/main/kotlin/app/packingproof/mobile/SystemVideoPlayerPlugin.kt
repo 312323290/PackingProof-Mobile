@@ -6,6 +6,7 @@ import android.content.Intent
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.os.Build
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -32,6 +33,21 @@ class SystemVideoPlayerPlugin(
         when (call.method) {
             "getVideoTrackMime" -> result.success(
                 getVideoTrackMime(call.argument<String>("path")),
+            )
+            "getVideoDecodeSupport" -> result.success(
+                mapOf(
+                    "manufacturer" to Build.MANUFACTURER,
+                    "brand" to Build.BRAND,
+                    "model" to Build.MODEL,
+                    "sdkInt" to Build.VERSION.SDK_INT,
+                    "release" to Build.VERSION.RELEASE,
+                    "hasHevcDecoder" to CodecCapabilities.hasDecoder(
+                        MediaFormat.MIMETYPE_VIDEO_HEVC,
+                    ),
+                    "hasAvcDecoder" to CodecCapabilities.hasDecoder(
+                        MediaFormat.MIMETYPE_VIDEO_AVC,
+                    ),
+                ),
             )
             "openWithSystemPlayer" -> openWithSystemPlayer(
                 call.argument<String>("path"),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -329,6 +330,14 @@ class PackingSessionController extends ChangeNotifier {
               const Duration(seconds: 15),
               onTimeout: () => throw TimeoutException('摄像头初始化超过 15 秒'),
             );
+        final String? codecFallbackReason =
+            _nativeInitialization?.codecFallbackReason;
+        if (codecFallbackReason != null) {
+          developer.log(
+            '录像编码自动回退：$codecFallbackReason',
+            name: 'PackingProof.Codec',
+          );
+        }
         _speechService.resetIncidents();
         _setPhase(PackingSessionPhase.ready);
         return;

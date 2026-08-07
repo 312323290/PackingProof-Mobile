@@ -12,6 +12,7 @@ class ContinuousCameraInitialization {
     required this.sensorOrientation,
     required this.fps,
     required this.videoMime,
+    this.codecFallbackReason,
     required this.flashAvailable,
     required this.lensDirection,
     required this.canSwitchCamera,
@@ -23,6 +24,8 @@ class ContinuousCameraInitialization {
   final int sensorOrientation;
   final int fps;
   final String videoMime;
+  /// 编码回退原因（如 no_hevc_decoder）；正常为 null。
+  final String? codecFallbackReason;
   final bool flashAvailable;
   final String lensDirection;
   final bool canSwitchCamera;
@@ -45,6 +48,7 @@ class ContinuousCameraInitialization {
       sensorOrientation: (map['sensorOrientation']! as num).toInt(),
       fps: (map['fps']! as num).toInt(),
       videoMime: map['videoMime']! as String,
+      codecFallbackReason: map['codecFallbackReason'] as String?,
       flashAvailable: map['flashAvailable'] == true,
       lensDirection: '${map['lensDirection'] ?? 'back'}',
       canSwitchCamera: map['canSwitchCamera'] == true,

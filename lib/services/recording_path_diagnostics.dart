@@ -44,6 +44,11 @@ class RecordingPathDiagnostics {
     required String pathOrUri,
     int? fileSizeBytes,
     String? videoMime,
+    String? deviceManufacturer,
+    String? deviceModel,
+    int? deviceSdkInt,
+    bool? deviceHasHevcDecoder,
+    bool? deviceHasAvcDecoder,
     required String errorCode,
     required String errorMessage,
   }) async {
@@ -58,6 +63,11 @@ class RecordingPathDiagnostics {
       'pathOrUri': pathOrUri,
       'fileSizeBytes': ?fileSizeBytes,
       'videoMime': ?videoMime,
+      'deviceManufacturer': ?deviceManufacturer,
+      'deviceModel': ?deviceModel,
+      'deviceSdkInt': ?deviceSdkInt,
+      'deviceHasHevcDecoder': ?deviceHasHevcDecoder,
+      'deviceHasAvcDecoder': ?deviceHasAvcDecoder,
       'errorCode': errorCode,
       'errorMessage': errorMessage,
     });

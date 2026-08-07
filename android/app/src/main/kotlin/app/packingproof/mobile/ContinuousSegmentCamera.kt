@@ -103,6 +103,7 @@ class ContinuousSegmentCamera(
     private var initializeResult: MethodChannel.Result? = null
     private var openCameraAttempts = 0
     private var preferredVideoMime = MediaFormat.MIMETYPE_VIDEO_HEVC
+    private var codecFallbackReason: String? = null
 
     private var videoEncoder: MediaCodec? = null
     private var videoInputSurface: Surface? = null
@@ -401,17 +402,27 @@ class ContinuousSegmentCamera(
 
     private fun prepareVideoEncoder() {
         var lastError: Throwable? = null
-        val preferred = if (preferredVideoMime == MediaFormat.MIMETYPE_VIDEO_AVC) {
+        codecFallbackReason = null
+        val rawPreferred = if (preferredVideoMime == MediaFormat.MIMETYPE_VIDEO_AVC) {
             MediaFormat.MIMETYPE_VIDEO_AVC
         } else {
             MediaFormat.MIMETYPE_VIDEO_HEVC
         }
-        val fallback = if (preferred == MediaFormat.MIMETYPE_VIDEO_AVC) {
+        val fallback = if (rawPreferred == MediaFormat.MIMETYPE_VIDEO_AVC) {
             MediaFormat.MIMETYPE_VIDEO_HEVC
         } else {
             MediaFormat.MIMETYPE_VIDEO_AVC
         }
-        for (mime in listOf(preferred, fallback)) {
+        // 部分鸿蒙/低端机型只有 H.265 编码器却没有可用的 H.265 解码器，
+        // 录出的 H.265 在本机无法播放，必须直接回退到 H.264。
+        val hevcDecodable = CodecCapabilities.hasDecoder(MediaFormat.MIMETYPE_VIDEO_HEVC)
+        if (rawPreferred == MediaFormat.MIMETYPE_VIDEO_HEVC && !hevcDecodable) {
+            codecFallbackReason = "no_hevc_decoder"
+        }
+        val candidates = listOf(rawPreferred, fallback).filter {
+            it != MediaFormat.MIMETYPE_VIDEO_HEVC || hevcDecodable
+        }
+        for (mime in candidates) {
             var codec: MediaCodec? = null
             try {
                 val format = MediaFormat.createVideoFormat(mime, videoSize.width, videoSize.height).apply {
@@ -1245,7 +1256,7 @@ class ContinuousSegmentCamera(
         notifyNativeError(message, error)
     }
 
-    private fun initializationMap(): Map<String, Any> = mapOf(
+    private fun initializationMap(): Map<String, Any?> = mapOf(
         "textureId" to (textureEntry?.id() ?: -1L),
         "previewWidth" to videoSize.width,
         "previewHeight" to videoSize.height,
@@ -1254,6 +1265,7 @@ class ContinuousSegmentCamera(
         "canSwitchCamera" to canSwitchCamera,
         "fps" to VIDEO_FPS,
         "videoMime" to selectedVideoMime,
+        "codecFallbackReason" to codecFallbackReason,
         "flashAvailable" to (
             selectedCameraCharacteristics?.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         ),

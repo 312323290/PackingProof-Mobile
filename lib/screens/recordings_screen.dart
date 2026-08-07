@@ -19,6 +19,7 @@ import '../widgets/two_button_confirm_dialog.dart';
 import '../services/recording_thumbnail_service.dart';
 import '../services/recording_database.dart';
 import '../services/remote_video_clip_service.dart';
+import '../services/system_video_player_service.dart';
 import 'video_playback_screen.dart';
 
 enum RecordingsScreenMode { history, settings }
@@ -219,6 +220,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   late bool _maxVolumeEnabled;
   late bool _recordAudioEnabled;
   late RecordingVideoCodec _preferredVideoCodec;
+  VideoDecodeSupport? _deviceDecodeSupport;
   late List<RecordingSession> _sessions;
   late int _localRecordingBytes;
   late Set<String> _localRecordingPaths;
@@ -293,6 +295,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     _maxVolumeEnabled = widget.maxVolumeEnabled;
     _recordAudioEnabled = widget.recordAudioEnabled;
     _preferredVideoCodec = widget.preferredVideoCodec;
+    unawaited(_loadDeviceDecodeSupport());
     _sessions = List<RecordingSession>.of(widget.sessions);
     _refreshLocalRecordingStats();
     _backupSnapshot = widget.backupSnapshot;
@@ -313,6 +316,13 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         _startBackupHostDiscoveryIfNeeded();
       });
     }
+  }
+
+  Future<void> _loadDeviceDecodeSupport() async {
+    final VideoDecodeSupport? support = await SystemVideoPlayerService()
+        .getVideoDecodeSupport();
+    if (!mounted) return;
+    setState(() => _deviceDecodeSupport = support);
   }
 
   @override
@@ -1259,6 +1269,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
             const SizedBox(height: 12),
             _VideoCodecSettings(
               codec: _preferredVideoCodec,
+              hevcPlayable: _deviceDecodeSupport?.hasHevcDecoder,
               onChanged: _setPreferredVideoCodec,
             ),
             const SizedBox(height: 12),
@@ -2606,9 +2617,14 @@ class _WorkModeSettings extends StatelessWidget {
 }
 
 class _VideoCodecSettings extends StatelessWidget {
-  const _VideoCodecSettings({required this.codec, required this.onChanged});
+  const _VideoCodecSettings({
+    required this.codec,
+    this.hevcPlayable,
+    required this.onChanged,
+  });
 
   final RecordingVideoCodec codec;
+  final bool? hevcPlayable;
   final ValueChanged<RecordingVideoCodec> onChanged;
 
   @override
@@ -2657,6 +2673,17 @@ class _VideoCodecSettings extends StatelessWidget {
               height: 1.5,
             ),
           ),
+          if (hevcPlayable == false) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(
+              '当前设备不支持播放 H.265，新录像将自动使用 H.264',
+              style: TextStyle(
+                color: colors.error,
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -60,6 +60,8 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
   double _shareProgress = 0;
   String _shareMessage = '';
   String? _playbackErrorDetail;
+  String? _localVideoMime;
+  VideoDecodeSupport? _deviceDecodeSupport;
   bool _fallbackBusy = false;
 
   @override
@@ -96,7 +98,13 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
       }
     } catch (error) {
       _playbackErrorDetail = _playbackErrorSummary(error);
+      if (widget.remoteUri == null) {
+        await _loadLocalPlaybackContext();
+      }
       unawaited(_recordPlaybackFailure(error));
+      if (mounted) {
+        setState(() {});
+      }
       rethrow;
     }
   }
@@ -111,28 +119,43 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
     return '$error';
   }
 
+  Future<void> _loadLocalPlaybackContext() async {
+    final File file = File(_session.filePath);
+    if (!file.existsSync()) return;
+    _localVideoMime =
+        await SystemVideoPlayerService().getVideoTrackMime(_session.filePath);
+    _deviceDecodeSupport =
+        await SystemVideoPlayerService().getVideoDecodeSupport();
+  }
+
   Future<void> _recordPlaybackFailure(Object error) async {
     final bool remote = widget.remoteUri != null;
     final String pathOrUri = remote
         ? widget.remoteUri.toString()
         : _session.filePath;
-    String? videoMime;
+    String? videoMime = _localVideoMime;
     int? fileSizeBytes;
     if (!remote) {
       final File file = File(_session.filePath);
       if (file.existsSync()) {
         fileSizeBytes = file.lengthSync();
       }
-      videoMime = await SystemVideoPlayerService().getVideoTrackMime(
+      videoMime ??= await SystemVideoPlayerService().getVideoTrackMime(
         _session.filePath,
       );
     }
+    final VideoDecodeSupport? decodeSupport = _deviceDecodeSupport;
     await RecordingPathDiagnostics().recordPlaybackFailure(
       source: remote ? 'remote' : 'local',
       sessionId: _session.id,
       pathOrUri: pathOrUri,
       fileSizeBytes: fileSizeBytes,
       videoMime: videoMime,
+      deviceManufacturer: decodeSupport?.manufacturer,
+      deviceModel: decodeSupport?.model,
+      deviceSdkInt: decodeSupport?.sdkInt,
+      deviceHasHevcDecoder: decodeSupport?.hasHevcDecoder,
+      deviceHasAvcDecoder: decodeSupport?.hasAvcDecoder,
       errorCode: error is PlatformException
           ? error.code
           : error.runtimeType.toString(),
@@ -495,6 +518,8 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
                     message: localPlaybackErrorMessage(
                       fileExists: File(_session.filePath).existsSync(),
                       backedUpOffline: widget.backedUpOffline,
+                      videoMime: _localVideoMime,
+                      decodeSupport: _deviceDecodeSupport,
                     ),
                     errorDetail: _playbackErrorDetail,
                     primaryAction: _openWithSystemPlayer,
@@ -703,9 +728,23 @@ class _VideoPlaybackScreenState extends State<VideoPlaybackScreen> {
 String localPlaybackErrorMessage({
   required bool fileExists,
   required bool backedUpOffline,
+  String? videoMime,
+  VideoDecodeSupport? decodeSupport,
 }) {
   if (backedUpOffline) {
     return '录像已备份到电脑，电脑离线时暂时无法播放，请连接电脑后重试';
   }
-  return fileExists ? '录像文件不完整或已损坏，无法播放（可能是异常退出导致）' : '录像文件不在本机，可能已被清理，无法播放';
+  if (!fileExists) {
+    return '录像文件不在本机，可能已被清理，无法播放';
+  }
+  final String? mime = videoMime?.trim().toLowerCase();
+  if (mime != null && decodeSupport != null) {
+    if (mime.contains('hevc') && !decodeSupport.hasHevcDecoder) {
+      return '该录像为 H.265 编码，当前设备不支持解码播放。请改用 H.264 重新录制，或分享原文件到电脑/其他设备查看';
+    }
+    if (mime.contains('avc') && !decodeSupport.hasAvcDecoder) {
+      return '该录像为 H.264 编码，当前设备不支持解码播放，请分享原文件到电脑/其他设备查看';
+    }
+  }
+  return '录像文件不完整或已损坏，无法播放（可能是异常退出导致）';
 }

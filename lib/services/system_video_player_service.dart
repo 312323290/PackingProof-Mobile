@@ -1,5 +1,38 @@
 import 'package:flutter/services.dart';
 
+/// 设备视频解码能力摘要，用于解释播放失败并给出可执行的编码建议。
+class VideoDecodeSupport {
+  const VideoDecodeSupport({
+    required this.manufacturer,
+    required this.brand,
+    required this.model,
+    required this.sdkInt,
+    required this.release,
+    required this.hasHevcDecoder,
+    required this.hasAvcDecoder,
+  });
+
+  final String manufacturer;
+  final String brand;
+  final String model;
+  final int sdkInt;
+  final String release;
+  final bool hasHevcDecoder;
+  final bool hasAvcDecoder;
+
+  factory VideoDecodeSupport.fromMap(Map<Object?, Object?> map) {
+    return VideoDecodeSupport(
+      manufacturer: '${map['manufacturer'] ?? ''}',
+      brand: '${map['brand'] ?? ''}',
+      model: '${map['model'] ?? ''}',
+      sdkInt: (map['sdkInt'] as num?)?.toInt() ?? 0,
+      release: '${map['release'] ?? ''}',
+      hasHevcDecoder: map['hasHevcDecoder'] == true,
+      hasAvcDecoder: map['hasAvcDecoder'] == true,
+    );
+  }
+}
+
 /// 系统播放器兜底与视频轨道信息查询。
 class SystemVideoPlayerService {
   static const MethodChannel _channel = MethodChannel(
@@ -13,6 +46,18 @@ class SystemVideoPlayerService {
         'getVideoTrackMime',
         <String, Object>{'path': path},
       );
+    } on Object {
+      return null;
+    }
+  }
+
+  /// 查询设备解码能力；失败返回 null（不影响播放流程）。
+  Future<VideoDecodeSupport?> getVideoDecodeSupport() async {
+    try {
+      final Map<Object?, Object?>? values = await _channel
+          .invokeMethod<Map<Object?, Object?>>('getVideoDecodeSupport');
+      if (values == null) return null;
+      return VideoDecodeSupport.fromMap(values);
     } on Object {
       return null;
     }

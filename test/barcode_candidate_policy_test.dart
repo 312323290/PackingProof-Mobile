@@ -22,5 +22,45 @@ void main() {
       expect(BarcodeCandidatePolicy.isValid('START1234567890'), isFalse);
       expect(BarcodeCandidatePolicy.isValid('https://example.com'), isFalse);
     });
+
+    test('工作识别拒绝商品码制，历史扫码不受影响', () {
+      expect(
+        BarcodeCandidatePolicy.isValidForWorkScan(
+          '6901234567890',
+          format: 'ean13',
+        ),
+        isFalse,
+      );
+      expect(
+        BarcodeCandidatePolicy.isValidForWorkScan('12345678', format: 'ean8'),
+        isFalse,
+      );
+      expect(
+        BarcodeCandidatePolicy.isValidForWorkScan(
+          '123456789012',
+          format: 'upca',
+        ),
+        isFalse,
+      );
+      expect(
+        BarcodeCandidatePolicy.isValidForWorkScan(
+          '123456789012',
+          format: 'upce',
+        ),
+        isFalse,
+      );
+      expect(
+        BarcodeCandidatePolicy.isValidForWorkScan('1234567890', format: 'itf'),
+        isFalse,
+      );
+      expect(
+        BarcodeCandidatePolicy.isValidForWorkScan(
+          '6901234567890',
+          format: 'code128',
+        ),
+        isTrue,
+      );
+      expect(BarcodeCandidatePolicy.isValid('6901234567890'), isTrue);
+    });
   });
 }

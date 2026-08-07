@@ -750,6 +750,7 @@ class ContinuousSegmentCamera(
                         if (raw.isEmpty()) null else mapOf(
                             "value" to raw,
                             "area" to ((barcode.boundingBox ?: Rect()).let { it.width().toLong() * it.height() }),
+                            "format" to barcodeFormatName(barcode.format),
                         )
                     }
                     emit("barcodeFrame", values)
@@ -763,6 +764,15 @@ class ContinuousSegmentCamera(
             image.close()
             scannerBusy = false
         }
+    }
+
+    private fun barcodeFormatName(format: Int): String? = when (format) {
+        Barcode.FORMAT_EAN_13 -> "ean13"
+        Barcode.FORMAT_EAN_8 -> "ean8"
+        Barcode.FORMAT_UPC_A -> "upca"
+        Barcode.FORMAT_UPC_E -> "upce"
+        Barcode.FORMAT_ITF -> "itf"
+        else -> null
     }
 
     private fun refreshCaptureRequest() {

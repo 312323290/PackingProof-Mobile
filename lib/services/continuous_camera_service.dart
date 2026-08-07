@@ -124,10 +124,25 @@ class NativeRecordingStop {
 }
 
 class NativeBarcodeCandidate {
-  const NativeBarcodeCandidate({required this.value, required this.area});
+  const NativeBarcodeCandidate({
+    required this.value,
+    required this.area,
+    this.format,
+  });
 
   final String value;
   final int area;
+
+  /// 原生 ML Kit 码制名称（如 ean13、code128），内部稳定标识，非界面文案。
+  final String? format;
+
+  factory NativeBarcodeCandidate.fromMap(Map<Object?, Object?> map) {
+    return NativeBarcodeCandidate(
+      value: map['value']! as String,
+      area: (map['area']! as num).toInt(),
+      format: map['format'] as String?,
+    );
+  }
 }
 
 class ContinuousCameraService {
@@ -240,10 +255,7 @@ class ContinuousCameraService {
                 final Map<Object?, Object?> map = Map<Object?, Object?>.from(
                   value! as Map,
                 );
-                return NativeBarcodeCandidate(
-                  value: map['value']! as String,
-                  area: (map['area']! as num).toInt(),
-                );
+                return NativeBarcodeCandidate.fromMap(map);
               })
               .toList(growable: false),
         );

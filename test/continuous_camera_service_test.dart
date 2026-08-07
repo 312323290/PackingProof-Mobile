@@ -82,6 +82,24 @@ void main() {
     });
   });
 
+  test('原生条码候选解析码制名称', () {
+    final NativeBarcodeCandidate candidate = NativeBarcodeCandidate.fromMap(
+      <Object?, Object?>{
+        'value': '6901234567890',
+        'area': 1200,
+        'format': 'ean13',
+      },
+    );
+    expect(candidate.value, '6901234567890');
+    expect(candidate.area, 1200);
+    expect(candidate.format, 'ean13');
+
+    final NativeBarcodeCandidate legacy = NativeBarcodeCandidate.fromMap(
+      <Object?, Object?>{'value': 'JT1234567890', 'area': 1},
+    );
+    expect(legacy.format, isNull);
+  });
+
   test('初始化时传递录像编码偏好', () async {
     const MethodChannel channel = MethodChannel(
       'app.packingproof.mobile/continuous_camera',

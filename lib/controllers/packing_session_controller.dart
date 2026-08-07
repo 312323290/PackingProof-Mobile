@@ -1207,7 +1207,10 @@ class PackingSessionController extends ChangeNotifier {
     String? validCode;
     int largestArea = -1;
     for (final NativeBarcodeCandidate candidate in candidates) {
-      if (BarcodeCandidatePolicy.isValid(candidate.value) &&
+      if (BarcodeCandidatePolicy.isValidForWorkScan(
+            candidate.value,
+            format: candidate.format,
+          ) &&
           candidate.area > largestArea) {
         largestArea = candidate.area;
         validCode = BarcodeCandidatePolicy.normalize(candidate.value);
@@ -1263,7 +1266,10 @@ class PackingSessionController extends ChangeNotifier {
       String? validCode;
       double largestArea = -1;
       for (final Barcode barcode in barcodes) {
-        if (BarcodeCandidatePolicy.isValid(barcode.rawValue)) {
+        if (BarcodeCandidatePolicy.isValidForWorkScan(
+          barcode.rawValue,
+          format: barcode.format.name,
+        )) {
           final double area =
               barcode.boundingBox.width.abs() *
               barcode.boundingBox.height.abs();

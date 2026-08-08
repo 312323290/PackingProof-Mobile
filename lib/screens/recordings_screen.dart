@@ -1086,6 +1086,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         return;
       }
     }
+    if (!mounted) return;
     final DateTimeRange? picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2020),

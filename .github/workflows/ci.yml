@@ -25,3 +25,10 @@ jobs:
       - name: Android unit tests
         working-directory: android
         run: .\gradlew.bat :app:testDebugUnitTest --no-daemon
+      - name: Build debug APK
+        run: flutter build apk --debug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packingproof-debug-apk
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error

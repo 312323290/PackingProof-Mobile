@@ -1,0 +1,16 @@
+﻿2026-08-08T08:24:40.1231225Z ##[group]Run flutter analyze
+2026-08-08T08:24:40.1231592Z [36;1mflutter analyze[0m
+2026-08-08T08:24:40.1309222Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-08-08T08:24:40.1309587Z env:
+2026-08-08T08:24:40.1309914Z   JAVA_HOME: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:24:40.1310902Z   JAVA_HOME_17_X64: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:24:40.1311300Z   MAVEN_ARGS: -ntp
+2026-08-08T08:24:40.1311613Z   FLUTTER_ROOT: C:\hostedtoolcache\windows\flutter\stable-3.44.1-x64/flutter
+2026-08-08T08:24:40.1312047Z   PUB_CACHE: C:\Users\runneradmin\AppData\Local\Pub\Cache
+2026-08-08T08:24:40.1312333Z ##[endgroup]
+2026-08-08T08:24:56.7837007Z Analyzing PackingProof-Mobile...                                
+2026-08-08T08:24:56.7851792Z 
+2026-08-08T08:24:56.7888200Z    info - Type could be non-nullable. Try changing the type to be non-nullable - lib\services\tracking_record_repository.dart:82:23 - unnecessary_nullable_for_final_variable_declarations
+2026-08-08T08:24:56.7899685Z 
+2026-08-08T08:24:56.8151185Z 1 issue found. (ran in 14.5s)
+2026-08-08T08:24:56.9346902Z ##[error]Process completed with exit code 1.

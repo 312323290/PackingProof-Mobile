@@ -1,0 +1,61 @@
+﻿2026-08-08T08:22:42.8231957Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-08-08T08:22:42.8240888Z ##[group]Run actions/checkout@v4
+2026-08-08T08:22:42.8242115Z with:
+2026-08-08T08:22:42.8242558Z   repository: 312323290/PackingProof-Mobile
+2026-08-08T08:22:42.8246704Z   token: ***
+2026-08-08T08:22:42.8247108Z   ssh-strict: true
+2026-08-08T08:22:42.8247483Z   ssh-user: git
+2026-08-08T08:22:42.8247864Z   persist-credentials: true
+2026-08-08T08:22:42.8248299Z   clean: true
+2026-08-08T08:22:42.8248685Z   sparse-checkout-cone-mode: true
+2026-08-08T08:22:42.8249140Z   fetch-depth: 1
+2026-08-08T08:22:42.8249518Z   fetch-tags: false
+2026-08-08T08:22:42.8249919Z   show-progress: true
+2026-08-08T08:22:42.8250299Z   lfs: false
+2026-08-08T08:22:42.8250645Z   submodules: false
+2026-08-08T08:22:42.8251060Z   set-safe-directory: true
+2026-08-08T08:22:42.8251504Z   allow-unsafe-pr-checkout: false
+2026-08-08T08:22:42.8252165Z ##[endgroup]
+2026-08-08T08:22:42.9820978Z Syncing repository: 312323290/PackingProof-Mobile
+2026-08-08T08:22:42.9822721Z ##[group]Getting Git version info
+2026-08-08T08:22:42.9823470Z Working directory is 'D:\a\PackingProof-Mobile\PackingProof-Mobile'
+2026-08-08T08:22:43.0858891Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-08-08T08:22:43.4328178Z git version 2.55.0.windows.3
+2026-08-08T08:22:43.4373805Z ##[endgroup]
+2026-08-08T08:22:43.4395184Z Temporarily overriding HOME='D:\a\_temp\4b5ec06e-0ae5-4ccd-a546-cd23f4192548' before making global git config changes
+2026-08-08T08:22:43.4398779Z Adding repository directory to the temporary git global config as a safe directory
+2026-08-08T08:22:43.4410248Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\PackingProof-Mobile\PackingProof-Mobile
+2026-08-08T08:22:43.5040108Z Deleting the contents of 'D:\a\PackingProof-Mobile\PackingProof-Mobile'
+2026-08-08T08:22:43.5046896Z ##[group]Initializing the repository
+2026-08-08T08:22:43.5055454Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\PackingProof-Mobile\PackingProof-Mobile
+2026-08-08T08:22:43.5931824Z Initialized empty Git repository in D:/a/PackingProof-Mobile/PackingProof-Mobile/.git/
+2026-08-08T08:22:43.5977257Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/312323290/PackingProof-Mobile
+2026-08-08T08:22:43.6546321Z ##[endgroup]
+2026-08-08T08:22:43.6548035Z ##[group]Disabling automatic garbage collection
+2026-08-08T08:22:43.6554770Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-08-08T08:22:43.6843264Z ##[endgroup]
+2026-08-08T08:22:43.6845426Z ##[group]Setting up auth
+2026-08-08T08:22:43.6855397Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-08-08T08:22:43.7149005Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-08-08T08:22:45.1607369Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-08-08T08:22:45.1906474Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-08-08T08:22:45.7217355Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-08-08T08:22:45.7522506Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-08-08T08:22:46.2832845Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-08-08T08:22:46.3148708Z ##[endgroup]
+2026-08-08T08:22:46.3149713Z ##[group]Fetching the repository
+2026-08-08T08:22:46.3162605Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +e039c583d4f66e84817b478497d4683dd93b8ffc:refs/remotes/origin/main
+2026-08-08T08:22:47.3574501Z From https://github.com/312323290/PackingProof-Mobile
+2026-08-08T08:22:47.3575429Z  * [new ref]         e039c583d4f66e84817b478497d4683dd93b8ffc -> origin/main
+2026-08-08T08:22:47.3617692Z ##[endgroup]
+2026-08-08T08:22:47.3618401Z ##[group]Determining the checkout info
+2026-08-08T08:22:47.3621442Z ##[endgroup]
+2026-08-08T08:22:47.3632354Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-08-08T08:22:47.4101873Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-08-08T08:22:47.4440029Z ##[group]Checking out the ref
+2026-08-08T08:22:47.4448878Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B main refs/remotes/origin/main
+2026-08-08T08:22:47.5999343Z Switched to a new branch 'main'
+2026-08-08T08:22:47.6075864Z branch 'main' set up to track 'origin/main'.
+2026-08-08T08:22:47.6133023Z ##[endgroup]
+2026-08-08T08:22:47.6501437Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-08-08T08:22:47.6759668Z e039c583d4f66e84817b478497d4683dd93b8ffc

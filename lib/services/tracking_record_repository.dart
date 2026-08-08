@@ -2,134 +2,32 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../models/tracking_record.dart';
+/// 扫描记录数据类。
+class TrackingRecord {
+  final String trackingNumber;
+  final DateTime recognizedAt;
 
-/// 扫描记录数据库。
+  const TrackingRecord({
+    required this.trackingNumber,
+    required this.recognizedAt,
+  });
+
+  factory TrackingRecord.fromMap(Map<String, dynamic> map) => TrackingRecord(
+        trackingNumber: map['tracking_number'] as String? ?? '',
+        recognizedAt: map['started_at'] != null
+            ? DateTime.fromMillisecondsSinceEpoch(map['started_at'] as int)
+            : DateTime.now(),
+      );
+}
+
+/// 扫描记录仓库。
 ///
-/// 独立于项目原有 recordings.db（recording_sessions），专门保存
-/// 改造后识别出的快递单号记录，支持分页查询与日期筛选。
+/// 直接从项目原有 recordings.db 的 recording_sessions 表读取数据，
+/// 不新建独立数据库，避免数据不一致。
 class TrackingRecordRepository {
-  TrackingRecordRepository({this._database});
-
-  static const String databaseName = 'tracking_records.db';
   static const int pageSize = 10;
 
-  Database? _database;
-  bool _initialized = false;
-
-  Future<Database> get _db async {
-    if (_database == null || !_initialized) {
-      await initialize();
-    }
-    return _database!;
-  }
-
-  /// 打开（或创建）数据库并建表，幂等。
-  Future<void> initialize() async {
-    if (_initialized && _database != null) {
-      return;
-    }
-    _database ??= await openDatabase(
-      p.join(await getDatabasesPath(), databaseName),
-      version: 1,
-      onCreate: (Database db, int version) async {
-        await db.execute('''
-CREATE TABLE tracking_records (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  tracking_number TEXT NOT NULL,
-  recognized_at INTEGER NOT NULL,
-  video_file_path TEXT DEFAULT '',
-  created_at INTEGER NOT NULL
-)
-''');
-        await db.execute(
-          'CREATE INDEX idx_tracking_records_number '
-          'ON tracking_records(tracking_number)',
-        );
-        await db.execute(
-          'CREATE INDEX idx_tracking_records_time '
-          'ON tracking_records(recognized_at)',
-        );
-      },
-    );
-    _initialized = true;
-    // 从项目原有 recordings.db 导入历史数据（幂等，去重）。
-    await _importFromRecordingsDb();
-  }
-
-  /// 从项目原有的 recordings.db 中导入已有的 tracking_number 记录。
-  Future<void> _importFromRecordingsDb() async {
-    final Database db = _database!;
-    // 打开 recordings.db（项目原有数据库）。
-    Database? recordingsDb;
-    try {
-      final String recordingsDbPath = p.join(
-        (await getApplicationDocumentsDirectory()).path,
-        'recordings.db',
-      );
-      recordingsDb = await openDatabase(recordingsDbPath);
-      final List<Map<String, Object?>> rows = await recordingsDb.query(
-        'recording_sessions',
-        columns: const <String>['tracking_number', 'started_at', 'file_path'],
-        where: "tracking_number != '' AND is_deleted = 0",
-      );
-      final DateTime now = DateTime.now();
-      final Batch batch = db.batch();
-      for (final Map<String, Object?> row in rows) {
-        final String? number = row['tracking_number'] as String?;
-        if (number == null || number.isEmpty) continue;
-        final int? startedAt = row['started_at'] as int?;
-        final String filePath = (row['file_path'] as String?) ?? '';
-        // 检查是否已存在相同 tracking_number + recognized_at 的记录。
-        bool exists = false;
-        try {
-          final List<Map<String, Object?>> dup = await db.query(
-            'tracking_records',
-            columns: const <String>['id'],
-            where: 'tracking_number = ? AND recognized_at = ?',
-            whereArgs: <Object?>[number, startedAt ?? now.millisecondsSinceEpoch],
-            limit: 1,
-          );
-          exists = dup.isNotEmpty;
-        } on Object {
-          // 查询失败则跳过去重。
-        }
-        if (exists) continue;
-        batch.insert(
-          'tracking_records',
-          {
-            'tracking_number': number,
-            'recognized_at': startedAt ?? now.millisecondsSinceEpoch,
-            'video_file_path': filePath,
-            'created_at': now.millisecondsSinceEpoch,
-          },
-        );
-      }
-      await batch.commit(noResult: true);
-    } on Object {
-      // recordings.db 不存在或格式不同时不报错。
-    } finally {
-      if (recordingsDb != null) {
-        await recordingsDb.close();
-      }
-    }
-  }
-
-  /// 插入一条识别记录，返回新记录 id。
-  Future<int> insert(TrackingRecord record) async {
-    final Database db = await _db;
-    return db.insert(
-      'tracking_records',
-      {
-        'tracking_number': record.trackingNumber,
-        'recognized_at': record.recognizedAt.millisecondsSinceEpoch,
-        'video_file_path': record.videoFilePath,
-        'created_at': DateTime.now().millisecondsSinceEpoch,
-      },
-    );
-  }
-
-  /// 分页查询记录，按识别时间倒序。
+  /// 分页查询有 tracking_number 的录像记录，按识别时间倒序。
   ///
   /// [page] 从 1 开始；[start] / [end] 为可选日期范围（含当天）。
   /// 返回当前页记录与总条数。
@@ -138,50 +36,58 @@ CREATE TABLE tracking_records (
     DateTime? start,
     DateTime? end,
   }) async {
-    final Database db = await _db;
-    final List<String> where = <String>[];
-    final List<Object?> args = <Object?>[];
-    if (start != null) {
-      where.add('recognized_at >= ?');
-      args.add(start.millisecondsSinceEpoch);
+    final String dbPath = p.join(
+      (await getApplicationDocumentsDirectory()).path,
+      'recordings.db',
+    );
+    Database db;
+    try {
+      db = await openDatabase(dbPath);
+    } on Object {
+      return (const <TrackingRecord>[], 0);
     }
-    if (end != null) {
-      where.add('recognized_at <= ?');
-      args.add(
-        DateTime(end.year, end.month, end.day, 23, 59, 59, 999)
-            .millisecondsSinceEpoch,
+    try {
+      final List<String> where = <String>["tracking_number != ''"];
+
+      // 排除标记行。
+      where.add("tracking_number != '__IMPORTED_FLAG__'");
+
+      final List<Object?> args = <Object?>[];
+      if (start != null) {
+        where.add('started_at >= ?');
+        args.add(start.millisecondsSinceEpoch);
+      }
+      if (end != null) {
+        where.add('started_at <= ?');
+        args.add(
+          DateTime(end.year, end.month, end.day, 23, 59, 59, 999)
+              .millisecondsSinceEpoch,
+        );
+      }
+      final String whereClause = 'WHERE ${where.join(' AND ')}';
+
+      final List<Map<String, Object?>> rows = await db.query(
+        'recording_sessions',
+        columns: const <String>['tracking_number', 'started_at'],
+        where: where.isEmpty ? null : whereClause,
+        whereArgs: where.isEmpty ? null : args,
+        orderBy: 'started_at DESC, id DESC',
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
       );
-    }
-    final String whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
-
-    final List<Map<String, Object?>> rows = await db.query(
-      'tracking_records',
-      where: where.isEmpty ? null : whereClause,
-      whereArgs: where.isEmpty ? null : args,
-      orderBy: 'recognized_at DESC, id DESC',
-      limit: pageSize,
-      offset: (page - 1) * pageSize,
-    );
-    final int total = Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COUNT(*) FROM tracking_records $whereClause',
-            args,
-          ),
-        ) ??
-        0;
-    return (
-      rows.map(TrackingRecord.fromMap).toList(),
-      total,
-    );
-  }
-
-  /// 关闭数据库连接。
-  Future<void> dispose() async {
-    final Database? database = _database;
-    if (database != null) {
-      await database.close();
-      _database = null;
-      _initialized = false;
+      final int total = Sqflite.firstIntValue(
+            await db.rawQuery(
+              'SELECT COUNT(*) FROM recording_sessions $whereClause',
+              args,
+            ),
+          ) ??
+          0;
+      return (
+        rows.map(TrackingRecord.fromMap).toList(),
+        total,
+      );
+    } finally {
+      await db.close();
     }
   }
 }

@@ -194,7 +194,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     with WidgetsBindingObserver {
   late final PackingSessionController _controller;
   late final LanBackupHostDiscoveryService _backupHostDiscovery;
-  int _selectedTab = 2;
+  int _selectedTab = 1;
   String _historySearchQuery = '';
   int _handledPairingSuccessRevision = 0;
   int _handledPairingFailureRevision = 0;
@@ -202,7 +202,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   String _handledMobileUpdateSignature = '';
   bool _mobileUpdateNoticeScheduled = false;
   int _handledStorageNoticeRevision = 0;
-  int _transientReturnTab = 2;
+  int _transientReturnTab = 1;
   DateTime? _exitArmedAt;
   Timer? _watermarkClock;
 
@@ -218,7 +218,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       cache: LanBackupHostFileCache(),
     );
     _watermarkClock = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted && _selectedTab == 2) setState(() {});
+      if (mounted && _selectedTab == 1) setState(() {});
     });
     unawaited(_controller.initialize());
   }
@@ -234,7 +234,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
 
   Future<void> _resumeSession() async {
     await _controller.handleResumed();
-    await _controller.setPreviewActive(_selectedTab == 2);
+    await _controller.setPreviewActive(_selectedTab == 1);
   }
 
   @override
@@ -256,10 +256,10 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   }
 
   void _selectTab(int value) {
-    if ((_controller.isWorking || _controller.isBusy) && value != 2) return;
+    if ((_controller.isWorking || _controller.isBusy) && value != 1) return;
     _resetExitIntent();
     setState(() => _selectedTab = value);
-    unawaited(_controller.setPreviewActive(value == 2));
+    unawaited(_controller.setPreviewActive(value == 1));
     if (value == 0) unawaited(_controller.refreshSessions());
   }
 
@@ -267,7 +267,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     _resetExitIntent();
     setState(() {
       _transientReturnTab = _selectedTab;
-      _selectedTab = 2;
+      _selectedTab = 1;
     });
     unawaited(_controller.setPreviewActive(true));
     _controller.beginComputerPairing();
@@ -277,7 +277,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     _resetExitIntent();
     setState(() {
       _transientReturnTab = _selectedTab;
-      _selectedTab = 2;
+      _selectedTab = 1;
     });
     unawaited(_controller.setPreviewActive(true));
     _controller.beginHistoryBarcodeScan();
@@ -298,16 +298,16 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     _resetExitIntent();
     setState(() {
       _selectedTab = targetTab;
-      _transientReturnTab = 2;
+      _transientReturnTab = 1;
     });
-    unawaited(_controller.setPreviewActive(targetTab == 2));
+    unawaited(_controller.setPreviewActive(targetTab == 1));
     if (targetTab == 0) unawaited(_controller.refreshSessions());
   }
 
   Future<void> _returnToHistoryAndShowPairingFailure(String message) async {
     setState(() {
       _selectedTab = 0;
-      _transientReturnTab = 2;
+      _transientReturnTab = 1;
     });
     _resetExitIntent();
     await _controller.setPreviewActive(false);
@@ -321,7 +321,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
   ) async {
     setState(() {
       _selectedTab = 0;
-      _transientReturnTab = 2;
+      _transientReturnTab = 1;
     });
     _resetExitIntent();
     await _controller.setPreviewActive(false);
@@ -354,7 +354,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
     final PackingBackAction action = resolvePackingBackAction(
       pairingActive: _controller.pairingScanActive,
       pairingMessageVisible:
-          _controller.pairingMessage != null && _transientReturnTab != 2,
+          _controller.pairingMessage != null && _transientReturnTab != 1,
       historyScanActive: _controller.historyScanActive,
       workInProgress:
           _controller.isWorking ||
@@ -401,7 +401,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
             if (!mounted) return;
             setState(() {
               _selectedTab = 0;
-              _transientReturnTab = 2;
+              _transientReturnTab = 1;
             });
             _resetExitIntent();
             unawaited(_controller.setPreviewActive(false));
@@ -471,7 +471,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
             setState(() {
               _historySearchQuery = scanned;
               _selectedTab = 0;
-              _transientReturnTab = 2;
+              _transientReturnTab = 1;
             });
             _resetExitIntent();
           });
@@ -486,7 +486,6 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
               index: _selectedTab,
               children: <Widget>[
                 _buildRecordingsScreen(RecordingsScreenMode.history),
-                const TrackingRecordsScreen(),
                 PackingHomeView(
                   cameraController: _controller.cameraController,
                   nativeTextureId: _controller.nativeTextureId,
@@ -517,6 +516,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
                   onRetryPressed: _controller.retryInitialize,
                 ),
                 _buildRecordingsScreen(RecordingsScreenMode.settings),
+                const TrackingRecordsScreen(),
               ],
             ),
             bottomNavigationBar: _controller.pairingScanActive
@@ -551,7 +551,7 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
       embedded: true,
       active: mode == RecordingsScreenMode.history
           ? _selectedTab == 0
-          : _selectedTab == 3,
+          : _selectedTab == 2,
       focusBackupRevision: mode == RecordingsScreenMode.history
           ? _controller.pairingSuccessRevision
           : 0,
@@ -632,11 +632,6 @@ class _PackingBottomNavigation extends StatelessWidget {
           selectedIcon: Icon(Icons.history_rounded),
           label: '历史',
         ),
-        const NavigationDestination(
-          icon: Icon(Icons.qr_code_rounded),
-          selectedIcon: Icon(Icons.qr_code_rounded),
-          label: '扫描记录',
-        ),
         NavigationDestination(
           icon: CircleAvatar(
             radius: 22,
@@ -657,6 +652,11 @@ class _PackingBottomNavigation extends StatelessWidget {
           icon: Icon(Icons.settings_outlined),
           selectedIcon: Icon(Icons.settings_rounded),
           label: '设置',
+        ),
+        const NavigationDestination(
+          icon: Icon(Icons.qr_code_rounded),
+          selectedIcon: Icon(Icons.qr_code_rounded),
+          label: '扫描记录',
         ),
       ],
     );

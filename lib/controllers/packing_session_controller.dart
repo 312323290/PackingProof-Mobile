@@ -8,10 +8,6 @@ import 'package:flutter/widgets.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
-import '../models/tracking_record.dart';
-import '../services/barcode_reader_service.dart';
-import '../services/tracking_record_repository.dart';
-
 import '../models/barcode_marker.dart';
 import '../models/app_settings.dart';
 import '../models/backup_retention_policy.dart';
@@ -32,6 +28,7 @@ import '../services/lan_backup_service.dart';
 import '../services/max_volume_service.dart';
 import '../services/order_info_receiver_service.dart';
 import '../services/remote_video_clip_service.dart';
+import '../services/nv21_center_crop.dart';
 import '../services/recording_timeline.dart';
 import '../services/recording_database.dart';
 import '../services/session_repository.dart';
@@ -75,9 +72,7 @@ class PackingSessionController extends ChangeNotifier {
        _orderInfoReceiver = orderInfoReceiver ?? OrderInfoReceiverService(),
        _barcodeScanner = BarcodeScanner(
          formats: const <BarcodeFormat>[BarcodeFormat.all],
-       ),
-       _barcodeReaderService = BarcodeReaderService(),
-       _trackingRecordRepository = TrackingRecordRepository();
+       );
 
   static const Duration analysisInterval = Duration(milliseconds: 200);
   static const Duration transitionSettleDelay = Duration(milliseconds: 120);
@@ -92,8 +87,6 @@ class PackingSessionController extends ChangeNotifier {
   final VideoWatermarkSink _videoWatermarkService;
   final OrderInfoReceiverSink _orderInfoReceiver;
   final BarcodeScanner _barcodeScanner;
-  final BarcodeReaderService _barcodeReaderService;
-  final TrackingRecordRepository _trackingRecordRepository;
   final BarcodeStabilityTracker _stabilityTracker = BarcodeStabilityTracker();
   final RecordingTimeline _timeline = RecordingTimeline();
   final InitialRecordingPromptPolicy _initialPromptPolicy =
@@ -1231,7 +1224,6 @@ class PackingSessionController extends ChangeNotifier {
     if (observation.confirmedCode.isNotEmpty) {
       _candidateCode = '';
       unawaited(_handleConfirmedBarcode(observation.confirmedCode, now));
-      unawaited(_saveTrackingRecord(observation.confirmedCode, now));
     } else if (observation.candidateCode != _candidateCode) {
       _candidateCode = observation.candidateCode;
       notifyListeners();
@@ -1250,24 +1242,41 @@ class PackingSessionController extends ChangeNotifier {
     _processingFrame = true;
 
     try {
-      // 使用新的识别服务：条码(Code128)优先，失败时 OCR 兜底。
-      // 服务内部已做每帧节流，避免 CPU 过高。
-      if (_barcodeReaderService.isAnalyzing) {
+      final InputImageRotation? rotation = _inputImageRotation(
+        _cameraController!.description,
+        _cameraController!.value.deviceOrientation,
+      );
+      if (rotation == null) {
         return;
       }
-      // 计算 ML Kit 所需的旋转角度（相机已锁定为竖屏）。
-      final InputImageRotation rotation = InputImageRotationValue.fromRawValue(
-        _cameraController?.description.sensorOrientation ?? 0,
-      ) ?? InputImageRotation.rotation0deg;
-      final List<String> trackingNumbers = await _barcodeReaderService
-          .analyzeCameraImage(image, rotation: rotation);
-
+      final InputImage? inputImage = _toInputImage(image, rotation: rotation);
+      if (inputImage == null) {
+        return;
+      }
+      List<Barcode> barcodes = await _barcodeScanner.processImage(inputImage);
+      if (barcodes.isEmpty && Platform.isAndroid) {
+        final InputImage? croppedInput = _toCroppedInputImage(
+          image,
+          rotation: rotation,
+        );
+        if (croppedInput != null) {
+          barcodes = await _barcodeScanner.processImage(croppedInput);
+        }
+      }
       String? validCode;
-      // 优先取面积/置信度最高的候选；此处取第一个符合规则的即可。
-      for (final String number in trackingNumbers) {
-        if (BarcodeCandidatePolicy.isValidForWorkScan(number)) {
-          validCode = BarcodeCandidatePolicy.normalize(number);
-          break;
+      double largestArea = -1;
+      for (final Barcode barcode in barcodes) {
+        if (BarcodeCandidatePolicy.isValidForWorkScan(
+          barcode.rawValue,
+          format: barcode.format.name,
+        )) {
+          final double area =
+              barcode.boundingBox.width.abs() *
+              barcode.boundingBox.height.abs();
+          if (area > largestArea) {
+            largestArea = area;
+            validCode = BarcodeCandidatePolicy.normalize(barcode.rawValue);
+          }
         }
       }
 
@@ -1278,7 +1287,6 @@ class PackingSessionController extends ChangeNotifier {
       if (observation.confirmedCode.isNotEmpty) {
         _candidateCode = '';
         unawaited(_handleConfirmedBarcode(observation.confirmedCode, now));
-        unawaited(_saveTrackingRecord(observation.confirmedCode, now));
       } else if (observation.candidateCode != _candidateCode) {
         _candidateCode = observation.candidateCode;
         notifyListeners();
@@ -1290,20 +1298,78 @@ class PackingSessionController extends ChangeNotifier {
     }
   }
 
-  /// 将识别出的快递单号异步保存到扫描记录数据库。
-  Future<void> _saveTrackingRecord(String code, DateTime now) async {
-    try {
-      await _trackingRecordRepository.initialize();
-      await _trackingRecordRepository.insert(
-        TrackingRecord(
-          trackingNumber: code,
-          recognizedAt: now,
-          videoFilePath: _activeSegmentId ?? '',
-        ),
-      );
-    } on Object {
-      // 记录保存失败不影响主流程。
+  InputImage? _toInputImage(
+    CameraImage image, {
+    required InputImageRotation rotation,
+  }) {
+    if (image.planes.length != 1) {
+      return null;
     }
+
+    final Plane plane = image.planes.first;
+    return InputImage.fromBytes(
+      bytes: plane.bytes,
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: rotation,
+        format: Platform.isAndroid
+            ? InputImageFormat.nv21
+            : InputImageFormat.bgra8888,
+        bytesPerRow: plane.bytesPerRow,
+      ),
+    );
+  }
+
+  InputImage? _toCroppedInputImage(
+    CameraImage image, {
+    required InputImageRotation rotation,
+  }) {
+    if (image.planes.length != 1) {
+      return null;
+    }
+    final Plane plane = image.planes.first;
+    final Nv21CropResult? crop = cropNv21Center(
+      bytes: plane.bytes,
+      width: image.width,
+      height: image.height,
+      bytesPerRow: plane.bytesPerRow,
+    );
+    if (crop == null) {
+      return null;
+    }
+    return InputImage.fromBytes(
+      bytes: crop.bytes,
+      metadata: InputImageMetadata(
+        size: Size(crop.width.toDouble(), crop.height.toDouble()),
+        rotation: rotation,
+        format: InputImageFormat.nv21,
+        bytesPerRow: crop.width,
+      ),
+    );
+  }
+
+  InputImageRotation? _inputImageRotation(
+    CameraDescription camera,
+    DeviceOrientation orientation,
+  ) {
+    if (Platform.isIOS) {
+      return InputImageRotationValue.fromRawValue(camera.sensorOrientation);
+    }
+
+    const Map<DeviceOrientation, int> compensations = <DeviceOrientation, int>{
+      DeviceOrientation.portraitUp: 0,
+      DeviceOrientation.landscapeLeft: 90,
+      DeviceOrientation.portraitDown: 180,
+      DeviceOrientation.landscapeRight: 270,
+    };
+    final int? compensation = compensations[orientation];
+    if (compensation == null) {
+      return null;
+    }
+    final int rotation = camera.lensDirection == CameraLensDirection.front
+        ? (camera.sensorOrientation + compensation) % 360
+        : (camera.sensorOrientation - compensation + 360) % 360;
+    return InputImageRotationValue.fromRawValue(rotation);
   }
 
   Future<void> _handleConfirmedBarcode(String code, DateTime now) async {
@@ -2032,8 +2098,6 @@ class PackingSessionController extends ChangeNotifier {
       unawaited(nativeCamera.dispose());
     }
     unawaited(_barcodeScanner.close());
-    unawaited(_barcodeReaderService.dispose());
-    unawaited(_trackingRecordRepository.dispose());
     unawaited(_speechService.dispose());
     unawaited(_maxVolumeService.dispose());
     if (_backupListenerAttached) {

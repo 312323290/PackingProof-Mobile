@@ -1,0 +1,112 @@
+﻿2026-08-08T08:22:48.0153408Z ##[group]Run subosito/flutter-action@v2
+2026-08-08T08:22:48.0177648Z with:
+2026-08-08T08:22:48.0178019Z   channel: stable
+2026-08-08T08:22:48.0178441Z   flutter-version: 3.44.1
+2026-08-08T08:22:48.0178661Z   cache: true
+2026-08-08T08:22:48.0178831Z   architecture: X64
+2026-08-08T08:22:48.0179018Z   pub-cache-path: default
+2026-08-08T08:22:48.0179230Z   dry-run: false
+2026-08-08T08:22:48.0179479Z   git-source: https://github.com/flutter/flutter.git
+2026-08-08T08:22:48.0179762Z env:
+2026-08-08T08:22:48.0180063Z   JAVA_HOME: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:22:48.0180589Z   JAVA_HOME_17_X64: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:22:48.0180982Z   MAVEN_ARGS: -ntp
+2026-08-08T08:22:48.0181163Z ##[endgroup]
+2026-08-08T08:22:48.0245218Z ##[start-action display=Make yq tool available on Windows runners;id=__subosito_flutter-action.__run]
+2026-08-08T08:22:48.0258208Z ##[end-action id=__subosito_flutter-action.__run;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-08-08T08:22:48.0260340Z ##[start-action display=Make setup script executable;id=__subosito_flutter-action.__run_2]
+2026-08-08T08:22:48.0423664Z ##[group]Run chmod +x "$GITHUB_ACTION_PATH/setup.sh"
+2026-08-08T08:22:48.0424057Z [36;1mchmod +x "$GITHUB_ACTION_PATH/setup.sh"[0m
+2026-08-08T08:22:48.0445962Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-08-08T08:22:48.0446366Z env:
+2026-08-08T08:22:48.0446663Z   JAVA_HOME: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:22:48.0447177Z   JAVA_HOME_17_X64: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:22:48.0447561Z   MAVEN_ARGS: -ntp
+2026-08-08T08:22:48.0448314Z ##[endgroup]
+2026-08-08T08:22:48.2561413Z ##[end-action id=__subosito_flutter-action.__run_2;outcome=success;conclusion=success;duration_ms=229]
+2026-08-08T08:22:48.2564011Z ##[start-action display=Set action inputs;id=__subosito_flutter-action.flutter-action]
+2026-08-08T08:22:48.2711461Z ##[group]Run $GITHUB_ACTION_PATH/setup.sh -p \
+2026-08-08T08:22:48.2711841Z [36;1m$GITHUB_ACTION_PATH/setup.sh -p \[0m
+2026-08-08T08:22:48.2712327Z [36;1m  -n '3.44.1' \[0m
+2026-08-08T08:22:48.2712547Z [36;1m  -f '' \[0m
+2026-08-08T08:22:48.2712730Z [36;1m  -a 'X64' \[0m
+2026-08-08T08:22:48.2712913Z [36;1m  -k '' \[0m
+2026-08-08T08:22:48.2713083Z [36;1m  -c '' \[0m
+2026-08-08T08:22:48.2713250Z [36;1m  -l '' \[0m
+2026-08-08T08:22:48.2713425Z [36;1m  -d 'default' \[0m
+2026-08-08T08:22:48.2713708Z [36;1m  -g 'https://github.com/flutter/flutter.git' \[0m
+2026-08-08T08:22:48.2714001Z [36;1m  stable[0m
+2026-08-08T08:22:48.2730848Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-08-08T08:22:48.2731234Z env:
+2026-08-08T08:22:48.2731529Z   JAVA_HOME: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:22:48.2732042Z   JAVA_HOME_17_X64: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:22:48.2732445Z   MAVEN_ARGS: -ntp
+2026-08-08T08:22:48.2732623Z ##[endgroup]
+2026-08-08T08:22:51.3086977Z ##[end-action id=__subosito_flutter-action.flutter-action;outcome=success;conclusion=success;duration_ms=3052]
+2026-08-08T08:22:51.3091879Z ##[start-action display=Cache Flutter;id=__subosito_flutter-action.cache-flutter]
+2026-08-08T08:22:51.3241506Z ##[group]Run actions/cache@v5
+2026-08-08T08:22:51.3241732Z with:
+2026-08-08T08:22:51.3241965Z   path: C:\hostedtoolcache\windows\flutter\stable-3.44.1-x64
+2026-08-08T08:22:51.3242415Z   key: flutter-windows-stable-3.44.1-x64-924134a44c189315be2148659913dda1671cbe99
+2026-08-08T08:22:51.3242815Z   enableCrossOsArchive: false
+2026-08-08T08:22:51.3243035Z   fail-on-cache-miss: false
+2026-08-08T08:22:51.3243233Z   lookup-only: false
+2026-08-08T08:22:51.3243413Z   save-always: false
+2026-08-08T08:22:51.3243581Z env:
+2026-08-08T08:22:51.3243851Z   JAVA_HOME: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:22:51.3246348Z   JAVA_HOME_17_X64: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:22:51.3246753Z   MAVEN_ARGS: -ntp
+2026-08-08T08:22:51.3246934Z ##[endgroup]
+2026-08-08T08:22:51.6884861Z Cache hit for: flutter-windows-stable-3.44.1-x64-924134a44c189315be2148659913dda1671cbe99
+2026-08-08T08:22:52.7846002Z Received 138412032 of 1892532004 (7.3%), 128.9 MBs/sec
+2026-08-08T08:22:53.7962234Z Received 331350016 of 1892532004 (17.5%), 155.7 MBs/sec
+2026-08-08T08:22:54.8063463Z Received 520093696 of 1892532004 (27.5%), 163.2 MBs/sec
+2026-08-08T08:22:55.8161370Z Received 671088640 of 1892532004 (35.5%), 157.8 MBs/sec
+2026-08-08T08:22:56.8304110Z Received 880803840 of 1892532004 (46.5%), 165.9 MBs/sec
+2026-08-08T08:22:57.8265887Z Received 1073741824 of 1892532004 (56.7%), 168.8 MBs/sec
+2026-08-08T08:22:58.8644594Z Received 1241513984 of 1892532004 (65.6%), 166.7 MBs/sec
+2026-08-08T08:22:59.8654444Z Received 1430257664 of 1892532004 (75.6%), 168.3 MBs/sec
+2026-08-08T08:23:01.0117267Z Received 1610612736 of 1892532004 (85.1%), 166.1 MBs/sec
+2026-08-08T08:23:02.0109529Z Received 1757413376 of 1892532004 (92.9%), 163.5 MBs/sec
+2026-08-08T08:23:02.8478700Z Received 1892532004 of 1892532004 (100.0%), 162.8 MBs/sec
+2026-08-08T08:23:02.8483500Z Cache Size: ~1805 MB (1892532004 B)
+2026-08-08T08:23:02.8547335Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/2f54b4fe-56e3-425d-af19-8d5ffba865e5/cache.tzst -P -C D:/a/PackingProof-Mobile/PackingProof-Mobile --force-local --use-compress-program "zstd -d"
+2026-08-08T08:23:51.5496066Z Cache restored successfully
+2026-08-08T08:23:51.6722921Z Cache restored from key: flutter-windows-stable-3.44.1-x64-924134a44c189315be2148659913dda1671cbe99
+2026-08-08T08:23:51.6860044Z ##[end-action id=__subosito_flutter-action.cache-flutter;outcome=success;conclusion=success;duration_ms=60376]
+2026-08-08T08:23:51.6862986Z ##[start-action display=Cache pub dependencies;id=__subosito_flutter-action.cache-pub]
+2026-08-08T08:23:51.8838939Z ##[group]Run actions/cache@v5
+2026-08-08T08:23:51.8839188Z with:
+2026-08-08T08:23:51.8839411Z   path: C:\Users\runneradmin\AppData\Local\Pub\Cache
+2026-08-08T08:23:51.8840372Z   key: flutter-pub-windows-stable-3.44.1-x64-924134a44c189315be2148659913dda1671cbe99-230e45e3171b6fe903bdedd7b58c60c8297744cf891b51c15c0e6dd0dd51a61c
+2026-08-08T08:23:51.8841098Z   enableCrossOsArchive: false
+2026-08-08T08:23:51.8841331Z   fail-on-cache-miss: false
+2026-08-08T08:23:51.8841551Z   lookup-only: false
+2026-08-08T08:23:51.8841741Z   save-always: false
+2026-08-08T08:23:51.8841924Z env:
+2026-08-08T08:23:51.8842206Z   JAVA_HOME: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:23:51.8842708Z   JAVA_HOME_17_X64: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:23:51.8843093Z   MAVEN_ARGS: -ntp
+2026-08-08T08:23:51.8843318Z ##[endgroup]
+2026-08-08T08:23:52.1924513Z Cache hit for: flutter-pub-windows-stable-3.44.1-x64-924134a44c189315be2148659913dda1671cbe99-230e45e3171b6fe903bdedd7b58c60c8297744cf891b51c15c0e6dd0dd51a61c
+2026-08-08T08:23:52.6568539Z Received 70012849 of 70012849 (100.0%), 161.3 MBs/sec
+2026-08-08T08:23:52.6570487Z Cache Size: ~67 MB (70012849 B)
+2026-08-08T08:23:52.6612150Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/3236586d-96e2-41fd-af56-701c64afeb18/cache.tzst -P -C D:/a/PackingProof-Mobile/PackingProof-Mobile --force-local --use-compress-program "zstd -d"
+2026-08-08T08:24:16.2926656Z Cache restored successfully
+2026-08-08T08:24:16.3094313Z Cache restored from key: flutter-pub-windows-stable-3.44.1-x64-924134a44c189315be2148659913dda1671cbe99-230e45e3171b6fe903bdedd7b58c60c8297744cf891b51c15c0e6dd0dd51a61c
+2026-08-08T08:24:16.3209665Z ##[end-action id=__subosito_flutter-action.cache-pub;outcome=success;conclusion=success;duration_ms=24634]
+2026-08-08T08:24:16.3213446Z ##[start-action display=Run setup script;id=__subosito_flutter-action.__run_3]
+2026-08-08T08:24:16.3430607Z ##[group]Run $GITHUB_ACTION_PATH/setup.sh \
+2026-08-08T08:24:16.3431696Z [36;1m$GITHUB_ACTION_PATH/setup.sh \[0m
+2026-08-08T08:24:16.3431975Z [36;1m  -n '3.44.1' \[0m
+2026-08-08T08:24:16.3432203Z [36;1m  -a 'x64' \[0m
+2026-08-08T08:24:16.3432495Z [36;1m  -c 'C:\hostedtoolcache\windows\flutter\stable-3.44.1-x64' \[0m
+2026-08-08T08:24:16.3433367Z [36;1m  -d 'C:\Users\runneradmin\AppData\Local\Pub\Cache' \[0m
+2026-08-08T08:24:16.3433695Z [36;1m  stable[0m
+2026-08-08T08:24:16.3466613Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-08-08T08:24:16.3467015Z env:
+2026-08-08T08:24:16.3467322Z   JAVA_HOME: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:24:16.3467841Z   JAVA_HOME_17_X64: C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk\17.0.20-8\x64
+2026-08-08T08:24:16.3468231Z   MAVEN_ARGS: -ntp
+2026-08-08T08:24:16.3468424Z ##[endgroup]
+2026-08-08T08:24:18.7101597Z ##[end-action id=__subosito_flutter-action.__run_3;outcome=success;conclusion=success;duration_ms=2388]

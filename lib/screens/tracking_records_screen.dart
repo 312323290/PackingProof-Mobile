@@ -1,18 +1,15 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../models/tracking_record.dart';
 import '../services/tracking_record_repository.dart';
 
 /// 扫描记录列表页。
 ///
-/// 功能：
-///  - 单页展示 10 条记录，支持分页加载；
-///  - 日期筛选组件，可按起止日期筛选；
-///  - 批量复制：勾选多条记录，一键批量复制选中的快递单号到剪贴板；
-///  - 单条记录支持复制单号。
+/// 直接从原有 recording_sessions 表读取数据，支持：
+///  - 单页 10 条，分页；
+///  - 日期筛选；
+///  - 批量复制选中单号；
+///  - 单条复制。
 class TrackingRecordsScreen extends StatefulWidget {
   const TrackingRecordsScreen({super.key});
 
@@ -22,7 +19,7 @@ class TrackingRecordsScreen extends StatefulWidget {
 
 class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
   final TrackingRecordRepository _repository = TrackingRecordRepository();
-  final Set<int> _selectedIds = <int>{};
+  final Set<String> _selectedNumbers = <String>{};
 
   List<TrackingRecord> _records = <TrackingRecord>[];
   int _total = 0;
@@ -39,16 +36,11 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
     _loadPage();
   }
 
-  @override
-  void dispose() {
-    unawaited(_repository.dispose());
-    super.dispose();
-  }
-
   Future<void> _loadPage() async {
     setState(() => _loading = true);
     try {
-      final (List<TrackingRecord> records, int total) = await _repository.queryPage(
+      final (List<TrackingRecord> records, int total) =
+          await _repository.queryPage(
         page: _currentPage,
         start: _filterStart,
         end: _filterEnd,
@@ -81,7 +73,7 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
       _filterStart = picked.start;
       _filterEnd = picked.end;
       _currentPage = 1;
-      _selectedIds.clear();
+      _selectedNumbers.clear();
     });
     _loadPage();
   }
@@ -91,7 +83,7 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
       _filterStart = null;
       _filterEnd = null;
       _currentPage = 1;
-      _selectedIds.clear();
+      _selectedNumbers.clear();
     });
     _loadPage();
   }
@@ -100,14 +92,17 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
     await Clipboard.setData(ClipboardData(text: number));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已复制：$number'), duration: const Duration(seconds: 1)),
+      SnackBar(
+        content: Text('已复制：$number'),
+        duration: const Duration(seconds: 1),
+      ),
     );
   }
 
   Future<void> _batchCopy() async {
-    if (_selectedIds.isEmpty) return;
+    if (_selectedNumbers.isEmpty) return;
     final List<String> numbers = _records
-        .where((r) => r.id != null && _selectedIds.contains(r.id))
+        .where((r) => _selectedNumbers.contains(r.trackingNumber))
         .map((r) => r.trackingNumber)
         .toList();
     await Clipboard.setData(ClipboardData(text: numbers.join('\n')));
@@ -120,16 +115,16 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
     );
     setState(() {
       _selectMode = false;
-      _selectedIds.clear();
+      _selectedNumbers.clear();
     });
   }
 
   void _toggleSelectAll() {
-    if (_selectedIds.length == _records.length) {
-      _selectedIds.clear();
+    if (_selectedNumbers.length == _records.length) {
+      _selectedNumbers.clear();
     } else {
       for (final TrackingRecord r in _records) {
-        if (r.id != null) _selectedIds.add(r.id!);
+        _selectedNumbers.add(r.trackingNumber);
       }
     }
     setState(() {});
@@ -154,7 +149,7 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
             ),
             IconButton(
               icon: const Icon(Icons.copy),
-              onPressed: _selectedIds.isEmpty ? null : _batchCopy,
+              onPressed: _selectedNumbers.isEmpty ? null : _batchCopy,
               tooltip: '批量复制',
             ),
             IconButton(
@@ -162,7 +157,7 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
               onPressed: () {
                 setState(() {
                   _selectMode = false;
-                  _selectedIds.clear();
+                  _selectedNumbers.clear();
                 });
               },
               tooltip: '取消选择',
@@ -177,11 +172,8 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
       ),
       body: Column(
         children: <Widget>[
-          // 日期筛选栏
           _buildDateFilterBar(),
-          // 记录列表
           Expanded(child: _buildRecordList()),
-          // 分页栏
           if (_totalPages > 1) _buildPaginationBar(),
         ],
       ),
@@ -232,17 +224,17 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
       itemCount: _records.length,
       itemBuilder: (BuildContext context, int index) {
         final TrackingRecord record = _records[index];
-        final bool selected = record.id != null && _selectedIds.contains(record.id);
+        final bool selected = _selectedNumbers.contains(record.trackingNumber);
         return ListTile(
           leading: _selectMode
               ? Checkbox(
                   value: selected,
                   onChanged: (bool? checked) {
                     setState(() {
-                      if (checked == true && record.id != null) {
-                        _selectedIds.add(record.id!);
+                      if (checked == true) {
+                        _selectedNumbers.add(record.trackingNumber);
                       } else {
-                        if (record.id != null) _selectedIds.remove(record.id!);
+                        _selectedNumbers.remove(record.trackingNumber);
                       }
                     });
                   },
@@ -266,12 +258,10 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
           onTap: _selectMode
               ? () {
                   setState(() {
-                    if (record.id != null) {
-                      if (_selectedIds.contains(record.id)) {
-                        _selectedIds.remove(record.id);
-                      } else {
-                        _selectedIds.add(record.id!);
-                      }
+                    if (_selectedNumbers.contains(record.trackingNumber)) {
+                      _selectedNumbers.remove(record.trackingNumber);
+                    } else {
+                      _selectedNumbers.add(record.trackingNumber);
                     }
                   });
                 }
@@ -293,7 +283,7 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
                 ? () {
                     setState(() {
                       _currentPage--;
-                      _selectedIds.clear();
+                      _selectedNumbers.clear();
                     });
                     _loadPage();
                   }
@@ -306,7 +296,7 @@ class _TrackingRecordsScreenState extends State<TrackingRecordsScreen> {
                 ? () {
                     setState(() {
                       _currentPage++;
-                      _selectedIds.clear();
+                      _selectedNumbers.clear();
                     });
                     _loadPage();
                   }

@@ -1231,6 +1231,7 @@ class PackingSessionController extends ChangeNotifier {
     if (observation.confirmedCode.isNotEmpty) {
       _candidateCode = '';
       unawaited(_handleConfirmedBarcode(observation.confirmedCode, now));
+      unawaited(_saveTrackingRecord(observation.confirmedCode, now));
     } else if (observation.candidateCode != _candidateCode) {
       _candidateCode = observation.candidateCode;
       notifyListeners();

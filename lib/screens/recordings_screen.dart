@@ -1056,7 +1056,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   }
 
   Future<void> _pickDateFilter() async {
-    // 如果已有筛选，提供清除选项。
     if (_dateFilterStart != null) {
       final bool? clear = await showDialog<bool>(
         context: context,
@@ -1489,13 +1488,12 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               padding: const EdgeInsets.fromLTRB(2, 18, 2, 12),
               child: Row(
                 children: <Widget>[
-                  Expanded(
+                  const Expanded(
                     child: Text(
                       '录像记录',
                       style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Theme.of(context).colorScheme.onSurface,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
@@ -1535,12 +1533,6 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                         ),
                       ),
                     ),
-                ],
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
                   if (_managing && visibleSessions.isNotEmpty)
                     TextButton(
                       onPressed: () => _toggleSelectAll(visibleSessions),
@@ -1725,9 +1717,12 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                 children: <Widget>[
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: _selectedIds.isEmpty ? null : _copySelectedTrackingNumbers,
+                      onPressed:
+                          _selectedIds.isEmpty ? null : _copySelectedTrackingNumbers,
                       icon: const Icon(Icons.copy_rounded),
-                      label: Text(_selectedIds.isEmpty ? '选择要复制的单号' : '复制单号'),
+                      label: Text(
+                        _selectedIds.isEmpty ? '选择要复制的单号' : '复制单号',
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -1735,7 +1730,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                     child: FilledButton.icon(
                       onPressed: _selectedIds.isEmpty ? null : _deleteSelected,
                       icon: const Icon(Icons.delete_outline_rounded),
-                      label: Text(_selectedIds.isEmpty ? '选择要删除的录像' : '删除所选录像'),
+                      label: Text(
+                        _selectedIds.isEmpty ? '选择要删除的录像' : '删除所选录像',
+                      ),
                     ),
                   ),
                 ],

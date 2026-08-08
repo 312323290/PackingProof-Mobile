@@ -8,7 +8,7 @@ import '../models/tracking_record.dart';
 /// 独立于项目原有 recordings.db（recording_sessions），专门保存
 /// 改造后识别出的快递单号记录，支持分页查询与日期筛选。
 class TrackingRecordRepository {
-  TrackingRecordRepository({Database? database}) : _database = database;
+  TrackingRecordRepository({Database? this._database});
 
   static const String databaseName = 'tracking_records.db';
   static const int pageSize = 10;

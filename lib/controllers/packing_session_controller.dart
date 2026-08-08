@@ -1255,7 +1255,9 @@ class PackingSessionController extends ChangeNotifier {
         return;
       }
       // 计算 ML Kit 所需的旋转角度（相机已锁定为竖屏）。
-      final int rotation = _cameraController?.description.sensorOrientation ?? 0;
+      final InputImageRotation rotation = InputImageRotationValue.fromRawValue(
+        _cameraController?.description.sensorOrientation ?? 0,
+      ) ?? InputImageRotation.rotation0deg;
       final List<String> trackingNumbers = await _barcodeReaderService
           .analyzeCameraImage(image, rotation: rotation);
 

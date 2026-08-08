@@ -43,8 +43,8 @@ class BarcodeReaderService {
 
   /// 分析一帧 CameraImage，返回识别到的运单号列表（去重）。
   ///
-  /// [rotation] 为 0/90/180/270，用于矫正 ML Kit 的输入方向。
-  Future<List<String>> analyzeCameraImage(CameraImage image, {int rotation = 0}) {
+  /// [rotation] 为 ML Kit 输入方向矫正。
+  Future<List<String>> analyzeCameraImage(CameraImage image, {InputImageRotation rotation = InputImageRotation.rotation0deg}) {
     if (_analyzing) {
       return Future.value(const <String>[]);
     }
@@ -192,7 +192,7 @@ class BarcodeReaderService {
       bytes: plane.bytes,
       metadata: InputImageMetadata(
         size: cropSize,
-        rotation: 0,
+        rotation: InputImageRotation.rotation0deg,
         format: InputImageFormat.nv21,
         bytesPerRow: plane.bytesPerRow,
       ),
@@ -200,7 +200,7 @@ class BarcodeReaderService {
   }
 
   /// 将 CameraImage 转为 ML Kit 的 InputImage。
-  InputImage _toInputImage(CameraImage image, {int rotation = 0}) {
+  InputImage _toInputImage(CameraImage image, {InputImageRotation rotation = InputImageRotation.rotation0deg}) {
     final Plane plane = image.planes.first;
     return InputImage.fromBytes(
       bytes: plane.bytes,

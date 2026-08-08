@@ -22,10 +22,23 @@ class TrackingRecord {
 
 /// 扫描记录仓库。
 ///
-/// 直接从项目原有 recordings.db 的 recording_sessions 表读取数据，
-/// 不新建独立数据库，避免数据不一致。
+/// 直接从项目原有 recordings.db 的 recording_sessions 表读取数据。
+/// 注意：使用 sqflite.openDatabase（单例），绝不能 close()，
+/// 否则会关闭原有 SessionRepository 正在使用的连接。
 class TrackingRecordRepository {
   static const int pageSize = 10;
+
+  Database? _cachedDb;
+
+  Future<Database> _getDb() async {
+    if (_cachedDb != null) return _cachedDb!;
+    final String dbPath = p.join(
+      (await getApplicationDocumentsDirectory()).path,
+      'recordings.db',
+    );
+    _cachedDb = await openDatabase(dbPath);
+    return _cachedDb!;
+  }
 
   /// 分页查询有 tracking_number 的录像记录，按识别时间倒序。
   ///
@@ -36,22 +49,14 @@ class TrackingRecordRepository {
     DateTime? start,
     DateTime? end,
   }) async {
-    final String dbPath = p.join(
-      (await getApplicationDocumentsDirectory()).path,
-      'recordings.db',
-    );
     Database db;
     try {
-      db = await openDatabase(dbPath);
+      db = await _getDb();
     } on Object {
       return (const <TrackingRecord>[], 0);
     }
     try {
       final List<String> where = <String>["tracking_number != ''"];
-
-      // 排除标记行。
-      where.add("tracking_number != '__IMPORTED_FLAG__'");
-
       final List<Object?> args = <Object?>[];
       if (start != null) {
         where.add('started_at >= ?');
@@ -86,8 +91,8 @@ class TrackingRecordRepository {
         rows.map(TrackingRecord.fromMap).toList(),
         total,
       );
-    } finally {
-      await db.close();
+    } on Object {
+      return (const <TrackingRecord>[], 0);
     }
   }
 }

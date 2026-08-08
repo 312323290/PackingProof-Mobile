@@ -75,8 +75,8 @@ class PackingSessionController extends ChangeNotifier {
        _orderInfoReceiver = orderInfoReceiver ?? OrderInfoReceiverService(),
        _barcodeScanner = BarcodeScanner(
          formats: const <BarcodeFormat>[BarcodeFormat.all],
-       );
-       _barcodeReaderService = BarcodeReaderService();
+       ),
+       _barcodeReaderService = BarcodeReaderService(),
        _trackingRecordRepository = TrackingRecordRepository();
 
   static const Duration analysisInterval = Duration(milliseconds: 200);

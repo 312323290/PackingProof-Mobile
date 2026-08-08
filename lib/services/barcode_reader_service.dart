@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
@@ -58,7 +57,7 @@ class BarcodeReaderService {
       final InputImage inputImage = _toInputImage(image, rotation: rotation);
       return _analyze(inputImage, image);
     } catch (_) {
-      return const <String>[];
+      return Future.value(const <String>[]);
     } finally {
       _analyzing = false;
     }
@@ -181,10 +180,6 @@ class BarcodeReaderService {
     const double scale = 2.0;
     final double roiW = (roi.width * scale).clamp(10, raw.width.toDouble());
     final double roiH = (roi.height * scale).clamp(10, raw.height.toDouble());
-    final double cx = roi.center.dx.clamp(0, raw.width.toDouble());
-    final double cy = roi.center.dy.clamp(0, raw.height.toDouble());
-    final double left = (cx - roiW / 2).clamp(0, raw.width.toDouble() - roiW);
-    final double top = (cy - roiH / 2).clamp(0, raw.height.toDouble() - roiH);
     final Size cropSize = Size(roiW, roiH);
     // 构建带裁剪尺寸的 InputImage（近似放大效果）。
     // 注：真正的 NV21 裁剪需要字节级操作，此处简化处理。

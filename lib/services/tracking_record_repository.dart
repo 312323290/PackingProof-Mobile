@@ -79,7 +79,7 @@ CREATE TABLE tracking_records (
         final String? number = row['tracking_number'] as String?;
         if (number == null || number.isEmpty) continue;
         final int? startedAt = row['started_at'] as int?;
-        final String? filePath = row['file_path'] as String? ?? '';
+        final String filePath = (row['file_path'] as String?) ?? '';
         // 检查是否已存在相同 tracking_number + recognized_at 的记录。
         bool exists = false;
         try {

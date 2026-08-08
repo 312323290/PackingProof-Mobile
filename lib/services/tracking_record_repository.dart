@@ -53,21 +53,13 @@ CREATE TABLE tracking_records (
       },
     );
     _initialized = true;
-    // 从项目原有 recordings.db 导入历史数据（幂等，仅首次运行执行）。
+    // 从项目原有 recordings.db 导入历史数据（幂等，去重）。
     await _importFromRecordingsDb();
   }
 
   /// 从项目原有的 recordings.db 中导入已有的 tracking_number 记录。
   Future<void> _importFromRecordingsDb() async {
     final Database db = _database!;
-    // 检查是否已导入过（用标记避免重复导入）。
-    final List<Map<String, Object?>> marker = await db.query(
-      'tracking_records',
-      limit: 1,
-    );
-    if (marker.isNotEmpty) {
-      return; // 已有数据，跳过导入。
-    }
     // 打开 recordings.db（项目原有数据库）。
     Database? recordingsDb;
     try {
@@ -76,7 +68,6 @@ CREATE TABLE tracking_records (
         'recordings.db',
       );
       recordingsDb = await openDatabase(recordingsDbPath);
-      // 查询有 tracking_number 的有效记录。
       final List<Map<String, Object?>> rows = await recordingsDb.query(
         'recording_sessions',
         columns: const <String>['tracking_number', 'started_at', 'file_path'],
@@ -89,6 +80,21 @@ CREATE TABLE tracking_records (
         if (number == null || number.isEmpty) continue;
         final int? startedAt = row['started_at'] as int?;
         final String? filePath = row['file_path'] as String? ?? '';
+        // 检查是否已存在相同 tracking_number + recognized_at 的记录。
+        bool exists = false;
+        try {
+          final List<Map<String, Object?>> dup = await db.query(
+            'tracking_records',
+            columns: const <String>['id'],
+            where: 'tracking_number = ? AND recognized_at = ?',
+            whereArgs: <Object?>[number, startedAt ?? now.millisecondsSinceEpoch],
+            limit: 1,
+          );
+          exists = dup.isNotEmpty;
+        } on Object {
+          // 查询失败则跳过去重。
+        }
+        if (exists) continue;
         batch.insert(
           'tracking_records',
           {
@@ -101,7 +107,7 @@ CREATE TABLE tracking_records (
       }
       await batch.commit(noResult: true);
     } on Object {
-      // recordings.db 不存在或格式不同时不报错，静默跳过。
+      // recordings.db 不存在或格式不同时不报错。
     } finally {
       if (recordingsDb != null) {
         await recordingsDb.close();

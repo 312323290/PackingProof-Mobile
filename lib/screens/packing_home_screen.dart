@@ -22,7 +22,6 @@ import '../services/session_repository.dart';
 import '../services/speech_prompt_service.dart';
 import '../widgets/order_info_sheet.dart';
 import 'recordings_screen.dart';
-import 'tracking_records_screen.dart';
 
 @visibleForTesting
 bool shouldSuspendPackingSession(AppLifecycleState state) {
@@ -516,7 +515,6 @@ class _PackingHomeScreenState extends State<PackingHomeScreen>
                   onRetryPressed: _controller.retryInitialize,
                 ),
                 _buildRecordingsScreen(RecordingsScreenMode.settings),
-                const TrackingRecordsScreen(),
               ],
             ),
             bottomNavigationBar: _controller.pairingScanActive
@@ -652,11 +650,6 @@ class _PackingBottomNavigation extends StatelessWidget {
           icon: Icon(Icons.settings_outlined),
           selectedIcon: Icon(Icons.settings_rounded),
           label: '设置',
-        ),
-        const NavigationDestination(
-          icon: Icon(Icons.qr_code_rounded),
-          selectedIcon: Icon(Icons.qr_code_rounded),
-          label: '扫描记录',
         ),
       ],
     );

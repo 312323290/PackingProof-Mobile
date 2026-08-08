@@ -254,6 +254,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   final Map<String, Future<String?>> _localThumbnailFutures =
       <String, Future<String?>>{};
   String _query = '';
+  DateTime? _dateFilterStart;
+  DateTime? _dateFilterEnd;
   bool _managing = false;
   int _historyPage = 0;
   int _remoteRequestGeneration = 0;
@@ -266,24 +268,42 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
 
   List<RecordingSession> get _filteredSessions {
     final String query = _query.trim().toLowerCase();
-    if (query.isEmpty) {
-      return _sessions;
+    List<RecordingSession> result = _sessions;
+    if (query.isNotEmpty) {
+      result = result
+          .where((RecordingSession session) {
+            final DateTime value = session.startedAt;
+            final String searchable =
+                '${session.displayCode} '
+                '${value.year}-${_two(value.month)}-${_two(value.day)} '
+                '${value.month}月${value.day}日 '
+                '${_two(value.hour)}:${_two(value.minute)} '
+                '${session.orderInfo?.orderId ?? ''} '
+                '${session.orderInfo?.buyerMessage ?? ''} '
+                '${session.orderInfo?.sellerMemo ?? ''} '
+                '${session.orderInfo?.productInfo ?? ''}';
+            return searchable.toLowerCase().contains(query);
+          })
+          .toList(growable: false);
     }
-    return _sessions
-        .where((RecordingSession session) {
-          final DateTime value = session.startedAt;
-          final String searchable =
-              '${session.displayCode} '
-              '${value.year}-${_two(value.month)}-${_two(value.day)} '
-              '${value.month}月${value.day}日 '
-              '${_two(value.hour)}:${_two(value.minute)} '
-              '${session.orderInfo?.orderId ?? ''} '
-              '${session.orderInfo?.buyerMessage ?? ''} '
-              '${session.orderInfo?.sellerMemo ?? ''} '
-              '${session.orderInfo?.productInfo ?? ''}';
-          return searchable.toLowerCase().contains(query);
-        })
-        .toList(growable: false);
+    if (_dateFilterStart != null) {
+      final int startMs = _dateFilterStart!.millisecondsSinceEpoch;
+      result = result
+          .where((s) => s.startedAt.millisecondsSinceEpoch >= startMs)
+          .toList(growable: false);
+    }
+    if (_dateFilterEnd != null) {
+      final int endMs = DateTime(
+        _dateFilterEnd!.year,
+        _dateFilterEnd!.month,
+        _dateFilterEnd!.day,
+        23, 59, 59, 999,
+      ).millisecondsSinceEpoch;
+      result = result
+          .where((s) => s.startedAt.millisecondsSinceEpoch <= endMs)
+          .toList(growable: false);
+    }
+    return result;
   }
 
   @override
@@ -1035,6 +1055,74 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     });
   }
 
+  Future<void> _pickDateFilter() async {
+    // 如果已有筛选，提供清除选项。
+    if (_dateFilterStart != null) {
+      final bool? clear = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext context) => AlertDialog(
+          title: const Text('日期筛选'),
+          content: Text(
+            '当前筛选：${_dateFilterStart!.year}-${_dateFilterStart!.month.toString().padLeft(2, '0')}-${_dateFilterStart!.day.toString().padLeft(2, '0')}'
+            ' ~ '
+            '${_dateFilterEnd!.year}-${_dateFilterEnd!.month.toString().padLeft(2, '0')}-${_dateFilterEnd!.day.toString().padLeft(2, '0')}',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('修改日期'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('清除筛选'),
+            ),
+          ],
+        ),
+      );
+      if (clear == true) {
+        setState(() {
+          _dateFilterStart = null;
+          _dateFilterEnd = null;
+        });
+        return;
+      }
+    }
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      initialDateRange: _dateFilterStart != null && _dateFilterEnd != null
+          ? DateTimeRange(start: _dateFilterStart!, end: _dateFilterEnd!)
+          : null,
+    );
+    if (picked == null) return;
+    setState(() {
+      _dateFilterStart = picked.start;
+      _dateFilterEnd = picked.end;
+    });
+  }
+
+  Future<void> _copySelectedTrackingNumbers() async {
+    if (_selectedIds.isEmpty) return;
+    final List<String> codes = _filteredSessions
+        .where((s) => _selectedIds.contains(s.id))
+        .map((s) => s.displayCode)
+        .where((c) => c != '未识别面单')
+        .toList();
+    if (codes.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('所选录像没有识别到面单号')),
+      );
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: codes.join('\n')));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已复制 ${codes.length} 个单号')),
+    );
+  }
+
   void _toggleManaging() {
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
@@ -1246,11 +1334,21 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               )
             : const Text('设置'),
         actions: <Widget>[
-          if (historyMode && _sessions.isNotEmpty)
+          if (historyMode && _sessions.isNotEmpty) ...[
+            IconButton(
+              icon: Icon(
+                _dateFilterStart != null
+                    ? Icons.date_range
+                    : Icons.date_range_outlined,
+              ),
+              tooltip: '日期筛选',
+              onPressed: _pickDateFilter,
+            ),
             TextButton(
               onPressed: _toggleManaging,
               child: Text(_managing ? '完成' : '管理'),
             ),
+          ],
         ],
       ),
       body: ListView(
@@ -1391,10 +1489,53 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
               padding: const EdgeInsets.fromLTRB(2, 18, 2, 12),
               child: Row(
                 children: <Widget>[
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       '录像记录',
                       style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  if (_dateFilterStart != null)
+                    GestureDetector(
+                      onTap: _pickDateFilter,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Icon(
+                              Icons.date_range,
+                              size: 14,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onPrimaryContainer,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${_dateFilterStart!.month}/${_dateFilterStart!.day}-${_dateFilterEnd!.month}/${_dateFilterEnd!.day}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onPrimaryContainer,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
                       ),
@@ -1580,10 +1721,24 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
       bottomNavigationBar: _managing
           ? SafeArea(
               minimum: const EdgeInsets.fromLTRB(18, 8, 18, 14),
-              child: FilledButton.icon(
-                onPressed: _selectedIds.isEmpty ? null : _deleteSelected,
-                icon: const Icon(Icons.delete_outline_rounded),
-                label: Text(_selectedIds.isEmpty ? '选择要删除的录像' : '删除所选录像'),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _selectedIds.isEmpty ? null : _copySelectedTrackingNumbers,
+                      icon: const Icon(Icons.copy_rounded),
+                      label: Text(_selectedIds.isEmpty ? '选择要复制的单号' : '复制单号'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _selectedIds.isEmpty ? null : _deleteSelected,
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: Text(_selectedIds.isEmpty ? '选择要删除的录像' : '删除所选录像'),
+                    ),
+                  ),
+                ],
               ),
             )
           : null,
